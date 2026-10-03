@@ -1,0 +1,63 @@
+{
+    "name": "webview-lens",
+    "version": "0.1.0",
+    "description": "Inspect, override and measure the web page inside a native app's Android WebView: DevTools on a fixed localhost URL, local dev server behind the production origin, lab Web Vitals from a real phone and a tiny RUM client/server pair.",
+    "keywords": [
+        "webview",
+        "android",
+        "devtools",
+        "cdp",
+        "chrome-devtools-protocol",
+        "adb",
+        "web-vitals",
+        "rum",
+        "real-user-monitoring"
+    ],
+    "license": "MIT",
+    "type": "module",
+    "sideEffects": false,
+    "bin": {
+        "webview-lens": "./dist/cli.js"
+    },
+    "exports": {
+        ".": {
+            "types": "./dist/node/index.d.ts",
+            "default": "./dist/node/index.js"
+        },
+        "./rum": {
+            "types": "./dist/rum/index.d.ts",
+            "default": "./dist/rum/index.js"
+        },
+        "./rum/server": {
+            "types": "./dist/rum/server.d.ts",
+            "default": "./dist/rum/server.js"
+        },
+        "./package.json": "./package.json"
+    },
+    "files": [
+        "dist",
+        "README.md",
+        "LICENSE"
+    ],
+    "scripts": {
+        "build": "tsc -p tsconfig.build.json",
+        "check": "tsc -p tsconfig.json",
+        "format": "prettier --write .",
+        "format:check": "prettier --check .",
+        "test": "node --test \"test/**/*.test.ts\"",
+        "verify": "npm run format:check && npm run check && npm test",
+        "prepack": "npm run build"
+    },
+    "devDependencies": {
+        "@types/node": "24.19.2",
+        "prettier": "3.9.10",
+        "typescript": "6.0.3"
+    },
+    "devEngines": {
+        "runtime": {
+            "name": "node",
+            "version": ">=24",
+            "onFail": "warn"
+        }
+    }
+}
