@@ -34,7 +34,7 @@ export const rate = (name: MetricName, value: number): Rating => {
     return 'poor';
 };
 
-/** Characters a reported page path may contain: route segments and Next-style `[param]` templates. */
-export const PATH_PATTERN = /^\/[\w\-./[\]]*$/;
+/** Characters a reported page path may contain: route segments, Next `[param]` and router `:param` templates. */
+export const PATH_PATTERN = /^\/[\w\-./[\]:]*$/;
 
 export const MAX_PATH_LENGTH = 200;

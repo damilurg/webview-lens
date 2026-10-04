@@ -19,8 +19,9 @@ import {
 import { listPages, type PagePredicate } from './node/cdp.ts';
 import { waitForPage } from './node/device.ts';
 import { startDevtoolsLink } from './node/devtools-link.ts';
-import { startOverride, type OverrideSession } from './node/override.ts';
+import { startOverride, type OverrideSession, type SsePolicy } from './node/override.ts';
 import { fromGitBashPath } from './node/paths.ts';
+import { isPresetSelection, PRESET_SELECTIONS, resolvePreset } from './node/presets.ts';
 import { ensureServer } from './node/server-process.ts';
 import { formatMetric, measureVitals, toMarkdown } from './node/vitals-lab.ts';
 import { METRIC_NAMES } from './shared/thresholds.ts';
@@ -38,11 +39,18 @@ Common options
   --match <text>    attach to the page whose URL contains text (default: any https page)
 
 dev
-  local-url         local server (http://localhost:3000, env LOCAL_URL)
-  --remote <url>    origin to serve (default: the origin the WebView is on)
-  --cmd <command>   start the local server with this command when it does not answer
-  --ws <prefix>     WebSocket path prefix bridged to the local server, repeatable (/_next/)
-  --link-port <n>   port of the DevTools link (3300, env DEVTOOLS_LINK_PORT)
+  local-url               local server (http://localhost:3000, env LOCAL_URL)
+  --preset <name>         bundler defaults: auto, next, vite, webpack, nuxt, angular, generic (auto)
+  --remote <url>          origin to serve (default: the origin the WebView is on)
+  --remote-base <path>    stand subpath to override (e.g. /shop)
+  --local-base <path>     local server subpath mapped to --remote-base (default: /)
+  --cmd <command>         start the local server with this command when it does not answer
+  --ws <prefix>           WebSocket path prefix bridged to the local server, repeatable
+  --hmr-port <n>          separate local HMR port bridged over CDP, repeatable
+  --quiet <prefix>        path prefix hidden from request logs, repeatable
+  --bypass <prefix>       path prefix passed straight through to the stand, repeatable
+  --sse <fail|continue>   handling of text/event-stream responses (fail)
+  --link-port <n>         port of the DevTools link (3300, env DEVTOOLS_LINK_PORT)
   Enter reloads the page on the phone, Ctrl+C exits.
 
 vitals
@@ -62,8 +70,15 @@ const { values, positionals } = parseArgs({
         port: { type: 'string', default: process.env.DEVTOOLS_PORT ?? '9223' },
         match: { type: 'string' },
         remote: { type: 'string' },
+        'remote-base': { type: 'string' },
+        'local-base': { type: 'string' },
+        preset: { type: 'string', default: 'auto' },
         cmd: { type: 'string' },
         ws: { type: 'string', multiple: true },
+        'hmr-port': { type: 'string', multiple: true },
+        quiet: { type: 'string', multiple: true },
+        bypass: { type: 'string', multiple: true },
+        sse: { type: 'string', default: 'fail' },
         'link-port': { type: 'string', default: process.env.DEVTOOLS_LINK_PORT ?? '3300' },
         runs: { type: 'string', default: '3' },
         cold: { type: 'boolean', default: false },
@@ -108,6 +123,28 @@ const logAdbPath = () => {
 };
 
 async function dev() {
+    if (!isPresetSelection(values.preset)) {
+        throw new Error(
+            `Unknown --preset "${values.preset}". Expected one of: ${PRESET_SELECTIONS.join(', ')}`,
+        );
+    }
+    if (values.sse !== 'fail' && values.sse !== 'continue') {
+        throw new Error(`Unknown --sse "${values.sse}". Expected "fail" or "continue"`);
+    }
+
+    const preset = resolvePreset(values.preset);
+    const ssePolicy: SsePolicy = values.sse;
+    const wsPrefixes = values.ws ?? preset.wsPrefixes;
+    const quietPrefixes = values.quiet ?? preset.quietPrefixes;
+    const hmrPorts = (values['hmr-port'] ?? []).map((p) => {
+        const num = Number(p);
+
+        if (!Number.isInteger(num) || num <= 0 || num > 65535) {
+            throw new Error(`Invalid --hmr-port "${p}"`);
+        }
+
+        return num;
+    });
     const local = (args[0] ?? process.env.LOCAL_URL ?? 'http://localhost:3000').replace(/\/$/, '');
     const server = await ensureServer(local, values.cmd ? { command: values.cmd } : {});
 
@@ -118,6 +155,7 @@ async function dev() {
     }
 
     logAdbPath();
+    console.log(`Preset: ${preset.name} (ws: ${wsPrefixes.join(', ')})`);
 
     const link = startDevtoolsLink({ port: values['link-port'], devtoolsPort: port, isTarget });
     let session: OverrideSession | undefined;
@@ -137,7 +175,17 @@ async function dev() {
                 page,
                 remote,
                 local,
-                ...(values.ws ? { wsPrefixes: values.ws } : {}),
+                ...(values['remote-base']
+                    ? { remoteBase: fromGitBashPath(values['remote-base']) }
+                    : {}),
+                ...(values['local-base']
+                    ? { localBase: fromGitBashPath(values['local-base']) }
+                    : {}),
+                wsPrefixes,
+                quietPrefixes,
+                ...(hmrPorts.length ? { hmrPorts } : {}),
+                ...(values.bypass ? { bypassPrefixes: values.bypass.map(fromGitBashPath) } : {}),
+                ssePolicy,
             });
             console.log(`Override on: ${remote} → ${local}. Enter reloads the page, Ctrl+C exits.`);
             await session.closed;

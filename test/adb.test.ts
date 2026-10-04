@@ -13,6 +13,8 @@ import {
     parsePackagesByPid,
     parseWebViewSockets,
     pickWebViewSocket,
+    removeReversePort,
+    reversePort,
 } from '../src/node/adb.ts';
 import { diagnose } from '../src/node/device.ts';
 import { fromGitBashPath } from '../src/node/paths.ts';
@@ -231,5 +233,14 @@ describe('forwardWebView and diagnose with a fake adb', () => {
         const adb = fakeAdb({ devices: 'List of devices attached\nabc\tdevice\n' });
 
         assert.match(diagnose(9223, adb.run), /setWebContentsDebuggingEnabled/);
+    });
+
+    it('reversePort and removeReversePort manage adb reverse tunnels', () => {
+        const adb = fakeAdb({});
+
+        reversePort(24678, 24678, adb.run);
+        removeReversePort(24678, adb.run);
+
+        assert.deepEqual(adb.calls, ['reverse tcp:24678 tcp:24678', 'reverse --remove tcp:24678']);
     });
 });

@@ -197,3 +197,79 @@ export const createClientLogHandler =
 
         return empty(204);
     };
+
+/** Structural subset of Node's `http.IncomingMessage` so this module stays Edge-runtime safe. */
+export interface NodeIncomingMessage extends AsyncIterable<Uint8Array | string> {
+    method?: string;
+    url?: string;
+    headers: Record<string, string | string[] | undefined>;
+}
+
+/** Structural subset of Node's `http.ServerResponse`. */
+export interface NodeServerResponse {
+    statusCode: number;
+    setHeader(name: string, value: string): unknown;
+    end(chunk?: Uint8Array | string): unknown;
+}
+
+/**
+ * Adapts a Fetch API handler (`createVitalsHandler` / `createClientLogHandler`) to `node:http`,
+ * Express, Connect, or NestJS without any runtime dependencies.
+ */
+export const toNodeHandler =
+    (handler: (request: Request) => Promise<Response>) =>
+    async (req: NodeIncomingMessage, res: NodeServerResponse): Promise<void> => {
+        const method = req.method ?? 'GET';
+        const rawHost = req.headers.host;
+        const host = (Array.isArray(rawHost) ? rawHost[0] : rawHost) ?? 'localhost';
+        const url = new URL(req.url ?? '/', `http://${host}`).toString();
+        const headers = new Headers();
+
+        for (const [name, value] of Object.entries(req.headers)) {
+            if (value === undefined) continue;
+            if (Array.isArray(value)) {
+                for (const item of value) headers.append(name, item);
+            } else {
+                headers.set(name, value);
+            }
+        }
+
+        const init: RequestInit & { duplex?: 'half' } = { method, headers };
+
+        if (method !== 'GET' && method !== 'HEAD') {
+            const iterator = req[Symbol.asyncIterator]();
+            const encoder = new TextEncoder();
+
+            init.body = new ReadableStream<Uint8Array>({
+                async pull(controller) {
+                    const { done, value } = await iterator.next();
+
+                    if (done) {
+                        controller.close();
+
+                        return;
+                    }
+                    controller.enqueue(typeof value === 'string' ? encoder.encode(value) : value);
+                },
+                cancel() {
+                    void iterator.return?.();
+                },
+            });
+            init.duplex = 'half';
+        }
+
+        const response = await handler(new Request(url, init));
+
+        res.statusCode = response.status;
+        response.headers.forEach((value, name) => res.setHeader(name, value));
+
+        if (!response.body) {
+            res.end();
+
+            return;
+        }
+
+        const body = new Uint8Array(await response.arrayBuffer());
+
+        res.end(body);
+    };

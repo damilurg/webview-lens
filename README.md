@@ -42,11 +42,15 @@ Open the WebView screen in the app. The tool attaches to it and reloads it, and 
 is served by your code. The address bar still shows the stand's https origin, so the native bridge,
 cookies on that domain and a `'self'` CSP all keep working.
 
+- `--preset auto|next|vite|webpack|nuxt|angular|generic` picks bundler defaults for WebSocket HMR and quiet request logs (by default `auto` detects from `package.json`).
 - `--remote https://stand.example.com` sets the origin to override. By default it is the origin the WebView is on.
+- `--remote-base /shop` and `--local-base /` map a stand subpath to your local server root (rewriting requests, `Referer`, and `Location` redirects).
 - `--ws /_next/` bridges WebSockets under that prefix to the local server; the option can be repeated.
   CDP `Fetch` does not intercept WebSockets, so the page gets a stub `WebSocket` that relays frames
-  through a CDP binding. The default `/_next/` covers Next.js HMR and the RSC debug channel, without
-  which `next dev` never hydrates. Use `/` for Vite and similar dev servers.
+  through a CDP binding.
+- `--hmr-port 24678` bridges a separate local HMR WebSocket port (common in Vite/Webpack) over CDP, avoiding Mixed Content issues on `https://` WebViews.
+- `--quiet <prefix>` hides noisy asset paths from request logs; `--bypass <prefix>` passes paths straight through to the stand (e.g. live SSE streams).
+- `--sse fail|continue` controls how `text/event-stream` responses from the local server are handled without hanging CDP `Fetch` (default `fail`).
 - `--match text` attaches to the page whose URL contains `text`.
 - Press Enter to reload the page on the phone. Ctrl+C exits and stops a server started with `--cmd`.
 
@@ -92,7 +96,8 @@ captureGlobalErrors(createErrorReporter({ endpoint: '/api/client-log' }));
 In Next.js, use `useReportWebVitals(report)` and create `report` at module scope.
 
 The path sent with each metric is `location.pathname` without the query or hash, limited to route
-characters. To group pages and keep ids out of the data, pass `path: () => '/event/[id]'`.
+characters. To group pages and keep ids out of the data, pass `path: () => '/event/[id]'` or
+`path: () => '/event/:id'`.
 
 ### Server
 
@@ -104,6 +109,14 @@ export const POST = createVitalsHandler({
     onMetric: ({ name, value, rating, path }) =>
         logger.info(`${name} ${rating} ${path}`, { value }),
 });
+```
+
+For `node:http`, Express, Connect, or NestJS, wrap the handler with `toNodeHandler`:
+
+```ts
+import { createVitalsHandler, toNodeHandler } from 'webview-lens/rum/server';
+
+app.post('/api/vitals', toNodeHandler(createVitalsHandler({ onMetric: (m) => logger.info(m) })));
 ```
 
 ```ts

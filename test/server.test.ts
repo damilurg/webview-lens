@@ -5,7 +5,10 @@ import {
     type ClientLogEntry,
     createClientLogHandler,
     createVitalsHandler,
+    type NodeIncomingMessage,
+    type NodeServerResponse,
     readLimitedText,
+    toNodeHandler,
     type VitalMetric,
 } from '../src/rum/server.ts';
 
@@ -118,5 +121,82 @@ describe('readLimitedText', () => {
 
     it('returns the text within the limit', async () => {
         assert.equal(await readLimitedText(post('hello'), 10), 'hello');
+    });
+});
+
+describe('toNodeHandler', () => {
+    const invoke = async (
+        handler: (req: NodeIncomingMessage, res: NodeServerResponse) => Promise<void>,
+        method: string,
+        url: string,
+        headers: Record<string, string | string[] | undefined> = {},
+        chunks: string[] = [],
+    ) => {
+        const resHeaders = new Map<string, string>();
+        let statusCode = 200;
+        const req: NodeIncomingMessage = {
+            method,
+            url,
+            headers: { host: 'app.example.test', ...headers },
+            async *[Symbol.asyncIterator]() {
+                for (const chunk of chunks) yield Buffer.from(chunk);
+            },
+        };
+        const res: NodeServerResponse = {
+            get statusCode() {
+                return statusCode;
+            },
+            set statusCode(code: number) {
+                statusCode = code;
+            },
+            setHeader: (name, value) => resHeaders.set(name.toLowerCase(), value),
+            end: () => undefined,
+        };
+
+        await handler(req, res);
+
+        return { statusCode, headers: resHeaders };
+    };
+
+    it('adapts Fetch handlers for node:http / Express with 405, 204 and streaming 413', async () => {
+        const logs: ClientLogEntry[] = [];
+        const handler = toNodeHandler(
+            createClientLogHandler({
+                onLog: (entry) => void logs.push(entry),
+                maxBytes: 128,
+            }),
+        );
+
+        const getRes = await invoke(handler, 'GET', '/api/client-log');
+
+        assert.equal(getRes.statusCode, 405);
+
+        const okRes = await invoke(
+            handler,
+            'POST',
+            '/api/client-log',
+            { 'content-type': 'application/json', 'user-agent': 'TestUA' },
+            [JSON.stringify({ message: 'boom', path: '/item/:id' })],
+        );
+
+        assert.equal(okRes.statusCode, 204);
+        assert.deepEqual(logs, [
+            {
+                message: 'boom',
+                fields: { path: '/item/:id' },
+                userAgent: 'TestUA',
+                referer: null,
+            },
+        ]);
+
+        const bigRes = await invoke(
+            handler,
+            'POST',
+            '/api/client-log',
+            { 'content-type': 'application/json' },
+            ['{"message":"', 'x'.repeat(256), '"}'],
+        );
+
+        assert.equal(bigRes.statusCode, 413);
     });
 });

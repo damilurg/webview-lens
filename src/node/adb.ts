@@ -189,6 +189,20 @@ export const forwardWebView = (port: string | number, run: AdbRunner = runAdb): 
     return socket;
 };
 
+/** Exposes a local TCP port on the phone via `adb reverse` (useful for separate HMR ports). */
+export const reversePort = (
+    remotePort: string | number,
+    localPort: string | number = remotePort,
+    run: AdbRunner = runAdb,
+): void => {
+    run(['reverse', `tcp:${remotePort}`, `tcp:${localPort}`]);
+};
+
+/** Removes a previously created `adb reverse` rule for the given port. */
+export const removeReversePort = (remotePort: string | number, run: AdbRunner = runAdb): void => {
+    run(['reverse', '--remove', `tcp:${remotePort}`]);
+};
+
 /**
  * What blocks work with the phone, from `adb devices`: a hint for a person, or null when a phone is
  * connected and allowed debugging.

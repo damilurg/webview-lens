@@ -67,7 +67,7 @@ export const beaconTransport: Transport = (endpoint, body) => {
  */
 export const sanitizePath = (pathname: string): string => {
     const bare = pathname.split(/[?#]/)[0] ?? '';
-    const safe = bare.replace(/[^\w\-./[\]]/g, '_').slice(0, MAX_PATH_LENGTH);
+    const safe = bare.replace(/[^\w\-./[\]:]/g, '_').slice(0, MAX_PATH_LENGTH);
 
     return safe.startsWith('/') ? safe : `/${safe}`.slice(0, MAX_PATH_LENGTH);
 };

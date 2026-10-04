@@ -24,8 +24,9 @@ describe('sanitizePath', () => {
         assert.equal(sanitizePath('/search?q=secret#top'), '/search');
     });
 
-    it('replaces foreign characters and keeps route templates', () => {
+    it('replaces foreign characters and keeps route templates ([id] and :id)', () => {
         assert.equal(sanitizePath('/event/[id]/a b<script>'), '/event/[id]/a_b_script_');
+        assert.equal(sanitizePath('/event/:id/comments/:cid'), '/event/:id/comments/:cid');
     });
 
     it('bounds the length and keeps the leading slash', () => {
@@ -33,10 +34,12 @@ describe('sanitizePath', () => {
         assert.ok(sanitizePath('relative').startsWith('/'));
     });
 
-    it('its output passes the server check', () => {
-        const metric = { name: 'LCP', value: 1, rating: 'good', path: sanitizePath('/a b?c=d') };
+    it('its output passes the server check for both [id] and :id templates', () => {
+        for (const raw of ['/a b?c=d', '/event/:id?tab=1', '/event/[id]']) {
+            const metric = { name: 'LCP', value: 1, rating: 'good', path: sanitizePath(raw) };
 
-        assert.ok(parseVital(metric));
+            assert.ok(parseVital(metric), `Expected valid metric for ${raw}`);
+        }
     });
 });
 

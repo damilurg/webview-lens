@@ -11,7 +11,9 @@ export {
     parsePackagesByPid,
     parseWebViewSockets,
     pickWebViewSocket,
+    removeReversePort,
     resolveAdb,
+    reversePort,
     runAdb,
 } from './adb.ts';
 export {
@@ -34,13 +36,31 @@ export {
 } from './devtools-link.ts';
 export {
     bridgeShim,
+    createUrlMapper,
+    isEventStream,
+    normalizeBasePath,
     type OverrideLogger,
     type OverrideOptions,
     type OverrideSession,
+    resolveHmrTarget,
+    type SsePolicy,
     startOverride,
     toLocalHeaders,
+    type UrlMapper,
+    type UrlMapperOptions,
 } from './override.ts';
 export { fromGitBashPath } from './paths.ts';
+export {
+    detectPreset,
+    detectPresetFromDependencies,
+    type FrameworkPreset,
+    isPresetSelection,
+    PRESET_SELECTIONS,
+    PRESETS,
+    type PresetName,
+    type PresetSelection,
+    resolvePreset,
+} from './presets.ts';
 export {
     ensureServer,
     type EnsureServerOptions,

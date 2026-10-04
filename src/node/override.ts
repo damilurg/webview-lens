@@ -5,11 +5,11 @@
 // DevTools Protocol (Fetch domain) and fulfilled from the local server. The native bridge stays real,
 // cookies land on the stand's domain, and a `'self'` CSP still matches.
 //
-// Fetch does not intercept WebSockets. Sockets under the bridged prefixes (Next.js dev: HMR and the
-// RSC debug channel, without which the dev client never hydrates) go through a stub WebSocket in the
-// page and a CDP binding: page → binding → this process → local server, and back via Runtime.evaluate.
+// Fetch does not intercept WebSockets. Sockets under the bridged prefixes (or configured separate
+// HMR ports) go through a stub WebSocket in the page and a CDP binding:
+// page → binding → this process → local server, and back via Runtime.evaluate.
 
-import { connectCdp, type DevtoolsPage } from './cdp.ts';
+import { type Cdp, connectCdp, type DevtoolsPage } from './cdp.ts';
 
 /** Headers fetch computes itself, or that must not reach the WebView as they are. */
 const DROP_RESPONSE = new Set([
@@ -61,9 +61,32 @@ const NodeWebSocket = WebSocket as unknown as new (
     init?: { headers?: Record<string, string> },
 ) => WebSocket;
 
+export type SsePolicy = 'fail' | 'continue';
+
 export interface OverrideLogger {
     request(line: string): void;
     error(line: string): void;
+}
+
+export interface UrlMapperOptions {
+    remote: string;
+    local: string;
+    remoteBase?: string;
+    localBase?: string;
+}
+
+export interface UrlMapper {
+    readonly remoteOrigin: string;
+    readonly localOrigin: string;
+    readonly remoteBase: string;
+    readonly localBase: string;
+    readonly remotePrefix: string;
+    readonly localPrefix: string;
+    readonly entryUrl: string;
+    readonly fetchPatterns: readonly { urlPattern: string; requestStage: 'Request' }[];
+    matchesRemote(url: string): boolean;
+    toLocal(url: string): string;
+    toRemote(url: string): string;
 }
 
 export interface OverrideOptions {
@@ -72,10 +95,24 @@ export interface OverrideOptions {
     remote: string;
     /** Local server, such as http://localhost:3000. */
     local: string;
+    /** Optional base path on the stand (e.g. `/shop`) mapped to `localBase`. */
+    remoteBase?: string;
+    /** Optional base path on the local server (default: `/`). */
+    localBase?: string;
     /** WebSocket path prefixes bridged to the local server. Default: Next.js `/_next/`. */
     wsPrefixes?: readonly string[];
+    /** Extra local HMR ports bridged over CDP (solves separate-port Vite/Webpack HMR & Mixed Content). */
+    hmrPorts?: readonly number[];
     /** Paths not logged per request. Default: Next.js static and dev overlay files. */
     quietPrefixes?: readonly string[];
+    /** Paths bypassed directly to the stand via `Fetch.continueRequest` (e.g. live SSE streams). */
+    bypassPrefixes?: readonly string[];
+    /** What to do when the local server responds with `text/event-stream`. Default: `'fail'`. */
+    ssePolicy?: SsePolicy;
+    /** Custom CDP connector (for testing or custom transports). */
+    connect?: (webSocketDebuggerUrl: string) => Promise<Cdp>;
+    /** Custom fetch implementation (for testing or custom transports). */
+    fetchImpl?: typeof fetch;
     logger?: OverrideLogger;
 }
 
@@ -86,10 +123,113 @@ export interface OverrideSession {
     closed: Promise<void>;
 }
 
-/** Page script replacing WebSocket for URLs under the bridged prefixes. */
-export const bridgeShim = (remote: string, wsPrefixes: readonly string[]): string => `(() => {
+/** Normalizes a URL base path: `""` or `"/"` → `""`, `"shop/"` → `"/shop"`. */
+export const normalizeBasePath = (base = ''): string => {
+    const trimmed = base.trim().replace(/\/+$/, '');
+
+    if (!trimmed || trimmed === '/') return '';
+
+    return trimmed.startsWith('/') ? trimmed : `/${trimmed}`;
+};
+
+const hasBoundary = (value: string, prefix: string): boolean => {
+    if (!value.startsWith(prefix)) return false;
+
+    const next = value[prefix.length];
+
+    return next === undefined || next === '/' || next === '?' || next === '#';
+};
+
+const joinWithBoundary = (prefix: string, rest: string, hasBase: boolean): string => {
+    if (rest === '' || rest.startsWith('?') || rest.startsWith('#')) {
+        return prefix + (hasBase ? rest : `/${rest}`);
+    }
+
+    return prefix + rest;
+};
+
+/** Maps URLs and redirect Locations between remote (+ optional subpath) and local (+ optional subpath). */
+export const createUrlMapper = ({
+    remote,
+    local,
+    remoteBase = '',
+    localBase = '',
+}: UrlMapperOptions): UrlMapper => {
+    const remoteOrigin = remote.replace(/\/+$/, '');
+    const localOrigin = local.replace(/\/+$/, '');
+    const rBase = normalizeBasePath(remoteBase);
+    const lBase = normalizeBasePath(localBase);
+    const remotePrefix = remoteOrigin + rBase;
+    const localPrefix = localOrigin + lBase;
+
+    const matchesRemote = (url: string): boolean => hasBoundary(url, remotePrefix);
+
+    const toLocal = (url: string): string => {
+        if (!matchesRemote(url)) return url;
+
+        return joinWithBoundary(localPrefix, url.slice(remotePrefix.length), Boolean(lBase));
+    };
+
+    const toRemote = (url: string): string => {
+        if (hasBoundary(url, localPrefix)) {
+            return joinWithBoundary(remotePrefix, url.slice(localPrefix.length), Boolean(rBase));
+        }
+        if (rBase !== lBase && url.startsWith('/') && !url.startsWith('//')) {
+            if (!lBase) return rBase + url;
+            if (hasBoundary(url, lBase)) {
+                const rest = url.slice(lBase.length);
+
+                return rBase + rest || '/';
+            }
+        }
+
+        return url;
+    };
+
+    const fetchPatterns: { urlPattern: string; requestStage: 'Request' }[] = rBase
+        ? [
+              { urlPattern: remotePrefix, requestStage: 'Request' },
+              { urlPattern: `${remotePrefix}/*`, requestStage: 'Request' },
+          ]
+        : [{ urlPattern: `${remoteOrigin}/*`, requestStage: 'Request' }];
+
+    return {
+        remoteOrigin,
+        localOrigin,
+        remoteBase: rBase,
+        localBase: lBase,
+        remotePrefix,
+        localPrefix,
+        entryUrl: rBase ? `${remotePrefix}/` : `${remoteOrigin}/`,
+        fetchPatterns,
+        matchesRemote,
+        toLocal,
+        toRemote,
+    };
+};
+
+/** Whether a Content-Type header denotes an infinite Server-Sent Events stream. */
+export const isEventStream = (contentType: string | null | undefined): boolean =>
+    Boolean(contentType && /^text\/event-stream\b/i.test(contentType.trim()));
+
+/** Page script replacing WebSocket for URLs under the bridged prefixes and separate HMR ports. */
+export const bridgeShim = (
+    remote: string,
+    wsPrefixes: readonly string[],
+    hmrPorts: readonly number[] = [],
+): string => {
+    const wsRemote = remote.replace(/\/+$/, '').replace(/^http/, 'ws');
+    const hmrPrefixes = hmrPorts.flatMap((port) => [
+        `ws://localhost:${port}`,
+        `wss://localhost:${port}`,
+        `ws://127.0.0.1:${port}`,
+        `wss://127.0.0.1:${port}`,
+    ]);
+    const prefixes = [...wsPrefixes.map((prefix) => wsRemote + prefix), ...hmrPrefixes];
+
+    return `(() => {
     const Native = window.WebSocket;
-    const prefixes = ${JSON.stringify(wsPrefixes.map((prefix) => remote.replace(/^http/, 'ws') + prefix))};
+    const prefixes = ${JSON.stringify(prefixes)};
     const open = new Map();
     let next = 0;
     const b64 = (buf) => { let s = ''; for (const b of new Uint8Array(buf)) s += String.fromCharCode(b); return btoa(s); };
@@ -132,6 +272,7 @@ export const bridgeShim = (remote: string, wsPrefixes: readonly string[]): strin
         construct(target, args) { const url = String(args[0]); return prefixes.some((p) => url.startsWith(p)) ? new Bridged(args[0]) : new target(...args); },
     });
 })();`;
+};
 
 /** Request headers for the local server: cookies of the stand's domain, Origin and Referer rewritten. */
 export const toLocalHeaders = (
@@ -152,22 +293,63 @@ export const toLocalHeaders = (
     return result;
 };
 
+export const resolveHmrTarget = (
+    url: string,
+    hmrPorts: readonly number[],
+): { wsUrl: string; origin: string } | null => {
+    if (hmrPorts.length === 0) return null;
+    try {
+        const parsed = new URL(url);
+        const port = Number(parsed.port);
+
+        if (
+            (parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1') &&
+            hmrPorts.includes(port)
+        ) {
+            return {
+                wsUrl: `ws://${parsed.host}${parsed.pathname}${parsed.search}`,
+                origin: `http://${parsed.host}`,
+            };
+        }
+    } catch {
+        return null;
+    }
+
+    return null;
+};
+
 export const startOverride = async ({
     page,
     remote,
     local,
+    remoteBase = '',
+    localBase = '',
     wsPrefixes = ['/_next/'],
+    hmrPorts = [],
     quietPrefixes = ['/_next/static', '/__nextjs'],
+    bypassPrefixes = [],
+    ssePolicy = 'fail',
+    connect = connectCdp,
+    fetchImpl = fetch,
     logger = { request: console.log, error: console.error },
 }: OverrideOptions): Promise<OverrideSession> => {
-    const cdp = await connectCdp(page.webSocketDebuggerUrl);
-    const toLocal = (url: string) => local + url.slice(remote.length);
-    const toRemote = (url: string) =>
-        url.startsWith(local) ? remote + url.slice(local.length) : url;
+    const cdp = await connect(page.webSocketDebuggerUrl);
+    const mapper = createUrlMapper({ remote, local, remoteBase, localBase });
     let isLocalDownReported = false;
 
     const handle = async ({ requestId, request }: PausedRequest) => {
-        const url = toLocal(request.url);
+        const remotePath = new URL(request.url).pathname;
+
+        if (
+            !mapper.matchesRemote(request.url) ||
+            bypassPrefixes.some((prefix) => remotePath.startsWith(prefix))
+        ) {
+            await cdp.send('Fetch.continueRequest', { requestId }).catch(() => undefined);
+
+            return;
+        }
+
+        const url = mapper.toLocal(request.url);
 
         try {
             const { cookies } = await cdp.send<{ cookies: { name: string; value: string }[] }>(
@@ -179,19 +361,41 @@ export const startOverride = async ({
                       request.postDataEntries.map((e) => Buffer.from(e.bytes ?? '', 'base64')),
                   )
                 : request.postData;
-            const response = await fetch(url, {
+            const response = await fetchImpl(url, {
                 method: request.method,
-                headers: toLocalHeaders(request.headers, cookies, local, toLocal),
+                headers: toLocalHeaders(
+                    request.headers,
+                    cookies,
+                    mapper.localOrigin,
+                    mapper.toLocal,
+                ),
                 body: body === undefined || typeof body === 'string' ? body : new Uint8Array(body),
                 redirect: 'manual',
             });
+
+            if (isEventStream(response.headers.get('content-type'))) {
+                await response.body?.cancel().catch(() => undefined);
+                logger.error(
+                    `SSE stream (text/event-stream) cannot be buffered by CDP Fetch: ${request.method} ${remotePath}. Use WebSocket HMR or --bypass ${remotePath}`,
+                );
+                if (ssePolicy === 'continue') {
+                    await cdp.send('Fetch.continueRequest', { requestId }).catch(() => undefined);
+                } else {
+                    await cdp
+                        .send('Fetch.failRequest', { requestId, errorReason: 'Aborted' })
+                        .catch(() => undefined);
+                }
+
+                return;
+            }
+
             const responseHeaders: { name: string; value: string }[] = [];
 
             response.headers.forEach((value, name) => {
                 if (DROP_RESPONSE.has(name)) return;
                 responseHeaders.push({
                     name,
-                    value: name === 'location' ? toRemote(value) : value,
+                    value: name === 'location' ? mapper.toRemote(value) : value,
                 });
             });
             for (const cookie of response.headers.getSetCookie()) {
@@ -207,10 +411,10 @@ export const startOverride = async ({
                 body: buffer.toString('base64'),
             });
 
-            const path = new URL(url).pathname;
+            const localPath = new URL(url).pathname;
 
-            if (!quietPrefixes.some((prefix) => path.startsWith(prefix))) {
-                logger.request(`${response.status} ${request.method} ${path}`);
+            if (!quietPrefixes.some((prefix) => localPath.startsWith(prefix))) {
+                logger.request(`${response.status} ${request.method} ${localPath}`);
             }
             isLocalDownReported = false;
         } catch (error) {
@@ -223,7 +427,7 @@ export const startOverride = async ({
                 logger.error(`FAIL ${request.method} ${url}: ${code}`);
             } else if (!isLocalDownReported) {
                 isLocalDownReported = true;
-                logger.error(`Local server ${local} does not respond`);
+                logger.error(`Local server ${mapper.localOrigin} does not respond`);
             }
             await cdp
                 .send('Fetch.failRequest', { requestId, errorReason: 'ConnectionRefused' })
@@ -245,8 +449,11 @@ export const startOverride = async ({
         const { sid, type, url, data = '', binary = false }: BridgeMessage = JSON.parse(payload);
 
         if (type === 'open' && url) {
-            const socket = new NodeWebSocket(toLocal(url).replace(/^http/, 'ws'), {
-                headers: { origin: local },
+            const hmr = resolveHmrTarget(url, hmrPorts);
+            const targetUrl = hmr ? hmr.wsUrl : mapper.toLocal(url).replace(/^http/, 'ws');
+            const targetOrigin = hmr ? hmr.origin : mapper.localOrigin;
+            const socket = new NodeWebSocket(targetUrl, {
+                headers: { origin: targetOrigin },
             });
 
             socket.binaryType = 'arraybuffer';
@@ -278,7 +485,7 @@ export const startOverride = async ({
     cdp.on<PausedRequest>('Fetch.requestPaused', (params) => void handle(params));
     cdp.on<BindingCall>('Runtime.bindingCalled', onBinding);
 
-    const shim = bridgeShim(remote, wsPrefixes);
+    const shim = bridgeShim(mapper.remoteOrigin, wsPrefixes, hmrPorts);
 
     await cdp.send('Page.enable');
     await cdp.send('Network.enable');
@@ -298,15 +505,15 @@ export const startOverride = async ({
     }
 
     await cdp.send('Fetch.enable', {
-        patterns: [{ urlPattern: `${remote}/*`, requestStage: 'Request' }],
+        patterns: [...mapper.fetchPatterns],
     });
 
     const reload = async () => {
         await cdp.send('Page.reload', { ignoreCache: true });
     };
 
-    if (page.url.startsWith(remote)) await reload();
-    else await cdp.send('Page.navigate', { url: `${remote}/` });
+    if (mapper.matchesRemote(page.url)) await reload();
+    else await cdp.send('Page.navigate', { url: mapper.entryUrl });
 
     void cdp.closed.then(() => {
         for (const socket of sockets.values()) socket.close();
