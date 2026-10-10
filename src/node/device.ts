@@ -3,6 +3,7 @@
 import {
     AdbNotFoundError,
     type AdbRunner,
+    createAdbRunner,
     describeDevices,
     forwardWebView,
     isKeyguardShowing,
@@ -17,10 +18,23 @@ const firstLine = (error: unknown) =>
 
 export const isAnyPage: PagePredicate = (page) => page.type === 'page';
 
+export interface DiagnoseOptions {
+    /** Target a specific device serial when multiple phones are connected. */
+    serial?: string;
+    /** Pin WebView socket selection to a specific Android package name. */
+    app?: string;
+}
+
 /** Why there is no page yet: one line with what to do. Also refreshes the port forward. */
-export const diagnose = (port: string | number, run: AdbRunner = runAdb): string => {
+export const diagnose = (
+    port: string | number,
+    run: AdbRunner = runAdb,
+    options: DiagnoseOptions = {},
+): string => {
+    const deviceRun = createAdbRunner(options.serial, run);
+
     try {
-        const devicesProblem = describeDevices(run(['devices']));
+        const devicesProblem = describeDevices(run(['devices']), options.serial);
 
         if (devicesProblem) return devicesProblem;
     } catch (error) {
@@ -34,18 +48,23 @@ export const diagnose = (port: string | number, run: AdbRunner = runAdb): string
         ].join('\n');
     }
 
-    if (isKeyguardShowing(run(['shell', 'dumpsys', 'window']))) {
+    if (isKeyguardShowing(deviceRun(['shell', 'dumpsys', 'window']))) {
         return 'The phone screen is locked: unlock it, a locked WebView does not render';
     }
 
-    const socket = forwardWebView(port, run);
+    const socket = forwardWebView(port, deviceRun, options.app ? { app: options.app } : {});
 
-    return socket
-        ? `Port ${port} → ${socket}. Waiting for the page: open the WebView screen in the app`
-        : 'No debuggable WebView: open the WebView screen in the app (its build must call WebView.setWebContentsDebuggingEnabled(true))';
+    if (socket) {
+        return `Port ${port} → ${socket}. Waiting for the page: open the WebView screen in the app`;
+    }
+    if (options.app) {
+        return `No debuggable WebView for app "${options.app}": open its WebView screen (must call WebView.setWebContentsDebuggingEnabled(true))`;
+    }
+
+    return 'No debuggable WebView: open the WebView screen in the app (its build must call WebView.setWebContentsDebuggingEnabled(true))';
 };
 
-export interface WaitForPageOptions {
+export interface WaitForPageOptions extends DiagnoseOptions {
     log?: (line: string) => void;
     intervalMs?: number;
     run?: AdbRunner;
@@ -59,14 +78,26 @@ export interface WaitForPageOptions {
 export const waitForPage = async (
     port: string | number,
     predicate: PagePredicate = isAnyPage,
-    { log = console.log, intervalMs = 2000, run = runAdb, signal }: WaitForPageOptions = {},
+    {
+        log = console.log,
+        intervalMs = 2000,
+        run = runAdb,
+        serial,
+        app,
+        signal,
+    }: WaitForPageOptions = {},
 ): Promise<DevtoolsPage> => {
     let lastHint = '';
+    const deviceRun = createAdbRunner(serial, run);
+    const targetOptions: DiagnoseOptions = {
+        ...(serial ? { serial } : {}),
+        ...(app ? { app } : {}),
+    };
 
     // The app on screen first: the port may still point at another app's WebView, whose page
     // would be found before the right one.
     try {
-        forwardWebView(port, run);
+        forwardWebView(port, deviceRun, app ? { app } : {});
     } catch {
         // adb unavailable: diagnose below says so.
     }
@@ -81,7 +112,7 @@ export const waitForPage = async (
         let hint: string;
 
         try {
-            hint = diagnose(port, run);
+            hint = diagnose(port, run, targetOptions);
         } catch (error) {
             hint = `adb: ${firstLine(error)}`;
         }

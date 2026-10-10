@@ -51,6 +51,8 @@ cookies on that domain and a `'self'` CSP all keep working.
 - `--hmr-port 24678` bridges a separate local HMR WebSocket port (common in Vite/Webpack) over CDP, avoiding Mixed Content issues on `https://` WebViews.
 - `--quiet <prefix>` hides noisy asset paths from request logs; `--bypass <prefix>` passes paths straight through to the stand (e.g. live SSE streams).
 - `--sse fail|continue` controls how `text/event-stream` responses from the local server are handled without hanging CDP `Fetch` (default `fail`).
+- `--logs` streams `console.*`, uncaught exceptions, and 4xx/5xx or failed network requests from the phone right into your terminal (works in `dev` and `devtools`).
+- `--serial <id>` (or `ANDROID_SERIAL`) picks a specific phone when multiple devices are connected; `--app <package>` pins WebView discovery to a specific Android package.
 - `--match text` attaches to the page whose URL contains `text`.
 - Press Enter to reload the page on the phone. Ctrl+C exits and stops a server started with `--cmd`.
 

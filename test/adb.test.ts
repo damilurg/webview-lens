@@ -5,10 +5,12 @@ import path from 'node:path';
 import { describe, it } from 'node:test';
 
 import {
+    createAdbRunner,
     describeDevices,
     findAdb,
     forwardWebView,
     isKeyguardShowing,
+    parseDevices,
     parseFocusedPackage,
     parsePackagesByPid,
     parseWebViewSockets,
@@ -40,6 +42,32 @@ describe('describeDevices', () => {
 
     it('another state (offline) is named as it is', () => {
         assert.match(describeDevices('List of devices attached\nabc\toffline\n') ?? '', /offline/);
+    });
+
+    it('multiple online devices without serial: asks to pass --serial', () => {
+        const output = 'List of devices attached\ndev1\tdevice\ndev2\tdevice\n';
+
+        assert.deepEqual(parseDevices(output), [
+            { serial: 'dev1', state: 'device' },
+            { serial: 'dev2', state: 'device' },
+        ]);
+        assert.match(describeDevices(output) ?? '', /--serial/);
+        assert.equal(describeDevices(output, 'dev2'), null);
+        assert.match(describeDevices(output, 'missing') ?? '', /missing/);
+    });
+
+    it('createAdbRunner prefixes device commands with -s <serial> except adb devices', () => {
+        const seen: string[][] = [];
+        const runner = createAdbRunner('dev2', (args) => {
+            seen.push(args);
+
+            return '';
+        });
+
+        runner(['devices']);
+        runner(['shell', 'dumpsys', 'window']);
+
+        assert.deepEqual(seen, [['devices'], ['-s', 'dev2', 'shell', 'dumpsys', 'window']]);
     });
 });
 

@@ -127,6 +127,29 @@ export type AdbRunner = (args: string[]) => string;
 export const runAdb: AdbRunner = (args) =>
     execFileSync(resolveAdb(), args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
 
+/** Wraps an AdbRunner to target a specific device via `-s <serial>` (except global `adb devices`). */
+export const createAdbRunner = (serial?: string, baseRun: AdbRunner = runAdb): AdbRunner => {
+    if (!serial) return baseRun;
+
+    return (args) => (args[0] === 'devices' ? baseRun(args) : baseRun(['-s', serial, ...args]));
+};
+
+export interface AdbDevice {
+    serial: string;
+    state: string;
+}
+
+/** Connected devices from `adb devices`. */
+export const parseDevices = (output: string): AdbDevice[] =>
+    output
+        .split(/\r?\n/)
+        .slice(1)
+        .flatMap((line) => {
+            const [serial, state] = line.trim().split(/\s+/);
+
+            return serial && state ? [{ serial, state }] : [];
+        });
+
 /**
  * Package of the app on screen, from `dumpsys window`: the focused app (mFocusedApp), which the
  * notification shade and system windows do not override; otherwise the focused window (mCurrentFocus).
@@ -151,35 +174,51 @@ export const parseWebViewSockets = (unixOutput: string): string[] => [
 ];
 
 /**
- * The socket to attach to: the WebView of the app on screen (a debug and a release build can both
- * hold a WebView), otherwise the newest process.
+ * The socket to attach to: an explicitly pinned `preferredPackage` (if given), otherwise the WebView
+ * of the app on screen (a debug and a release build can both hold a WebView), otherwise the newest process.
  */
 export const pickWebViewSocket = (
     socketNames: readonly string[],
     focusedPackage: string | undefined,
     packagesByPid: ReadonlyMap<number, string>,
+    preferredPackage?: string,
 ): string | undefined => {
     const sockets = [...new Set(socketNames)]
         .map((name) => ({ name, pid: Number(name.split('_').at(-1)) }))
         .sort((a, b) => b.pid - a.pid);
+
+    if (preferredPackage) {
+        return sockets.find(({ pid }) => packagesByPid.get(pid) === preferredPackage)?.name;
+    }
+
     const onScreen = sockets.find(({ pid }) => packagesByPid.get(pid) === focusedPackage);
 
     return (onScreen ?? sockets[0])?.name;
 };
 
+export interface ForwardWebViewOptions {
+    /** Pin discovery to a specific Android package name (e.g. `com.example.app.debug`). */
+    app?: string;
+}
+
 /**
- * Forwards `localhost:port` to the DevTools socket of the WebView on screen.
- * Returns the socket name, or null when no WebView with debugging enabled is running.
+ * Forwards `localhost:port` to the DevTools socket of the WebView on screen (or the pinned `app`).
+ * Returns the socket name, or null when no matching WebView with debugging enabled is running.
  */
-export const forwardWebView = (port: string | number, run: AdbRunner = runAdb): string | null => {
+export const forwardWebView = (
+    port: string | number,
+    run: AdbRunner = runAdb,
+    options: ForwardWebViewOptions = {},
+): string | null => {
     const sockets = parseWebViewSockets(run(['shell', 'cat', '/proc/net/unix']));
 
     if (sockets.length === 0) return null;
 
     const socket = pickWebViewSocket(
         sockets,
-        parseFocusedPackage(run(['shell', 'dumpsys', 'window'])),
+        options.app ? undefined : parseFocusedPackage(run(['shell', 'dumpsys', 'window'])),
         parsePackagesByPid(run(['shell', 'ps', '-A', '-o', 'PID,NAME'])),
+        options.app,
     );
 
     if (!socket) return null;
@@ -204,25 +243,41 @@ export const removeReversePort = (remotePort: string | number, run: AdbRunner = 
 };
 
 /**
- * What blocks work with the phone, from `adb devices`: a hint for a person, or null when a phone is
- * connected and allowed debugging.
+ * What blocks work with the phone, from `adb devices`: a hint for a person, or null when the
+ * target phone is connected and allowed debugging.
  */
-export const describeDevices = (output: string): string | null => {
-    const states = output
-        .split(/\r?\n/)
-        .slice(1)
-        .map((line) => line.trim().split(/\s+/)[1])
-        .filter((state): state is string => Boolean(state));
+export const describeDevices = (output: string, serial?: string): string | null => {
+    const devices = parseDevices(output);
 
-    if (states.includes('device')) return null;
-    if (states.length === 0) {
+    if (devices.length === 0) {
         return 'No phone found: connect it over USB and turn on USB debugging (Settings → Developer options)';
     }
-    if (states.includes('unauthorized')) {
+
+    if (serial) {
+        const match = devices.find((device) => device.serial === serial);
+
+        if (!match) {
+            return `Phone "${serial}" not found (connected: ${devices.map((d) => d.serial).join(', ')})`;
+        }
+        if (match.state === 'device') return null;
+        if (match.state === 'unauthorized') {
+            return `Phone "${serial}" has not allowed debugging: confirm "Allow USB debugging" on its screen`;
+        }
+
+        return `Phone "${serial}" is "${match.state}": reconnect the cable`;
+    }
+
+    const online = devices.filter((device) => device.state === 'device');
+
+    if (online.length === 1) return null;
+    if (online.length > 1) {
+        return `Multiple phones connected (${online.map((d) => d.serial).join(', ')}): pass --serial <id>`;
+    }
+    if (devices.some((device) => device.state === 'unauthorized')) {
         return 'The phone has not allowed debugging: confirm "Allow USB debugging" on its screen';
     }
 
-    return `The phone is "${states[0]}": reconnect the cable`;
+    return `The phone is "${devices[0]?.state ?? 'unknown'}": reconnect the cable`;
 };
 
 /** Whether the screen is locked, from `dumpsys window`: a locked WebView does not render. */

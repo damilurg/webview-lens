@@ -8,6 +8,7 @@ import { parseArgs } from 'node:util';
 
 import {
     AdbNotFoundError,
+    createAdbRunner,
     describeDevices,
     findAdb,
     isKeyguardShowing,
@@ -16,13 +17,14 @@ import {
     resolveAdb,
     runAdb,
 } from './node/adb.ts';
-import { listPages, type PagePredicate } from './node/cdp.ts';
+import { connectCdp, listPages, type PagePredicate } from './node/cdp.ts';
 import { waitForPage } from './node/device.ts';
 import { startDevtoolsLink } from './node/devtools-link.ts';
 import { startOverride, type OverrideSession, type SsePolicy } from './node/override.ts';
 import { fromGitBashPath } from './node/paths.ts';
 import { isPresetSelection, PRESET_SELECTIONS, resolvePreset } from './node/presets.ts';
 import { ensureServer } from './node/server-process.ts';
+import { attachTelemetry } from './node/telemetry.ts';
 import { formatMetric, measureVitals, toMarkdown } from './node/vitals-lab.ts';
 import { METRIC_NAMES } from './shared/thresholds.ts';
 
@@ -36,7 +38,10 @@ Usage
 
 Common options
   --port <n>        local port forwarded to the WebView DevTools socket (9223, env DEVTOOLS_PORT)
+  --serial <id>     target Android device serial when multiple phones are connected (env ANDROID_SERIAL)
+  --app <package>   pin WebView discovery to a specific Android package name
   --match <text>    attach to the page whose URL contains text (default: any https page)
+  --logs            stream console logs, uncaught exceptions and 4xx/5xx network errors to terminal
 
 dev
   local-url               local server (http://localhost:3000, env LOCAL_URL)
@@ -68,7 +73,10 @@ const { values, positionals } = parseArgs({
     options: {
         help: { type: 'boolean', short: 'h' },
         port: { type: 'string', default: process.env.DEVTOOLS_PORT ?? '9223' },
+        serial: { type: 'string' },
+        app: { type: 'string' },
         match: { type: 'string' },
+        logs: { type: 'boolean', default: false },
         remote: { type: 'string' },
         'remote-base': { type: 'string' },
         'local-base': { type: 'string' },
@@ -89,6 +97,12 @@ const { values, positionals } = parseArgs({
 
 const [command, ...args] = positionals;
 const port = values.port;
+const serial = values.serial ?? process.env.ANDROID_SERIAL;
+const app = values.app;
+const targetOptions = {
+    ...(serial ? { serial } : {}),
+    ...(app ? { app } : {}),
+};
 
 if (values.help || !command) {
     console.log(HELP);
@@ -165,7 +179,7 @@ async function dev() {
         .on('line', () => void session?.reload().catch(() => undefined));
 
     for (;;) {
-        const page = await waitForPage(port, isTarget);
+        const page = await waitForPage(port, isTarget, targetOptions);
         const remote = remoteOrigin ?? new URL(page.url).origin;
 
         console.log(`WebView: ${page.title} (${remote})`);
@@ -186,6 +200,7 @@ async function dev() {
                 ...(hmrPorts.length ? { hmrPorts } : {}),
                 ...(values.bypass ? { bypassPrefixes: values.bypass.map(fromGitBashPath) } : {}),
                 ssePolicy,
+                telemetry: values.logs,
             });
             console.log(`Override on: ${remote} → ${local}. Enter reloads the page, Ctrl+C exits.`);
             await session.closed;
@@ -208,8 +223,25 @@ async function devtools() {
 
     // Keeps the forward fresh across app restarts; the link server reads /json/list on each open.
     for (;;) {
-        await waitForPage(port, isTarget);
-        await sleep(5000);
+        const page = await waitForPage(port, isTarget, targetOptions);
+
+        if (values.logs) {
+            try {
+                const cdp = await connectCdp(page.webSocketDebuggerUrl);
+                const detach = attachTelemetry(cdp);
+
+                await cdp.send('Runtime.enable');
+                await cdp.send('Network.enable');
+                console.log(`Live logs attached to ${page.url}`);
+                await cdp.closed;
+                detach();
+            } catch (error) {
+                console.error(errorMessage(error));
+                await sleep(2000);
+            }
+        } else {
+            await sleep(5000);
+        }
     }
 }
 
@@ -224,6 +256,7 @@ async function vitals() {
         runs: Number(values.runs),
         cold: values.cold,
         interact: Number(values.interact),
+        wait: targetOptions,
         isTarget: (page) =>
             page.type === 'page' &&
             /^https?:/.test(page.url) &&
@@ -256,12 +289,13 @@ async function doctor() {
     report(true, `adb: ${adb}`);
 
     try {
-        const devicesProblem = describeDevices(runAdb(['devices']));
+        const devicesProblem = describeDevices(runAdb(['devices']), serial);
 
         report(!devicesProblem, devicesProblem ?? 'phone connected, debugging allowed');
         if (devicesProblem) return;
 
-        const window = runAdb(['shell', 'dumpsys', 'window']);
+        const deviceRun = createAdbRunner(serial, runAdb);
+        const window = deviceRun(['shell', 'dumpsys', 'window']);
 
         report(
             !isKeyguardShowing(window),
@@ -269,7 +303,7 @@ async function doctor() {
         );
         report(true, `app on screen: ${parseFocusedPackage(window) ?? 'unknown'}`);
 
-        const sockets = parseWebViewSockets(runAdb(['shell', 'cat', '/proc/net/unix']));
+        const sockets = parseWebViewSockets(deviceRun(['shell', 'cat', '/proc/net/unix']));
 
         report(sockets.length > 0, `debuggable WebViews: ${sockets.join(', ') || 'none'}`);
     } catch (error) {

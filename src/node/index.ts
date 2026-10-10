@@ -1,12 +1,16 @@
 export {
+    type AdbDevice,
     AdbNotFoundError,
     type AdbRunner,
+    createAdbRunner,
     describeDevices,
     findAdb,
     type FindAdbOptions,
     type FindAdbResult,
     forwardWebView,
+    type ForwardWebViewOptions,
     isKeyguardShowing,
+    parseDevices,
     parseFocusedPackage,
     parsePackagesByPid,
     parseWebViewSockets,
@@ -24,7 +28,13 @@ export {
     listPages,
     type PagePredicate,
 } from './cdp.ts';
-export { diagnose, isAnyPage, waitForPage, type WaitForPageOptions } from './device.ts';
+export {
+    diagnose,
+    type DiagnoseOptions,
+    isAnyPage,
+    waitForPage,
+    type WaitForPageOptions,
+} from './device.ts';
 export {
     type DevtoolsLink,
     type DevtoolsLinkOptions,
@@ -68,6 +78,22 @@ export {
     spawnServer,
     type StartedServer,
 } from './server-process.ts';
+export {
+    attachTelemetry,
+    type CallFrame,
+    type ConsoleEvent,
+    type ExceptionEvent,
+    formatConsoleEvent,
+    formatExceptionEvent,
+    formatLocation,
+    formatNetworkError,
+    formatRemoteObject,
+    type NetworkErrorEvent,
+    type RemoteObject,
+    type RemoteObjectPreviewProperty,
+    type StackTrace,
+    type TelemetryOptions,
+} from './telemetry.ts';
 export {
     COLLECTOR,
     formatMetric,

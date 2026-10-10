@@ -10,6 +10,7 @@
 // page → binding → this process → local server, and back via Runtime.evaluate.
 
 import { type Cdp, connectCdp, type DevtoolsPage } from './cdp.ts';
+import { attachTelemetry, type TelemetryOptions } from './telemetry.ts';
 
 /** Headers fetch computes itself, or that must not reach the WebView as they are. */
 const DROP_RESPONSE = new Set([
@@ -113,6 +114,8 @@ export interface OverrideOptions {
     connect?: (webSocketDebuggerUrl: string) => Promise<Cdp>;
     /** Custom fetch implementation (for testing or custom transports). */
     fetchImpl?: typeof fetch;
+    /** Stream console logs, uncaught exceptions and network errors from the page to the terminal. */
+    telemetry?: boolean | TelemetryOptions;
     logger?: OverrideLogger;
 }
 
@@ -331,6 +334,7 @@ export const startOverride = async ({
     ssePolicy = 'fail',
     connect = connectCdp,
     fetchImpl = fetch,
+    telemetry = false,
     logger = { request: console.log, error: console.error },
 }: OverrideOptions): Promise<OverrideSession> => {
     const cdp = await connect(page.webSocketDebuggerUrl);
@@ -485,6 +489,10 @@ export const startOverride = async ({
     cdp.on<PausedRequest>('Fetch.requestPaused', (params) => void handle(params));
     cdp.on<BindingCall>('Runtime.bindingCalled', onBinding);
 
+    const detachTelemetry = telemetry
+        ? attachTelemetry(cdp, telemetry === true ? {} : telemetry)
+        : undefined;
+
     const shim = bridgeShim(mapper.remoteOrigin, wsPrefixes, hmrPorts);
 
     await cdp.send('Page.enable');
@@ -516,6 +524,7 @@ export const startOverride = async ({
     else await cdp.send('Page.navigate', { url: mapper.entryUrl });
 
     void cdp.closed.then(() => {
+        detachTelemetry?.();
         for (const socket of sockets.values()) socket.close();
         sockets.clear();
     });

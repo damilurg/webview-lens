@@ -1,0 +1,259 @@
+// Live telemetry from a WebView page over CDP: console logs, uncaught exceptions and network errors.
+
+import type { Cdp } from './cdp.ts';
+
+export interface RemoteObjectPreviewProperty {
+    name: string;
+    value?: string;
+}
+
+export interface RemoteObject {
+    type: string;
+    subtype?: string;
+    value?: unknown;
+    description?: string;
+    unserializableValue?: string;
+    preview?: {
+        properties?: readonly RemoteObjectPreviewProperty[];
+    };
+}
+
+export interface CallFrame {
+    url?: string;
+    lineNumber?: number;
+    columnNumber?: number;
+}
+
+export interface StackTrace {
+    callFrames?: readonly CallFrame[];
+}
+
+export interface ConsoleEvent {
+    type: string;
+    args: readonly RemoteObject[];
+    stackTrace?: StackTrace;
+}
+
+export interface ExceptionEvent {
+    exceptionDetails: {
+        text: string;
+        url?: string;
+        lineNumber?: number;
+        columnNumber?: number;
+        exception?: RemoteObject;
+        stackTrace?: StackTrace;
+    };
+}
+
+export interface NetworkErrorEvent {
+    kind: 'failed' | 'http';
+    url: string;
+    method?: string;
+    status?: number;
+    errorText?: string;
+}
+
+export interface TelemetryOptions {
+    /** Console levels to print (normalized: `warning` → `warn`). Default: all levels. */
+    levels?: readonly string[];
+    /** Report failed requests and HTTP >= 400 responses. Default: true. */
+    networkErrors?: boolean;
+    log?: (line: string) => void;
+    error?: (line: string) => void;
+}
+
+const normalizeConsoleLevel = (type: string): string => (type === 'warning' ? 'warn' : type);
+
+/** Formats a CDP RemoteObject into a compact single-line representation. */
+export const formatRemoteObject = (obj: RemoteObject): string => {
+    if (obj.type === 'undefined') return 'undefined';
+    if (obj.subtype === 'null') return 'null';
+    if (obj.unserializableValue !== undefined) return obj.unserializableValue;
+    if (obj.value !== undefined) {
+        return typeof obj.value === 'string' ? obj.value : String(obj.value);
+    }
+    if (obj.preview?.properties?.length) {
+        const props = obj.preview.properties.map((p) => `${p.name}: ${p.value ?? '…'}`).join(', ');
+
+        return `{${props}}`;
+    }
+
+    return obj.description ?? `[${obj.type}]`;
+};
+
+/** Formats a URL and 0-based CDP line/column into a compact 1-based `path:line:col` label. */
+export const formatLocation = (
+    url?: string,
+    lineNumber?: number,
+    columnNumber?: number,
+): string => {
+    if (!url) return '';
+
+    let label = url;
+
+    try {
+        const parsed = new URL(url);
+
+        label = parsed.pathname || url;
+    } catch {
+        // Keep raw URL/filename as-is.
+    }
+
+    if (typeof lineNumber !== 'number') return label;
+
+    const line = lineNumber + 1;
+
+    if (typeof columnNumber === 'number') return `${label}:${line}:${columnNumber + 1}`;
+
+    return `${label}:${line}`;
+};
+
+export const formatConsoleEvent = (event: ConsoleEvent): string => {
+    const level = normalizeConsoleLevel(event.type);
+    const text = event.args.map(formatRemoteObject).join(' ');
+    const frame = event.stackTrace?.callFrames?.[0];
+    const location = formatLocation(frame?.url, frame?.lineNumber, frame?.columnNumber);
+
+    return `[console.${level}] ${text}${location ? ` (${location})` : ''}`;
+};
+
+export const formatExceptionEvent = ({ exceptionDetails }: ExceptionEvent): string => {
+    const message = exceptionDetails.exception
+        ? formatRemoteObject(exceptionDetails.exception)
+        : exceptionDetails.text;
+    const frame = exceptionDetails.stackTrace?.callFrames?.[0];
+    const location = formatLocation(
+        exceptionDetails.url ?? frame?.url,
+        exceptionDetails.lineNumber ?? frame?.lineNumber,
+        exceptionDetails.columnNumber ?? frame?.columnNumber,
+    );
+
+    return `[exception] ${message}${location ? ` (${location})` : ''}`;
+};
+
+export const formatNetworkError = (event: NetworkErrorEvent): string => {
+    const method = event.method ? `${event.method} ` : '';
+
+    if (event.kind === 'http') {
+        return `[network] ${event.status ?? 'ERR'} ${method}${event.url}`;
+    }
+
+    return `[network] FAIL ${method}${event.url}${event.errorText ? ` (${event.errorText})` : ''}`;
+};
+
+interface RequestWillBeSent {
+    requestId: string;
+    request: { url: string; method?: string };
+}
+
+interface ResponseReceived {
+    requestId: string;
+    response: { url: string; status: number };
+}
+
+interface LoadingFailed {
+    requestId: string;
+    errorText?: string;
+}
+
+interface LoadingFinished {
+    requestId: string;
+}
+
+/**
+ * Attaches live console, exception and network error listeners to an active CDP session.
+ * Returns a detach function that unsubscribes all listeners.
+ */
+export const attachTelemetry = (
+    cdp: Cdp,
+    {
+        levels,
+        networkErrors = true,
+        log = console.log,
+        error = console.error,
+    }: TelemetryOptions = {},
+): (() => void) => {
+    const allowedLevels = levels ? new Set(levels.map(normalizeConsoleLevel)) : null;
+    const requests = new Map<string, { url: string; method?: string }>();
+    const unsubs: (() => void)[] = [];
+
+    unsubs.push(
+        cdp.on<ConsoleEvent>('Runtime.consoleAPICalled', (event) => {
+            const level = normalizeConsoleLevel(event.type);
+
+            if (allowedLevels && !allowedLevels.has(level)) return;
+
+            const line = formatConsoleEvent(event);
+
+            if (level === 'error' || level === 'assert') error(line);
+            else log(line);
+        }),
+    );
+
+    unsubs.push(
+        cdp.on<ExceptionEvent>('Runtime.exceptionThrown', (event) => {
+            error(formatExceptionEvent(event));
+        }),
+    );
+
+    if (networkErrors) {
+        unsubs.push(
+            cdp.on<RequestWillBeSent>('Network.requestWillBeSent', ({ requestId, request }) => {
+                // Keep memory bounded if long-lived requests never emit loadingFinished.
+                if (requests.size >= 500) {
+                    const oldest = requests.keys().next().value;
+
+                    if (oldest !== undefined) requests.delete(oldest);
+                }
+                requests.set(requestId, {
+                    url: request.url,
+                    ...(request.method ? { method: request.method } : {}),
+                });
+            }),
+        );
+
+        unsubs.push(
+            cdp.on<ResponseReceived>('Network.responseReceived', ({ requestId, response }) => {
+                if (response.status < 400) return;
+
+                const tracked = requests.get(requestId);
+
+                error(
+                    formatNetworkError({
+                        kind: 'http',
+                        url: response.url || tracked?.url || '',
+                        ...(tracked?.method ? { method: tracked.method } : {}),
+                        status: response.status,
+                    }),
+                );
+            }),
+        );
+
+        unsubs.push(
+            cdp.on<LoadingFailed>('Network.loadingFailed', ({ requestId, errorText }) => {
+                const tracked = requests.get(requestId);
+
+                requests.delete(requestId);
+                error(
+                    formatNetworkError({
+                        kind: 'failed',
+                        url: tracked?.url ?? requestId,
+                        ...(tracked?.method ? { method: tracked.method } : {}),
+                        ...(errorText ? { errorText } : {}),
+                    }),
+                );
+            }),
+        );
+
+        unsubs.push(
+            cdp.on<LoadingFinished>('Network.loadingFinished', ({ requestId }) => {
+                requests.delete(requestId);
+            }),
+        );
+    }
+
+    return () => {
+        for (const off of unsubs) off();
+        requests.clear();
+    };
+};
