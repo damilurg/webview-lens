@@ -36,6 +36,29 @@ export {
     type WaitForPageOptions,
 } from './device.ts';
 export {
+    type AndroidDriverDeps,
+    createAndroidDriver,
+    createCdpInspectorSession,
+    pageToTarget,
+} from './drivers/android.ts';
+export { createDefaultDrivers, resolveDriver } from './drivers/registry.ts';
+export {
+    type ConnectedDevice,
+    type DeviceDriver,
+    type DoctorCheck,
+    type DoctorReport,
+    type DriverTargetOptions,
+    type InspectableTarget,
+    type InspectorCapabilities,
+    type InspectorSession,
+    isPlatformSelection,
+    type NavigateOptions,
+    type Platform,
+    PLATFORM_SELECTIONS,
+    type PlatformSelection,
+    type TargetPredicate,
+} from './drivers/types.ts';
+export {
     type DevtoolsLink,
     type DevtoolsLinkOptions,
     frontendPath,

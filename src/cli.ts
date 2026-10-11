@@ -6,20 +6,12 @@ import path from 'node:path';
 import readline from 'node:readline';
 import { parseArgs } from 'node:util';
 
-import {
-    AdbNotFoundError,
-    createAdbRunner,
-    describeDevices,
-    findAdb,
-    isKeyguardShowing,
-    parseFocusedPackage,
-    parseWebViewSockets,
-    resolveAdb,
-    runAdb,
-} from './node/adb.ts';
-import { connectCdp, listPages, type PagePredicate } from './node/cdp.ts';
+import { resolveAdb } from './node/adb.ts';
+import { connectCdp, type PagePredicate } from './node/cdp.ts';
 import { waitForPage } from './node/device.ts';
 import { startDevtoolsLink } from './node/devtools-link.ts';
+import { resolveDriver } from './node/drivers/registry.ts';
+import { isPlatformSelection, PLATFORM_SELECTIONS } from './node/drivers/types.ts';
 import { startOverride, type OverrideSession, type SsePolicy } from './node/override.ts';
 import { fromGitBashPath } from './node/paths.ts';
 import { isPresetSelection, PRESET_SELECTIONS, resolvePreset } from './node/presets.ts';
@@ -37,6 +29,7 @@ Usage
   webview-lens doctor                      what blocks the connection to the phone
 
 Common options
+  --platform <p>    device platform: auto, android, ios (auto)
   --port <n>        local port forwarded to the WebView DevTools socket (9223, env DEVTOOLS_PORT)
   --serial <id>     target Android device serial when multiple phones are connected (env ANDROID_SERIAL)
   --app <package>   pin WebView discovery to a specific Android package name
@@ -72,6 +65,7 @@ const { values, positionals } = parseArgs({
     allowPositionals: true,
     options: {
         help: { type: 'boolean', short: 'h' },
+        platform: { type: 'string', default: 'auto' },
         port: { type: 'string', default: process.env.DEVTOOLS_PORT ?? '9223' },
         serial: { type: 'string' },
         app: { type: 'string' },
@@ -136,7 +130,18 @@ const logAdbPath = () => {
     }
 };
 
+const selectDriver = async () => {
+    if (!isPlatformSelection(values.platform)) {
+        throw new Error(
+            `Unknown --platform "${values.platform}". Expected one of: ${PLATFORM_SELECTIONS.join(', ')}`,
+        );
+    }
+
+    return resolveDriver(values.platform);
+};
+
 async function dev() {
+    await selectDriver();
     if (!isPresetSelection(values.preset)) {
         throw new Error(
             `Unknown --preset "${values.preset}". Expected one of: ${PRESET_SELECTIONS.join(', ')}`,
@@ -215,6 +220,7 @@ async function dev() {
 }
 
 async function devtools() {
+    await selectDriver();
     logAdbPath();
 
     const link = startDevtoolsLink({ port: values['link-port'], devtoolsPort: port, isTarget });
@@ -246,11 +252,13 @@ async function devtools() {
 }
 
 async function vitals() {
+    const driver = await selectDriver();
     const paths = args.length > 0 ? args.map(fromGitBashPath) : ['/'];
 
-    logAdbPath();
+    if (driver.platform === 'android') logAdbPath();
 
     const result = await measureVitals({
+        driver,
         devtoolsPort: port,
         paths,
         runs: Number(values.runs),
@@ -278,52 +286,15 @@ async function vitals() {
 }
 
 async function doctor() {
-    const { adb, checked } = findAdb();
-    const report = (ok: boolean, line: string) => console.log(`${ok ? '✓' : '✗'} ${line}`);
+    const driver = await selectDriver();
+    const report = await driver.doctor({ port, ...targetOptions });
 
-    if (!adb) {
-        report(false, `adb not found, looked in: ${checked.join('; ')}`);
-
-        return;
+    for (const check of report.checks) {
+        console.log(`${check.ok ? '✓' : '✗'} ${check.message}`);
     }
-    report(true, `adb: ${adb}`);
-
-    try {
-        const devicesProblem = describeDevices(runAdb(['devices']), serial);
-
-        report(!devicesProblem, devicesProblem ?? 'phone connected, debugging allowed');
-        if (devicesProblem) return;
-
-        const deviceRun = createAdbRunner(serial, runAdb);
-        const window = deviceRun(['shell', 'dumpsys', 'window']);
-
-        report(
-            !isKeyguardShowing(window),
-            isKeyguardShowing(window) ? 'screen locked' : 'screen unlocked',
-        );
-        report(true, `app on screen: ${parseFocusedPackage(window) ?? 'unknown'}`);
-
-        const sockets = parseWebViewSockets(deviceRun(['shell', 'cat', '/proc/net/unix']));
-
-        report(sockets.length > 0, `debuggable WebViews: ${sockets.join(', ') || 'none'}`);
-    } catch (error) {
-        report(
-            false,
-            error instanceof AdbNotFoundError ? 'adb not found' : `adb: ${errorMessage(error)}`,
-        );
-
-        return;
+    for (const target of report.targets) {
+        console.log(`    ${target.type} ${target.url}`);
     }
-
-    const pages = await listPages(port);
-
-    report(
-        Boolean(pages),
-        pages
-            ? `port ${port}: ${pages.length} page(s)`
-            : `port ${port}: no answer (run dev, devtools or vitals to forward it)`,
-    );
-    for (const page of pages ?? []) console.log(`    ${page.type} ${page.url}`);
 }
 
 const commands: Record<string, () => Promise<void>> = { dev, devtools, vitals, doctor };

@@ -5,8 +5,9 @@
 // `webview-lens dev` runs alongside. Dev server numbers are inflated (no minification, HMR): measure
 // a production build for real ones.
 
-import { connectCdp, getVersion, type PagePredicate } from './cdp.ts';
-import { waitForPage, type WaitForPageOptions } from './device.ts';
+import type { WaitForPageOptions } from './device.ts';
+import { createAndroidDriver } from './drivers/android.ts';
+import type { DeviceDriver, DriverTargetOptions, InspectableTarget } from './drivers/types.ts';
 import { METRIC_NAMES, type MetricName, rate, type Rating } from '../shared/thresholds.ts';
 
 /** In-page collector, installed before the app's scripts on every load. */
@@ -54,7 +55,9 @@ export interface LabResult {
 }
 
 export interface LabOptions {
-    devtoolsPort: string | number;
+    devtoolsPort?: string | number;
+    /** Optional DeviceDriver (Android, iOS, or fake for testing). Defaults to AndroidDriver. */
+    driver?: DeviceDriver;
     paths: readonly string[];
     /** Runs per screen, the median is reported. Default 3. */
     runs?: number;
@@ -64,7 +67,7 @@ export interface LabOptions {
     interact?: number;
     /** Wait after the load event for late paints and shifts. Default 4000 ms. */
     settleMs?: number;
-    isTarget?: PagePredicate;
+    isTarget?: (target: Pick<InspectableTarget, 'id' | 'type' | 'url' | 'title'>) => boolean;
     log?: (line: string) => void;
     wait?: Omit<WaitForPageOptions, 'log'>;
 }
@@ -91,47 +94,59 @@ export const rateOrNone = (name: MetricName, value: number | null): Rating | nul
     value === null ? null : rate(name, value);
 
 export const measureVitals = async ({
-    devtoolsPort,
+    devtoolsPort = '9223',
+    driver,
     paths,
     runs = 3,
     cold = false,
     interact = 0,
     settleMs = 4000,
-    isTarget = (page) => page.type === 'page' && /^https?:/.test(page.url),
+    isTarget = (target) => target.type === 'page' && /^https?:/.test(target.url),
     log = console.log,
     wait,
 }: LabOptions): Promise<LabResult> => {
-    const page = await waitForPage(devtoolsPort, isTarget, { ...wait, log });
-    const cdp = await connectCdp(page.webSocketDebuggerUrl);
-    const origin = new URL(page.url).origin;
-    const version = await getVersion(devtoolsPort);
-    const device = String(version['User-Agent'] ?? version.Browser ?? 'unknown');
+    const activeDriver =
+        driver ??
+        createAndroidDriver({
+            ...(wait?.run ? { runAdb: wait.run } : {}),
+            defaultPort: devtoolsPort,
+        });
+    const targetOptions: DriverTargetOptions = {
+        port: devtoolsPort,
+        log,
+        ...(wait?.serial ? { serial: wait.serial } : {}),
+        ...(wait?.app ? { app: wait.app } : {}),
+        ...(wait?.intervalMs !== undefined ? { intervalMs: wait.intervalMs } : {}),
+        ...(wait?.signal ? { signal: wait.signal } : {}),
+    };
 
-    await cdp.send('Page.enable');
-    await cdp.send('Network.enable');
-    await cdp.send('Network.setCacheDisabled', { cacheDisabled: cold });
-    await cdp.send('Page.addScriptToEvaluateOnNewDocument', { source: COLLECTOR });
+    const target = await activeDriver.waitForTarget(
+        (candidate) => isTarget(candidate),
+        targetOptions,
+    );
+    const session = await activeDriver.connectInspector(target);
+    const origin = new URL(target.url).origin;
+    const device = await activeDriver.getDeviceDescription(targetOptions);
+
+    await session.setCacheDisabled(cold);
+    await session.addInitScript(COLLECTOR);
 
     log(`Measuring ${origin}: ${paths.join(', ')} × ${runs}${cold ? ', cache disabled' : ''}`);
 
     const measure = async (url: string): Promise<LabRun | null> => {
-        const loaded = cdp.once('Page.loadEventFired');
-
-        await cdp.send('Page.navigate', { url });
-        await Promise.race([loaded, sleep(30_000)]);
-        await sleep(settleMs);
+        await session.navigate(url, { waitForLoad: true, timeoutMs: 30_000 });
+        if (settleMs > 0) await sleep(settleMs);
 
         if (interact > 0) {
             log(`  tap around for ${interact} s, for INP…`);
             await sleep(interact * 1000);
         }
 
-        const { result } = await cdp.send<{ result: { value?: string } }>('Runtime.evaluate', {
-            expression: 'JSON.stringify(window.__webviewLensVitals ?? null)',
-            returnByValue: true,
-        });
+        const raw = await session.evaluate<string | undefined>(
+            'JSON.stringify(window.__webviewLensVitals ?? null)',
+        );
 
-        return JSON.parse(result.value ?? 'null');
+        return JSON.parse(raw ?? 'null');
     };
 
     const rows: LabRow[] = [];
@@ -165,8 +180,8 @@ export const measureVitals = async ({
             });
         }
     } finally {
-        await cdp.send('Network.setCacheDisabled', { cacheDisabled: false }).catch(() => undefined);
-        cdp.close();
+        await session.setCacheDisabled(false).catch(() => undefined);
+        session.close();
     }
 
     return { origin, device, options: { runs, cold, interact }, rows };
