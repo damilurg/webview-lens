@@ -1,10 +1,14 @@
 // Registry and auto-selection of DeviceDrivers across platforms (Android, iOS).
 
 import { createAndroidDriver } from './android.ts';
+import { createIosDriver } from './ios/index.ts';
 import type { DeviceDriver, PlatformSelection } from './types.ts';
 
 /** Default ordered driver list for this build of webview-lens. */
-export const createDefaultDrivers = (): DeviceDriver[] => [createAndroidDriver()];
+export const createDefaultDrivers = (): DeviceDriver[] => [
+    createAndroidDriver(),
+    createIosDriver(),
+];
 
 /**
  * Resolves a platform selection (`auto`, `android`, `ios`) against the registered drivers.

@@ -41,6 +41,40 @@ export {
     createCdpInspectorSession,
     pageToTarget,
 } from './drivers/android.ts';
+export {
+    createIosDriver,
+    createIosInspectorSession,
+    type IosDriverDeps,
+    iwdpPageToTarget,
+} from './drivers/ios/index.ts';
+export {
+    findIwdp,
+    type FindIwdpOptions,
+    type FindIwdpResult,
+    type IwdpDeviceEntry,
+    type IwdpPage,
+    listIwdpDevices,
+    listIwdpPages,
+} from './drivers/ios/iwdp.ts';
+export {
+    buildListDevicesPlist,
+    decodeUsbmuxPackets,
+    describeIosDevices,
+    encodeUsbmuxPacket,
+    listIosDevices,
+    parseListDevicesPlist,
+    usbmuxAddress,
+    type UsbmuxDevice,
+    type UsbmuxPacket,
+    type UsbmuxStatus,
+} from './drivers/ios/usbmux.ts';
+export {
+    createWipCdpBridge,
+    type ProtocolMessage,
+    translateCdpToWip,
+    translateWipEventToCdp,
+    translateWipResultToCdp,
+} from './drivers/ios/wip-cdp-bridge.ts';
 export { createDefaultDrivers, resolveDriver } from './drivers/registry.ts';
 export {
     type ConnectedDevice,

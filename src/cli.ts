@@ -141,7 +141,13 @@ const selectDriver = async () => {
 };
 
 async function dev() {
-    await selectDriver();
+    const driver = await selectDriver();
+
+    if (driver.platform === 'ios') {
+        throw new Error(
+            'iOS `dev` override requires the selective HTTPS MITM proxy (Iteration 5). Use `webview-lens doctor --platform ios`, `devtools --platform ios --logs`, or `vitals --platform ios` today.',
+        );
+    }
     if (!isPresetSelection(values.preset)) {
         throw new Error(
             `Unknown --preset "${values.preset}". Expected one of: ${PRESET_SELECTIONS.join(', ')}`,
@@ -220,7 +226,42 @@ async function dev() {
 }
 
 async function devtools() {
-    await selectDriver();
+    const driver = await selectDriver();
+
+    if (driver.platform === 'ios') {
+        console.log('Waiting for an iOS WKWebView page… Ctrl+C exits.');
+        for (;;) {
+            const target = await driver.waitForTarget(
+                (t) =>
+                    t.type === 'page' &&
+                    (!values.match
+                        ? remoteOrigin
+                            ? true
+                            : t.url.startsWith('https://')
+                        : t.url.includes(values.match)),
+                targetOptions,
+            );
+
+            console.log(`iOS WKWebView: ${target.title} (${target.url})`);
+            console.log(`WebSocket debugger: ${target.debuggerUrl}`);
+            if (values.logs) {
+                try {
+                    const session = await driver.connectInspector(target);
+                    const detach = await session.attachTelemetry?.();
+
+                    console.log(`Live logs attached to ${target.url}`);
+                    await session.closed;
+                    detach?.();
+                } catch (error) {
+                    console.error(errorMessage(error));
+                    await sleep(2000);
+                }
+            } else {
+                await sleep(5000);
+            }
+        }
+    }
+
     logAdbPath();
 
     const link = startDevtoolsLink({ port: values['link-port'], devtoolsPort: port, isTarget });
