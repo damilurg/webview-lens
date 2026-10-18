@@ -42,11 +42,33 @@ export {
     pageToTarget,
 } from './drivers/android.ts';
 export {
+    buildIosMobileConfig,
+    type CertPair,
+    defaultCertDir,
+    ensureRootCa,
+    generateLeafCert,
+    generateRootCa,
+} from './drivers/ios/certs.ts';
+export {
     createIosDriver,
     createIosInspectorSession,
     type IosDriverDeps,
     iwdpPageToTarget,
 } from './drivers/ios/index.ts';
+export {
+    buildWsUpgradeHandshake,
+    classifyTlsError,
+    type ConnectTarget,
+    type DecryptedRequestInput,
+    type DecryptedResponseOutput,
+    detectLanAddresses,
+    handleDecryptedRequest,
+    type IosMitmProxy,
+    type IosMitmProxyOptions,
+    parseConnectTarget,
+    shouldInterceptHost,
+    startIosMitmProxy,
+} from './drivers/ios/mitm-proxy.ts';
 export {
     findIwdp,
     type FindIwdpOptions,

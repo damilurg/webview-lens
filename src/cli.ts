@@ -10,6 +10,8 @@ import { resolveAdb } from './node/adb.ts';
 import { connectCdp, type PagePredicate } from './node/cdp.ts';
 import { waitForPage } from './node/device.ts';
 import { startDevtoolsLink } from './node/devtools-link.ts';
+import { defaultCertDir, ensureRootCa } from './node/drivers/ios/certs.ts';
+import { detectLanAddresses, startIosMitmProxy } from './node/drivers/ios/mitm-proxy.ts';
 import { resolveDriver } from './node/drivers/registry.ts';
 import { isPlatformSelection, PLATFORM_SELECTIONS } from './node/drivers/types.ts';
 import { startOverride, type OverrideSession, type SsePolicy } from './node/override.ts';
@@ -26,6 +28,7 @@ Usage
   webview-lens dev [local-url] [options]   serve the WebView's origin from your local server
   webview-lens devtools [options]          DevTools of the WebView page at a fixed localhost URL
   webview-lens vitals [paths…] [options]   lab Web Vitals from the phone, Markdown report
+  webview-lens cert [options]              serve local Root CA profile (.mobileconfig) for iOS setup
   webview-lens doctor                      what blocks the connection to the phone
 
 Common options
@@ -48,6 +51,7 @@ dev
   --quiet <prefix>        path prefix hidden from request logs, repeatable
   --bypass <prefix>       path prefix passed straight through to the stand, repeatable
   --sse <fail|continue>   handling of text/event-stream responses (fail)
+  --proxy-port <n>        HTTPS MITM proxy port for iOS dev / cert (8888)
   --link-port <n>         port of the DevTools link (3300, env DEVTOOLS_LINK_PORT)
   Enter reloads the page on the phone, Ctrl+C exits.
 
@@ -81,6 +85,7 @@ const { values, positionals } = parseArgs({
         quiet: { type: 'string', multiple: true },
         bypass: { type: 'string', multiple: true },
         sse: { type: 'string', default: 'fail' },
+        'proxy-port': { type: 'string', default: '8888' },
         'link-port': { type: 'string', default: process.env.DEVTOOLS_LINK_PORT ?? '3300' },
         runs: { type: 'string', default: '3' },
         cold: { type: 'boolean', default: false },
@@ -143,11 +148,6 @@ const selectDriver = async () => {
 async function dev() {
     const driver = await selectDriver();
 
-    if (driver.platform === 'ios') {
-        throw new Error(
-            'iOS `dev` override requires the selective HTTPS MITM proxy (Iteration 5). Use `webview-lens doctor --platform ios`, `devtools --platform ios --logs`, or `vitals --platform ios` today.',
-        );
-    }
     if (!isPresetSelection(values.preset)) {
         throw new Error(
             `Unknown --preset "${values.preset}". Expected one of: ${PRESET_SELECTIONS.join(', ')}`,
@@ -161,6 +161,77 @@ async function dev() {
     const ssePolicy: SsePolicy = values.sse;
     const wsPrefixes = values.ws ?? preset.wsPrefixes;
     const quietPrefixes = values.quiet ?? preset.quietPrefixes;
+    const local = (args[0] ?? process.env.LOCAL_URL ?? 'http://localhost:3000').replace(/\/$/, '');
+
+    if (driver.platform === 'ios') {
+        if (!remoteOrigin) {
+            throw new Error(
+                'iOS `dev` override needs --remote <https://stand.example.com> so the selective MITM proxy knows which host to intercept.',
+            );
+        }
+
+        const server = await ensureServer(local, values.cmd ? { command: values.cmd } : {});
+        const proxyPort = Number(values['proxy-port']);
+        const proxy = await startIosMitmProxy({
+            remote: remoteOrigin,
+            local,
+            ...(values['remote-base']
+                ? { remoteBase: fromGitBashPath(values['remote-base']) }
+                : {}),
+            ...(values['local-base'] ? { localBase: fromGitBashPath(values['local-base']) } : {}),
+            port: proxyPort,
+            quietPrefixes,
+            ...(values.bypass ? { bypassPrefixes: values.bypass.map(fromGitBashPath) } : {}),
+        });
+
+        const cleanup = () => {
+            void proxy.close();
+            server?.stop();
+        };
+
+        process.on('exit', cleanup);
+        process.on('SIGINT', () => process.exit(0));
+        process.on('SIGTERM', () => process.exit(0));
+
+        const lanIp = detectLanAddresses()[0] ?? 'localhost';
+
+        console.log(`iOS selective MITM proxy listening on ${lanIp}:${proxy.port}`);
+        console.log(
+            `Intercepting ONLY ${proxy.targetHost} → ${local} (other domains pass through)`,
+        );
+        console.log(`Install CA on iPhone (once): http://${lanIp}:${proxy.port}/`);
+        console.log(
+            `Set iPhone Wi-Fi HTTP Proxy → Manual: Server ${lanIp}, Port ${proxy.port}. Ctrl+C exits.`,
+        );
+
+        if (values.logs) {
+            for (;;) {
+                const target = await driver.waitForTarget(
+                    (t) =>
+                        t.type === 'page' &&
+                        (values.match
+                            ? t.url.includes(values.match)
+                            : t.url.startsWith(remoteOrigin)),
+                    targetOptions,
+                );
+
+                try {
+                    const session = await driver.connectInspector(target);
+                    const detach = await session.attachTelemetry?.();
+
+                    console.log(`Live logs attached to ${target.url}`);
+                    await session.closed;
+                    detach?.();
+                } catch (error) {
+                    console.error(errorMessage(error));
+                    await sleep(2000);
+                }
+            }
+        }
+
+        await new Promise(() => undefined);
+    }
+
     const hmrPorts = (values['hmr-port'] ?? []).map((p) => {
         const num = Number(p);
 
@@ -170,7 +241,6 @@ async function dev() {
 
         return num;
     });
-    const local = (args[0] ?? process.env.LOCAL_URL ?? 'http://localhost:3000').replace(/\/$/, '');
     const server = await ensureServer(local, values.cmd ? { command: values.cmd } : {});
 
     if (server) {
@@ -338,7 +408,35 @@ async function doctor() {
     }
 }
 
-const commands: Record<string, () => Promise<void>> = { dev, devtools, vitals, doctor };
+async function cert() {
+    const certDir = defaultCertDir();
+    const ca = ensureRootCa(certDir);
+    const proxyPort = Number(values['proxy-port']);
+    const proxy = await startIosMitmProxy({
+        remote: remoteOrigin ?? 'https://webview-lens.local',
+        local: 'http://127.0.0.1:3000',
+        port: proxyPort,
+        ca,
+    });
+
+    process.on('SIGINT', () => {
+        void proxy.close().finally(() => process.exit(0));
+    });
+
+    const lanIp = detectLanAddresses()[0] ?? 'localhost';
+
+    console.log(`Root CA stored in: ${certDir}`);
+    console.log(`Open on your iPhone in Safari: http://${lanIp}:${proxy.port}/`);
+    console.log(
+        `Direct profile URL:            http://${lanIp}:${proxy.port}/webview-lens.mobileconfig`,
+    );
+    console.log(
+        'After installing, enable trust in: Settings → General → About → Certificate Trust Settings. Ctrl+C exits.',
+    );
+    await new Promise(() => undefined);
+}
+
+const commands: Record<string, () => Promise<void>> = { dev, devtools, vitals, cert, doctor };
 const run = commands[command];
 
 if (!run) {
