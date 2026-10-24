@@ -4,7 +4,10 @@ import { describe, it } from 'node:test';
 import {
     captureGlobalErrors,
     createErrorReporter,
+    createTimingReporter,
     createVitalsReporter,
+    detectWebViewEnv,
+    sanitizeContext,
     sanitizePath,
 } from '../src/rum/index.ts';
 import { parseVital } from '../src/rum/server.ts';
@@ -148,5 +151,58 @@ describe('captureGlobalErrors', () => {
         assert.equal(reports[0]?.message, 'boom');
         assert.equal(reports[0]?.file, 'app.js');
         assert.deepEqual(reports[1], { source: 'unhandledrejection', message: 'nope' });
+    });
+});
+
+describe('detectWebViewEnv, sanitizeContext & createTimingReporter', () => {
+    it('distinguishes Android WebView, iOS WKWebView and regular mobile browsers', () => {
+        assert.equal(
+            detectWebViewEnv(
+                'Mozilla/5.0 (Linux; Android 14; Pixel 8; wv) AppleWebKit/537.36 Version/4.0 Chrome/126.0.0.0 Mobile Safari/537.36',
+            ),
+            'android-webview',
+        );
+        assert.equal(
+            detectWebViewEnv(
+                'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148',
+            ),
+            'ios-wkwebview',
+        );
+        assert.equal(
+            detectWebViewEnv(
+                'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1',
+            ),
+            'browser',
+        );
+    });
+
+    it('sanitizes context keys/values and bounds entry count', () => {
+        const ctx = sanitizeContext({
+            app: '1.2.3',
+            count: 5,
+            skip: undefined,
+            'bad key!': 'ignored',
+        });
+
+        assert.deepEqual(ctx, { app: '1.2.3', count: '5' });
+    });
+
+    it('createTimingReporter validates timing names and durations', () => {
+        const spy = spyTransport();
+        const report = createTimingReporter({
+            transport: spy.transport,
+            path: () => '/home',
+        });
+
+        report('bridge_ready', 55);
+        report('bad name!', 10);
+        report('negative', -1);
+
+        assert.deepEqual(spy.sent, [
+            {
+                endpoint: '/api/timings',
+                body: { name: 'bridge_ready', duration: 55, path: '/home' },
+            },
+        ]);
     });
 });

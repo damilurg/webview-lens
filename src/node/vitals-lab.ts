@@ -7,12 +7,23 @@
 
 import type { WaitForPageOptions } from './device.ts';
 import { createAndroidDriver } from './drivers/android.ts';
-import type { DeviceDriver, DriverTargetOptions, InspectableTarget } from './drivers/types.ts';
-import { METRIC_NAMES, type MetricName, rate, type Rating } from '../shared/thresholds.ts';
+import type {
+    DeviceDriver,
+    DriverTargetOptions,
+    InspectableTarget,
+    InspectorCapabilities,
+} from './drivers/types.ts';
+import {
+    isMetricName,
+    METRIC_NAMES,
+    type MetricName,
+    rate,
+    type Rating,
+} from '../shared/thresholds.ts';
 
 /** In-page collector, installed before the app's scripts on every load. */
 export const COLLECTOR = `(() => {
-    const v = (window.__webviewLensVitals = { lcp: null, fcp: null, cls: 0, inp: null, ttfb: null, shifts: [] });
+    const v = (window.__webviewLensVitals = { lcp: null, fcp: null, cls: 0, inp: null, ttfb: null, shifts: [], longTasksCount: 0, longTasksTotalMs: 0, marks: {} });
     const observe = (type, cb, opts = {}) => {
         try { new PerformanceObserver((l) => l.getEntries().forEach(cb)).observe({ type, buffered: true, ...opts }); } catch {}
     };
@@ -27,7 +38,12 @@ export const COLLECTOR = `(() => {
         if (e.value >= 0.01) v.shifts.push(+e.value.toFixed(3));
     });
     observe('event', (e) => { if (e.interactionId) v.inp = Math.max(v.inp ?? 0, e.duration); }, { durationThreshold: 16 });
-    const nav = () => { const n = performance.getEntriesByType('navigation')[0]; if (n) v.ttfb = n.responseStart; };
+    observe('longtask', (e) => { v.longTasksCount += 1; v.longTasksTotalMs += Math.round(e.duration); });
+    const nav = () => {
+        const n = performance.getEntriesByType('navigation')[0];
+        if (n) v.ttfb = n.responseStart;
+        for (const m of performance.getEntriesByType('mark')) { v.marks[m.name] = Math.round(m.startTime); }
+    };
     addEventListener('load', nav);
 })();`;
 
@@ -39,20 +55,81 @@ export interface LabRun {
     ttfb: number | null;
     lcpElement?: string | null;
     shifts?: number[];
+    longTasksCount?: number;
+    longTasksTotalMs?: number;
+    marks?: Record<string, number>;
 }
 
 export type LabRow = Record<MetricName, number | null> & {
     path: string;
     lcpElement: string | null;
     shifts: number[];
+    longTasks?: { count: number; totalMs: number };
+    marks?: Record<string, number>;
 };
 
 export interface LabResult {
     origin: string;
     device: string;
+    capabilities?: InspectorCapabilities;
     options: Required<Pick<LabOptions, 'runs' | 'cold' | 'interact'>>;
     rows: LabRow[];
 }
+
+export type BudgetThresholds = Partial<Record<MetricName, number>>;
+
+export interface BudgetViolation {
+    path: string;
+    metric: MetricName;
+    actual: number;
+    limit: number;
+}
+
+/** Parses a budget string like `"lcp=2500,cls=0.1,ttfb=800"` into checked thresholds. */
+export const parseBudgets = (spec: string): BudgetThresholds => {
+    const budgets: BudgetThresholds = {};
+
+    for (const part of spec
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean)) {
+        const [rawMetric, rawValue] = part.split('=').map((s) => s.trim());
+        const metric = rawMetric?.toUpperCase();
+
+        if (!metric || !isMetricName(metric)) {
+            throw new Error(
+                `Unknown budget metric "${rawMetric ?? ''}". Expected one of: ${METRIC_NAMES.join(', ')}`,
+            );
+        }
+
+        const limit = Number(rawValue);
+
+        if (!rawValue || !Number.isFinite(limit) || limit < 0) {
+            throw new Error(`Invalid budget value "${rawValue ?? ''}" for ${metric}`);
+        }
+        budgets[metric] = limit;
+    }
+
+    return budgets;
+};
+
+/** Checks measured lab rows against performance budgets; returns every exceeded metric. */
+export const checkBudgets = (result: LabResult, budgets: BudgetThresholds): BudgetViolation[] => {
+    const violations: BudgetViolation[] = [];
+
+    for (const row of result.rows) {
+        for (const metric of METRIC_NAMES) {
+            const limit = budgets[metric];
+            const actual = row[metric];
+
+            if (limit !== undefined && actual !== null && actual > limit) {
+                violations.push({ path: row.path, metric, actual, limit });
+            }
+        }
+    }
+
+    return violations;
+};
 
 export interface LabOptions {
     devtoolsPort?: string | number;
@@ -164,9 +241,11 @@ export const measureVitals = async ({
                 );
             }
 
-            const pick = (key: keyof Omit<LabRun, 'lcpElement' | 'shifts'>) =>
+            const pick = (key: 'lcp' | 'fcp' | 'cls' | 'inp' | 'ttfb') =>
                 median(results.map((r) => r[key]));
             const last = results.at(-1);
+            const ltCount = median(results.map((r) => r.longTasksCount));
+            const ltTotal = median(results.map((r) => r.longTasksTotalMs));
 
             rows.push({
                 path: pagePath,
@@ -177,6 +256,15 @@ export const measureVitals = async ({
                 TTFB: pick('ttfb'),
                 lcpElement: last?.lcpElement ?? null,
                 shifts: last?.shifts ?? [],
+                ...(ltCount !== null || ltTotal !== null
+                    ? {
+                          longTasks: {
+                              count: Math.round(ltCount ?? 0),
+                              totalMs: Math.round(ltTotal ?? 0),
+                          },
+                      }
+                    : {}),
+                ...(last?.marks && Object.keys(last.marks).length > 0 ? { marks: last.marks } : {}),
             });
         }
     } finally {
@@ -184,7 +272,13 @@ export const measureVitals = async ({
         session.close();
     }
 
-    return { origin, device, options: { runs, cold, interact }, rows };
+    return {
+        origin,
+        device,
+        capabilities: session.capabilities,
+        options: { runs, cold, interact },
+        rows,
+    };
 };
 
 const ICON: Record<Rating | 'none', string> = {
@@ -194,13 +288,43 @@ const ICON: Record<Rating | 'none', string> = {
     none: '⚪',
 };
 
-/** Markdown report with ratings. */
+const isMetricUnsupported = (name: MetricName, capabilities?: InspectorCapabilities): boolean => {
+    if (!capabilities) return false;
+    if (name === 'LCP') return !capabilities.lcp;
+    if (name === 'CLS') return !capabilities.cls;
+    if (name === 'INP') return !capabilities.inp;
+
+    return false;
+};
+
+/** Markdown report with ratings, WebKit `n/a` annotations, Long Tasks and custom marks. */
 export const toMarkdown = (
-    { origin, device, options, rows }: LabResult,
+    { origin, device, capabilities, options, rows }: LabResult,
     date = new Date(),
 ): string => {
-    const cell = (name: MetricName, value: number | null) =>
-        `${ICON[rateOrNone(name, value) ?? 'none']} ${formatMetric(name, value)}`;
+    const cell = (name: MetricName, value: number | null) => {
+        if (value === null && isMetricUnsupported(name, capabilities)) return `${ICON.none} n/a`;
+
+        return `${ICON[rateOrNone(name, value) ?? 'none']} ${formatMetric(name, value)}`;
+    };
+    const hasLongTasks = rows.some((row) => row.longTasks !== undefined);
+    const hasMarks = rows.some((row) => row.marks && Object.keys(row.marks).length > 0);
+    const extraHeaders = [...(hasLongTasks ? ['Long Tasks'] : []), ...(hasMarks ? ['Marks'] : [])];
+
+    const extraCells = (row: LabRow): string[] => [
+        ...(hasLongTasks
+            ? [row.longTasks ? `${row.longTasks.count} (${row.longTasks.totalMs} ms)` : '—']
+            : []),
+        ...(hasMarks
+            ? [
+                  row.marks && Object.keys(row.marks).length > 0
+                      ? Object.entries(row.marks)
+                            .map(([k, v]) => `${k}=${v} ms`)
+                            .join(', ')
+                      : '—',
+              ]
+            : []),
+    ];
 
     return [
         '# Web Vitals in the WebView',
@@ -210,12 +334,13 @@ export const toMarkdown = (
         `- Device: ${device}`,
         `- Runs per screen: ${options.runs} (median), cache: ${options.cold ? 'disabled' : 'normal'}, INP: ${options.interact ? `taps for ${options.interact} s` : 'not measured'}`,
         '',
-        `| Screen | ${METRIC_NAMES.join(' | ')} | LCP element | Shifts ≥ 0.01 |`,
-        `| --- | ${METRIC_NAMES.map(() => '---').join(' | ')} | --- | --- |`,
-        ...rows.map(
-            (row) =>
-                `| \`${row.path}\` | ${METRIC_NAMES.map((m) => cell(m, row[m])).join(' | ')} | ${row.lcpElement ?? '—'} | ${row.shifts.join(', ') || '—'} |`,
-        ),
+        `| Screen | ${METRIC_NAMES.join(' | ')} | LCP element | Shifts ≥ 0.01 |${extraHeaders.length ? ` ${extraHeaders.join(' | ')} |` : ''}`,
+        `| --- | ${METRIC_NAMES.map(() => '---').join(' | ')} | --- | --- |${extraHeaders.length ? ` ${extraHeaders.map(() => '---').join(' | ')} |` : ''}`,
+        ...rows.map((row) => {
+            const tail = extraCells(row);
+
+            return `| \`${row.path}\` | ${METRIC_NAMES.map((m) => cell(m, row[m])).join(' | ')} | ${row.lcpElement ?? '—'} | ${row.shifts.join(', ') || '—'} |${tail.length ? ` ${tail.join(' | ')} |` : ''}`;
+        }),
         '',
         'web.dev thresholds: LCP ≤ 2.5 s, FCP ≤ 1.8 s, CLS ≤ 0.1, INP ≤ 200 ms, TTFB ≤ 0.8 s are 🟢; up to 4 s, 3 s, 0.25, 500 ms, 1.8 s are 🟡; above is 🔴.',
         '',

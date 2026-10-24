@@ -19,7 +19,13 @@ import { fromGitBashPath } from './node/paths.ts';
 import { isPresetSelection, PRESET_SELECTIONS, resolvePreset } from './node/presets.ts';
 import { ensureServer } from './node/server-process.ts';
 import { attachTelemetry } from './node/telemetry.ts';
-import { formatMetric, measureVitals, toMarkdown } from './node/vitals-lab.ts';
+import {
+    checkBudgets,
+    formatMetric,
+    measureVitals,
+    parseBudgets,
+    toMarkdown,
+} from './node/vitals-lab.ts';
 import { METRIC_NAMES } from './shared/thresholds.ts';
 
 const HELP = `webview-lens: inspect, override and measure the page inside an Android app's WebView.
@@ -60,6 +66,7 @@ vitals
   --runs <n>        runs per screen, the median is reported (3)
   --cold            disable the cache (first visit)
   --interact <s>    seconds to tap around after load, for INP (0: not measured)
+  --budget <spec>   CI thresholds, e.g. lcp=2500,cls=0.1 (exits 1 if exceeded)
   --out <file>      Markdown report (webview-vitals.md)
 
 The phone: USB debugging on, the app's WebView debuggable (WebView.setWebContentsDebuggingEnabled).
@@ -90,6 +97,7 @@ const { values, positionals } = parseArgs({
         runs: { type: 'string', default: '3' },
         cold: { type: 'boolean', default: false },
         interact: { type: 'string', default: '0' },
+        budget: { type: 'string' },
         out: { type: 'string', default: 'webview-vitals.md' },
     },
 });
@@ -363,6 +371,7 @@ async function devtools() {
 }
 
 async function vitals() {
+    const budgets = values.budget ? parseBudgets(values.budget) : undefined;
     const driver = await selectDriver();
     const paths = args.length > 0 ? args.map(fromGitBashPath) : ['/'];
 
@@ -394,6 +403,22 @@ async function vitals() {
     fs.mkdirSync(path.dirname(path.resolve(values.out)), { recursive: true });
     fs.writeFileSync(values.out, toMarkdown(result));
     console.log(`Report: ${path.resolve(values.out)}`);
+
+    if (budgets) {
+        const violations = checkBudgets(result, budgets);
+
+        if (violations.length > 0) {
+            console.error('Performance budget exceeded:');
+            for (const v of violations) {
+                console.error(
+                    `  ✗ ${v.path} ${v.metric}: ${formatMetric(v.metric, v.actual)} > ${formatMetric(v.metric, v.limit)}`,
+                );
+            }
+            process.exitCode = 1;
+        } else {
+            console.log('✓ All performance budgets passed');
+        }
+    }
 }
 
 async function doctor() {

@@ -4,10 +4,12 @@ import { describe, it } from 'node:test';
 import {
     type ClientLogEntry,
     createClientLogHandler,
+    createTimingsHandler,
     createVitalsHandler,
     type NodeIncomingMessage,
     type NodeServerResponse,
     readLimitedText,
+    type TimingMetric,
     toNodeHandler,
     type VitalMetric,
 } from '../src/rum/server.ts';
@@ -198,5 +200,39 @@ describe('toNodeHandler', () => {
         );
 
         assert.equal(bigRes.statusCode, 413);
+    });
+});
+
+describe('createTimingsHandler & context validation', () => {
+    it('accepts valid custom timing with context and rejects malformed timing names or oversized context', async () => {
+        const timings: TimingMetric[] = [];
+        const handler = createTimingsHandler({ onTiming: (t) => void timings.push(t) });
+
+        const ok = await handler(
+            post(
+                JSON.stringify({
+                    name: 'bridge.init',
+                    duration: 33.4,
+                    path: '/shop/:id',
+                    context: { env: 'ios-wkwebview' },
+                }),
+            ),
+        );
+
+        assert.equal(ok.status, 204);
+        assert.deepEqual(timings, [
+            {
+                name: 'bridge.init',
+                duration: 33.4,
+                path: '/shop/:id',
+                context: { env: 'ios-wkwebview' },
+            },
+        ]);
+
+        const badName = await handler(
+            post(JSON.stringify({ name: 'has spaces', duration: 10, path: '/' })),
+        );
+
+        assert.equal(badName.status, 400);
     });
 });

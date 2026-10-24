@@ -5,10 +5,14 @@
 // the limit, then checked field by field; only checked fields reach your callback.
 
 import {
+    CONTEXT_KEY_PATTERN,
     isMetricName,
     isRating,
+    MAX_CONTEXT_KEYS,
+    MAX_CONTEXT_VALUE_LENGTH,
     MAX_PATH_LENGTH,
     PATH_PATTERN,
+    TIMING_NAME_PATTERN,
     type MetricName,
     type Rating,
 } from '../shared/thresholds.ts';
@@ -19,6 +23,14 @@ export interface VitalMetric {
     rating: Rating;
     path: string;
     navigationType?: string;
+    context?: Record<string, string>;
+}
+
+export interface TimingMetric {
+    name: string;
+    duration: number;
+    path: string;
+    context?: Record<string, string>;
 }
 
 export type RejectReason = 'method' | 'too-large' | 'invalid';
@@ -73,24 +85,88 @@ const parseJson = (text: string): unknown => {
 const isRecord = (value: unknown): value is Record<string, unknown> =>
     typeof value === 'object' && value !== null && !Array.isArray(value);
 
+/** Validates optional context tags; returns undefined when absent or null when malformed. */
+export const parseContext = (input: unknown): Record<string, string> | undefined | null => {
+    if (input === undefined) return undefined;
+    if (!isRecord(input)) return null;
+
+    const entries = Object.entries(input);
+
+    if (entries.length > MAX_CONTEXT_KEYS) return null;
+
+    const out: Record<string, string> = {};
+
+    for (const [key, value] of entries) {
+        if (!CONTEXT_KEY_PATTERN.test(key) || key === '__proto__' || key === 'constructor') {
+            return null;
+        }
+        if (typeof value !== 'string' || value.length > MAX_CONTEXT_VALUE_LENGTH) return null;
+        out[key] = value;
+    }
+
+    return out;
+};
+
 /** A metric from `createVitalsReporter`, or null for anything else. */
 export const parseVital = (input: unknown): VitalMetric | null => {
     if (!isRecord(input)) return null;
 
-    const { name, value, rating, path, navigationType } = input;
+    const { name, value, rating, path, navigationType, context } = input;
 
     if (!isMetricName(name) || !isRating(rating)) return null;
     if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) return null;
     if (typeof path !== 'string' || path.length > MAX_PATH_LENGTH || !PATH_PATTERN.test(path)) {
         return null;
     }
+
+    const parsedContext = parseContext(context);
+
+    if (parsedContext === null) return null;
+
     if (navigationType !== undefined) {
         if (typeof navigationType !== 'string' || navigationType.length > 40) return null;
 
-        return { name, value, rating, path, navigationType };
+        return {
+            name,
+            value,
+            rating,
+            path,
+            navigationType,
+            ...(parsedContext ? { context: parsedContext } : {}),
+        };
     }
 
-    return { name, value, rating, path };
+    return {
+        name,
+        value,
+        rating,
+        path,
+        ...(parsedContext ? { context: parsedContext } : {}),
+    };
+};
+
+/** A custom timing from `createTimingReporter`, or null for anything else. */
+export const parseTiming = (input: unknown): TimingMetric | null => {
+    if (!isRecord(input)) return null;
+
+    const { name, duration, path, context } = input;
+
+    if (typeof name !== 'string' || !TIMING_NAME_PATTERN.test(name)) return null;
+    if (typeof duration !== 'number' || !Number.isFinite(duration) || duration < 0) return null;
+    if (typeof path !== 'string' || path.length > MAX_PATH_LENGTH || !PATH_PATTERN.test(path)) {
+        return null;
+    }
+
+    const parsedContext = parseContext(context);
+
+    if (parsedContext === null) return null;
+
+    return {
+        name,
+        duration,
+        path,
+        ...(parsedContext ? { context: parsedContext } : {}),
+    };
 };
 
 const empty = (status: number) => new Response(null, { status });
@@ -129,6 +205,38 @@ export const createVitalsHandler =
         if (!metric) return reject('invalid');
 
         await onMetric(metric, request);
+
+        return empty(204);
+    };
+
+export interface TimingsHandlerOptions {
+    onTiming: (timing: TimingMetric, request: Request) => void | Promise<void>;
+    onReject?: (reason: RejectReason, request: Request) => void;
+    /** Default 2 KiB. */
+    maxBytes?: number;
+}
+
+/** Handler for POST /api/timings: custom app/bridge timings from `createTimingReporter`. */
+export const createTimingsHandler =
+    ({ onTiming, onReject, maxBytes = 2 * 1024 }: TimingsHandlerOptions) =>
+    async (request: Request): Promise<Response> => {
+        const reject = (reason: RejectReason) => {
+            onReject?.(reason, request);
+
+            return empty(STATUS[reason]);
+        };
+
+        if (request.method !== 'POST') return reject('method');
+
+        const text = await readLimitedText(request, maxBytes).catch(() => null);
+
+        if (text === null) return reject('too-large');
+
+        const timing = parseTiming(parseJson(text));
+
+        if (!timing) return reject('invalid');
+
+        await onTiming(timing, request);
 
         return empty(204);
     };

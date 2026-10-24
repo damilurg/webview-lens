@@ -146,7 +146,8 @@ See [docs/how-it-works.md](docs/how-it-works.md).
 
 ## Limitations
 
-- Android only. iOS WKWebView uses a different protocol (`ios_webkit_debug_proxy`).
+- iOS `dev` override uses a selective local HTTPS MITM proxy (`webview-lens cert` + Wi-Fi HTTP Proxy) because WebKit Inspector Protocol has no equivalent of CDP `Fetch.fulfillRequest`; test builds must have SSL Pinning disabled and `webView.isInspectable = true` (iOS 16.4+) for live inspection/logs.
+- iOS `WKWebView` does not expose all Core Web Vitals (CLS/INP and older iOS LCP show as `n/a`).
 - The lab INP counts only the taps you make during `--interact`.
 - Production numbers come from RUM; lab numbers from a dev server are inflated.
 

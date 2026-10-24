@@ -1,7 +1,14 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { COLLECTOR, formatMetric, median, toMarkdown } from '../src/node/vitals-lab.ts';
+import {
+    checkBudgets,
+    COLLECTOR,
+    formatMetric,
+    median,
+    parseBudgets,
+    toMarkdown,
+} from '../src/node/vitals-lab.ts';
 import { rate } from '../src/shared/thresholds.ts';
 
 describe('median', () => {
@@ -61,5 +68,42 @@ describe('report', () => {
 
     it('the in-page collector is valid JavaScript', () => {
         assert.doesNotThrow(() => new Function(COLLECTOR));
+    });
+});
+
+describe('budgets', () => {
+    it('parses valid budget specs and rejects unknown metrics or negative values', () => {
+        assert.deepEqual(parseBudgets('lcp=2500, cls=0.1 , TTFB=800'), {
+            LCP: 2500,
+            CLS: 0.1,
+            TTFB: 800,
+        });
+        assert.throws(() => parseBudgets('unknown=100'), /Unknown budget metric/);
+        assert.throws(() => parseBudgets('lcp=-10'), /Invalid budget value/);
+    });
+
+    it('returns empty array when all measured metrics are within limits', () => {
+        const violations = checkBudgets(
+            {
+                origin: 'https://stand.example.test',
+                device: 'Android',
+                options: { runs: 1, cold: false, interact: 0 },
+                rows: [
+                    {
+                        path: '/',
+                        LCP: 1500,
+                        FCP: 800,
+                        CLS: 0.02,
+                        INP: null,
+                        TTFB: 200,
+                        lcpElement: null,
+                        shifts: [],
+                    },
+                ],
+            },
+            { LCP: 2500, CLS: 0.1 },
+        );
+
+        assert.deepEqual(violations, []);
     });
 });

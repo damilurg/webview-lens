@@ -5,12 +5,16 @@
 // Delivery uses sendBeacon, which survives the WebView being closed: CLS and INP are final only then.
 
 import {
+    CONTEXT_KEY_PATTERN,
     isMetricName,
     isRating,
+    MAX_CONTEXT_KEYS,
+    MAX_CONTEXT_VALUE_LENGTH,
     MAX_PATH_LENGTH,
     type MetricName,
     rate,
     type Rating,
+    TIMING_NAME_PATTERN,
 } from '../shared/thresholds.ts';
 
 export {
@@ -29,6 +33,49 @@ export interface MetricLike {
     navigationType?: string;
 }
 
+/** Detected runtime container for WebView RUM segmentation. */
+export type WebViewEnv = 'android-webview' | 'ios-wkwebview' | 'browser';
+
+/** Classifies whether the page runs inside an Android WebView, iOS WKWebView, or regular browser. */
+export const detectWebViewEnv = (
+    userAgent: string = typeof navigator === 'undefined' ? '' : navigator.userAgent,
+): WebViewEnv => {
+    if (/;\s*wv\)|\bVersion\/\d+\.\d+\s+Chrome\//i.test(userAgent)) {
+        return 'android-webview';
+    }
+    if (
+        /\b(iPhone|iPad|iPod)\b/i.test(userAgent) &&
+        !/\b(Safari|CriOS|FxiOS|EdgiOS|OPiOS)\//i.test(userAgent)
+    ) {
+        return 'ios-wkwebview';
+    }
+
+    return 'browser';
+};
+
+export type ContextInput = Record<string, string | number | boolean | null | undefined>;
+
+/** Sanitizes optional RUM context tags (bounded key count, safe key names, bounded string values). */
+export const sanitizeContext = (
+    input: ContextInput | undefined,
+): Record<string, string> | undefined => {
+    if (!input) return undefined;
+
+    const out: Record<string, string> = {};
+    let count = 0;
+
+    for (const [key, value] of Object.entries(input)) {
+        if (count >= MAX_CONTEXT_KEYS) break;
+        if (value === undefined || value === null) continue;
+        if (!CONTEXT_KEY_PATTERN.test(key)) continue;
+
+        out[key] = String(value).slice(0, MAX_CONTEXT_VALUE_LENGTH);
+        count += 1;
+    }
+
+    return count > 0 ? out : undefined;
+};
+
 /** The body the reporter sends and `createVitalsHandler` accepts. */
 export interface VitalPayload {
     name: MetricName;
@@ -36,6 +83,15 @@ export interface VitalPayload {
     rating: Rating;
     path: string;
     navigationType?: string;
+    context?: Record<string, string>;
+}
+
+/** The body `createTimingReporter` sends and `createTimingsHandler` accepts. */
+export interface TimingPayload {
+    name: string;
+    duration: number;
+    path: string;
+    context?: Record<string, string>;
 }
 
 /** Sends a JSON body to an endpoint without waiting for the answer. */
@@ -85,6 +141,8 @@ export interface VitalsReporterOptions {
     path?: () => string;
     /** Share of page loads that report, 0..1, decided once per load. Default 1. */
     sampleRate?: number;
+    /** Optional context tags attached to every metric (appVersion, env, release, etc.). */
+    context?: () => ContextInput;
     /** Also print each metric to the console: visible in the WebView DevTools right away. */
     debug?: boolean;
     transport?: Transport;
@@ -98,6 +156,7 @@ export const createVitalsReporter = ({
     endpoint = '/api/vitals',
     path = currentPath,
     sampleRate = 1,
+    context,
     debug = false,
     transport = beaconTransport,
 }: VitalsReporterOptions = {}): ((metric: MetricLike) => void) => {
@@ -109,11 +168,13 @@ export const createVitalsReporter = ({
             return;
         }
 
+        const tags = sanitizeContext(context?.());
         const payload: VitalPayload = {
             name: metric.name,
             value: metric.value,
             rating: isRating(metric.rating) ? metric.rating : rate(metric.name, metric.value),
             path: sanitizePath(path()),
+            ...(tags ? { context: tags } : {}),
         };
 
         if (metric.navigationType) payload.navigationType = metric.navigationType.slice(0, 40);
@@ -129,10 +190,48 @@ export const createVitalsReporter = ({
     };
 };
 
+export interface TimingReporterOptions {
+    /** Default `/api/timings`. */
+    endpoint?: string;
+    path?: () => string;
+    sampleRate?: number;
+    context?: () => ContextInput;
+    transport?: Transport;
+}
+
+/** Reports custom app/bridge timings (e.g. `bridge_init`, `hydration`) over sendBeacon. */
+export const createTimingReporter = ({
+    endpoint = '/api/timings',
+    path = currentPath,
+    sampleRate = 1,
+    context,
+    transport = beaconTransport,
+}: TimingReporterOptions = {}): ((name: string, durationMs: number) => void) => {
+    const isSampled = Math.random() < sampleRate;
+
+    return (name, durationMs) => {
+        if (!TIMING_NAME_PATTERN.test(name) || !Number.isFinite(durationMs) || durationMs < 0) {
+            return;
+        }
+        if (!isSampled) return;
+
+        const tags = sanitizeContext(context?.());
+        const payload: TimingPayload = {
+            name,
+            duration: durationMs,
+            path: sanitizePath(path()),
+            ...(tags ? { context: tags } : {}),
+        };
+
+        transport(endpoint, JSON.stringify(payload));
+    };
+};
+
 export interface ErrorReporterOptions {
     /** Default `/api/client-log`. */
     endpoint?: string;
     path?: () => string;
+    context?: () => ContextInput;
     /** Reports per page load; a render loop must not flood the log. Default 10. */
     maxReports?: number;
     transport?: Transport;
@@ -142,6 +241,7 @@ export interface ErrorReporterOptions {
 export const createErrorReporter = ({
     endpoint = '/api/client-log',
     path = currentPath,
+    context,
     maxReports = 10,
     transport = beaconTransport,
 }: ErrorReporterOptions = {}): ((report: Record<string, unknown>) => void) => {
@@ -154,7 +254,17 @@ export const createErrorReporter = ({
         if (sent >= maxReports || seen.has(key)) return;
         sent += 1;
         seen.add(key);
-        transport(endpoint, JSON.stringify({ path: sanitizePath(path()), ...report }));
+
+        const tags = sanitizeContext(context?.());
+
+        transport(
+            endpoint,
+            JSON.stringify({
+                path: sanitizePath(path()),
+                ...(tags ? { context: tags } : {}),
+                ...report,
+            }),
+        );
     };
 };
 

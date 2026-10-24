@@ -174,6 +174,9 @@ export {
     type TelemetryOptions,
 } from './telemetry.ts';
 export {
+    type BudgetThresholds,
+    type BudgetViolation,
+    checkBudgets,
     COLLECTOR,
     formatMetric,
     type LabOptions,
@@ -182,6 +185,7 @@ export {
     type LabRun,
     measureVitals,
     median,
+    parseBudgets,
     toMarkdown,
 } from './vitals-lab.ts';
 export {

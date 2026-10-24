@@ -38,3 +38,12 @@ export const rate = (name: MetricName, value: number): Rating => {
 export const PATH_PATTERN = /^\/[\w\-./[\]:]*$/;
 
 export const MAX_PATH_LENGTH = 200;
+
+/** Safe identifier pattern for RUM context tag keys and custom timing names. */
+export const CONTEXT_KEY_PATTERN = /^[\w.-]{1,40}$/;
+
+export const TIMING_NAME_PATTERN = /^[\w.-]{1,64}$/;
+
+export const MAX_CONTEXT_KEYS = 10;
+
+export const MAX_CONTEXT_VALUE_LENGTH = 120;
