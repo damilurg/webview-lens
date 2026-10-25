@@ -50,6 +50,13 @@ export {
     generateRootCa,
 } from './drivers/ios/certs.ts';
 export {
+    type ClientFrameResult,
+    createIosDevtoolsTranslator,
+    type IosDevtoolsLinkOptions,
+    type IosDevtoolsTranslator,
+    startIosDevtoolsLink,
+} from './drivers/ios/devtools-bridge.ts';
+export {
     createIosDriver,
     createIosInspectorSession,
     type IosDriverDeps,
@@ -70,6 +77,8 @@ export {
     startIosMitmProxy,
 } from './drivers/ios/mitm-proxy.ts';
 export {
+    ensureIwdp,
+    type EnsureIwdpOptions,
     findIwdp,
     type FindIwdpOptions,
     type FindIwdpResult,
@@ -77,6 +86,7 @@ export {
     type IwdpPage,
     listIwdpDevices,
     listIwdpPages,
+    type StartedIwdp,
 } from './drivers/ios/iwdp.ts';
 export {
     buildListDevicesPlist,
@@ -188,6 +198,19 @@ export {
     parseBudgets,
     toMarkdown,
 } from './vitals-lab.ts';
+export {
+    acceptWebSocketKey,
+    buildWebSocketAcceptResponse,
+    decodeWsFrames,
+    encodeWsFrame,
+    WS_OPCODE_BINARY,
+    WS_OPCODE_CLOSE,
+    WS_OPCODE_CONTINUATION,
+    WS_OPCODE_PING,
+    WS_OPCODE_PONG,
+    WS_OPCODE_TEXT,
+    type WsFrame,
+} from './ws-server.ts';
 export {
     METRIC_NAMES,
     type MetricName,

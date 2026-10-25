@@ -1,5 +1,6 @@
 // Discovery and HTTP queries for ios_webkit_debug_proxy (IWDP) on macOS, Windows and Linux.
 
+import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -177,4 +178,73 @@ export const listIwdpPages = async (
     } catch {
         return null;
     }
+};
+
+export interface StartedIwdp {
+    readonly exitCode: number | null;
+    stop(): void;
+}
+
+export interface EnsureIwdpOptions {
+    controlPort?: number | string;
+    pollIntervalMs?: number;
+    timeoutMs?: number;
+    findIwdp?: typeof findIwdp;
+    listIwdpDevices?: typeof listIwdpDevices;
+    spawnIwdp?: (bin: string, args: string[]) => StartedIwdp;
+    log?: (line: string) => void;
+}
+
+const defaultSpawnIwdp = (bin: string, args: string[]): StartedIwdp => {
+    const child = spawn(bin, args, { stdio: 'ignore' });
+
+    return {
+        get exitCode() {
+            return child.exitCode;
+        },
+        stop: () => {
+            if (child.exitCode !== null || child.pid === undefined) return;
+            if (process.platform === 'win32') {
+                spawnSync('taskkill', ['/pid', String(child.pid), '/T', '/F'], { stdio: 'ignore' });
+
+                return;
+            }
+            child.kill('SIGTERM');
+        },
+    };
+};
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * Ensures `ios_webkit_debug_proxy` is listening on `controlPort`. If it is down and the binary is
+ * found, starts it with `-f` and returns a handle to stop it on exit; returns undefined when it
+ * was already running or when the binary is not installed.
+ */
+export const ensureIwdp = async ({
+    controlPort = 9221,
+    pollIntervalMs = 250,
+    timeoutMs = 5000,
+    findIwdp: findFn = findIwdp,
+    listIwdpDevices: listFn = listIwdpDevices,
+    spawnIwdp = defaultSpawnIwdp,
+    log = console.log,
+}: EnsureIwdpOptions = {}): Promise<StartedIwdp | undefined> => {
+    if ((await listFn(controlPort)) !== null) return undefined;
+
+    const { iwdp } = findFn();
+
+    if (!iwdp) return undefined;
+
+    log(`Starting ios_webkit_debug_proxy: ${iwdp} -f`);
+    const proc = spawnIwdp(iwdp, ['-f']);
+    const deadline = Date.now() + timeoutMs;
+
+    while (Date.now() < deadline) {
+        if ((await listFn(controlPort)) !== null) return proc;
+        if (proc.exitCode !== null) return undefined;
+        await sleep(pollIntervalMs);
+    }
+
+    return proc;
 };

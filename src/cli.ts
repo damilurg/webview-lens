@@ -11,6 +11,8 @@ import { connectCdp, type PagePredicate } from './node/cdp.ts';
 import { waitForPage } from './node/device.ts';
 import { startDevtoolsLink } from './node/devtools-link.ts';
 import { defaultCertDir, ensureRootCa } from './node/drivers/ios/certs.ts';
+import { startIosDevtoolsLink } from './node/drivers/ios/devtools-bridge.ts';
+import { ensureIwdp } from './node/drivers/ios/iwdp.ts';
 import { detectLanAddresses, startIosMitmProxy } from './node/drivers/ios/mitm-proxy.ts';
 import { resolveDriver } from './node/drivers/registry.ts';
 import { isPlatformSelection, PLATFORM_SELECTIONS } from './node/drivers/types.ts';
@@ -307,21 +309,33 @@ async function devtools() {
     const driver = await selectDriver();
 
     if (driver.platform === 'ios') {
-        console.log('Waiting for an iOS WKWebView page… Ctrl+C exits.');
+        const iwdpProc = await ensureIwdp();
+
+        if (iwdpProc) {
+            process.on('exit', iwdpProc.stop);
+            process.on('SIGINT', () => process.exit(0));
+            process.on('SIGTERM', () => process.exit(0));
+        }
+
+        const matchesIosTarget = (t: { type: string; url: string }) =>
+            t.type === 'page' &&
+            (!values.match
+                ? remoteOrigin
+                    ? true
+                    : t.url.startsWith('https://')
+                : t.url.includes(values.match));
+
+        const link = startIosDevtoolsLink({
+            port: values['link-port'],
+            resolveTarget: async () =>
+                (await driver.listTargets(targetOptions))?.find(matchesIosTarget),
+        });
+
+        console.log(`iOS DevTools (WIP↔CDP bridge): ${link.url}, open it in Chrome. Ctrl+C exits.`);
         for (;;) {
-            const target = await driver.waitForTarget(
-                (t) =>
-                    t.type === 'page' &&
-                    (!values.match
-                        ? remoteOrigin
-                            ? true
-                            : t.url.startsWith('https://')
-                        : t.url.includes(values.match)),
-                targetOptions,
-            );
+            const target = await driver.waitForTarget(matchesIosTarget, targetOptions);
 
             console.log(`iOS WKWebView: ${target.title} (${target.url})`);
-            console.log(`WebSocket debugger: ${target.debuggerUrl}`);
             if (values.logs) {
                 try {
                     const session = await driver.connectInspector(target);
