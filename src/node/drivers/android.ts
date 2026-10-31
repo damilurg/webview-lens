@@ -25,6 +25,8 @@ import type {
     InspectorCapabilities,
     InspectorSession,
     NavigateOptions,
+    NetworkThrottlePreset,
+    NetworkThrottleProfile,
     TargetPredicate,
 } from './types.ts';
 
@@ -62,53 +64,100 @@ export const pageToTarget = (page: DevtoolsPage): InspectableTarget => ({
     ...(page.devtoolsFrontendUrl ? { frontendUrl: page.devtoolsFrontendUrl } : {}),
 });
 
+export const NETWORK_THROTTLE_PROFILES: Readonly<
+    Record<NetworkThrottlePreset, NetworkThrottleProfile>
+> = {
+    none: { offline: false, latency: 0, downloadThroughput: -1, uploadThroughput: -1 },
+    'fast-4g': {
+        offline: false,
+        latency: 40,
+        downloadThroughput: 1_800_000,
+        uploadThroughput: 750_000,
+    },
+    'slow-4g': {
+        offline: false,
+        latency: 150,
+        downloadThroughput: 204_800,
+        uploadThroughput: 96_000,
+    },
+    '3g': { offline: false, latency: 300, downloadThroughput: 93_750, uploadThroughput: 31_250 },
+};
+
 /** Wraps a raw CDP connection in the platform-agnostic InspectorSession contract. */
-export const createCdpInspectorSession = (cdp: Cdp): InspectorSession => ({
-    platform: 'android',
-    capabilities: ANDROID_CAPABILITIES,
-    async evaluate<T = unknown>(expression: string): Promise<T> {
-        const { result } = await cdp.send<{ result: { value?: T } }>('Runtime.evaluate', {
-            expression,
-            returnByValue: true,
-        });
+export const createCdpInspectorSession = (cdp: Cdp): InspectorSession => {
+    let perfEnabled = false;
 
-        return result.value as T;
-    },
-    async addInitScript(source: string): Promise<void> {
-        await cdp.send('Page.addScriptToEvaluateOnNewDocument', { source });
-    },
-    async navigate(
-        url: string,
-        { waitForLoad = false, timeoutMs = 30_000 }: NavigateOptions = {},
-    ): Promise<void> {
-        if (!waitForLoad) {
+    return {
+        platform: 'android',
+        capabilities: ANDROID_CAPABILITIES,
+        async evaluate<T = unknown>(expression: string): Promise<T> {
+            const { result } = await cdp.send<{ result: { value?: T } }>('Runtime.evaluate', {
+                expression,
+                returnByValue: true,
+            });
+
+            return result.value as T;
+        },
+        async addInitScript(source: string): Promise<void> {
+            await cdp.send('Page.addScriptToEvaluateOnNewDocument', { source });
+        },
+        async navigate(
+            url: string,
+            { waitForLoad = false, timeoutMs = 30_000 }: NavigateOptions = {},
+        ): Promise<void> {
+            if (!waitForLoad) {
+                await cdp.send('Page.navigate', { url });
+
+                return;
+            }
+
+            const loaded = cdp.once('Page.loadEventFired');
+
             await cdp.send('Page.navigate', { url });
+            await waitWithTimeout(loaded, timeoutMs);
+        },
+        async reload({ ignoreCache = false }: { ignoreCache?: boolean } = {}): Promise<void> {
+            await cdp.send('Page.reload', { ignoreCache });
+        },
+        async setCacheDisabled(disabled: boolean): Promise<void> {
+            await cdp.send('Network.setCacheDisabled', { cacheDisabled: disabled });
+        },
+        async setNetworkThrottle(preset: NetworkThrottlePreset): Promise<void> {
+            await cdp.send('Network.emulateNetworkConditions', NETWORK_THROTTLE_PROFILES[preset]);
+        },
+        async setCpuThrottle(rate: number): Promise<void> {
+            await cdp.send('Emulation.setCPUThrottlingRate', { rate });
+        },
+        async getMemoryUsageMb(): Promise<number | null> {
+            try {
+                if (!perfEnabled) {
+                    await cdp.send('Performance.enable');
+                    perfEnabled = true;
+                }
+                const { metrics } = await cdp.send<{
+                    metrics?: { name: string; value: number }[];
+                }>('Performance.getMetrics');
+                const used = metrics?.find((m) => m.name === 'JSHeapUsedSize')?.value;
 
-            return;
-        }
+                return typeof used === 'number' && Number.isFinite(used)
+                    ? Math.round((used / (1024 * 1024)) * 10) / 10
+                    : null;
+            } catch {
+                return null;
+            }
+        },
+        async attachTelemetry(options?: TelemetryOptions): Promise<() => void> {
+            const detach = attachTelemetry(cdp, options);
 
-        const loaded = cdp.once('Page.loadEventFired');
+            await cdp.send('Runtime.enable');
+            await cdp.send('Network.enable');
 
-        await cdp.send('Page.navigate', { url });
-        await waitWithTimeout(loaded, timeoutMs);
-    },
-    async reload({ ignoreCache = false }: { ignoreCache?: boolean } = {}): Promise<void> {
-        await cdp.send('Page.reload', { ignoreCache });
-    },
-    async setCacheDisabled(disabled: boolean): Promise<void> {
-        await cdp.send('Network.setCacheDisabled', { cacheDisabled: disabled });
-    },
-    async attachTelemetry(options?: TelemetryOptions): Promise<() => void> {
-        const detach = attachTelemetry(cdp, options);
-
-        await cdp.send('Runtime.enable');
-        await cdp.send('Network.enable');
-
-        return detach;
-    },
-    close: () => cdp.close(),
-    closed: cdp.closed,
-});
+            return detach;
+        },
+        close: () => cdp.close(),
+        closed: cdp.closed,
+    };
+};
 
 export interface AndroidDriverDeps {
     findAdb?: typeof findAdb;
@@ -232,6 +281,7 @@ export const createAndroidDriver = (deps: AndroidDriverDeps = {}): DeviceDriver 
                 (p) => predicate(pageToTarget(p)),
                 {
                     run: runAdbFn,
+                    listPages: listPagesFn,
                     ...(options.log ? { log: options.log } : {}),
                     ...(options.intervalMs !== undefined ? { intervalMs: options.intervalMs } : {}),
                     ...(options.serial ? { serial: options.serial } : {}),

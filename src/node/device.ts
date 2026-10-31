@@ -68,6 +68,7 @@ export interface WaitForPageOptions extends DiagnoseOptions {
     log?: (line: string) => void;
     intervalMs?: number;
     run?: AdbRunner;
+    listPages?: typeof listPages;
     signal?: AbortSignal;
 }
 
@@ -82,6 +83,7 @@ export const waitForPage = async (
         log = console.log,
         intervalMs = 2000,
         run = runAdb,
+        listPages: listPagesFn = listPages,
         serial,
         app,
         signal,
@@ -105,7 +107,7 @@ export const waitForPage = async (
     for (;;) {
         signal?.throwIfAborted();
 
-        const page = (await listPages(port))?.find(predicate);
+        const page = (await listPagesFn(port))?.find(predicate);
 
         if (page) return page;
 

@@ -1,14 +1,17 @@
 # How it works
 
 ```text
-phone                                     computer
-┌──────────────────────────────┐          ┌────────────────────────────────────────────┐
-│ app → WebView (https://stand)│          │ webview-lens                               │
-│   @webview_devtools_remote_<pid> ◄──adb forward── localhost:9223 (CDP)              │
-└──────────────────────────────┘          │   ├─ dev:      Fetch.requestPaused → local │
-                                          │   ├─ devtools: localhost:3300 → frontend   │
-                                          │   └─ vitals:   PerformanceObserver in page │
-                                          └────────────────────────────────────────────┘
+Android phone                              computer (macOS / Windows / Linux)
+┌──────────────────────────────┐           ┌────────────────────────────────────────────┐
+│ app → WebView (https://stand)│           │ webview-lens                               │
+│   @webview_devtools_remote_<pid> ◄──adb──┤   ├─ dev:      Fetch.requestPaused → local │
+└──────────────────────────────┘           │   ├─ devtools: localhost:3300 → frontend   │
+                                           │   ├─ vitals:   PerformanceObserver + CI    │
+iPhone (WKWebView)                         │   └─ --logs:   console / exceptions / HTTP │
+┌──────────────────────────────┐           │                                            │
+│ app → WKWebView              │◄──usbmux──┤   ├─ devtools: localhost:3300 (WIP ↔ CDP)  │
+│   Wi-Fi HTTP Proxy ─────────────────────►│   └─ dev:      selective HTTPS MITM proxy  │
+└──────────────────────────────┘           └────────────────────────────────────────────┘
 ```
 
 ## Finding the WebView (`src/node/adb.ts`, `src/node/device.ts`)

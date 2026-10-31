@@ -65,6 +65,15 @@ export interface NavigateOptions {
     timeoutMs?: number;
 }
 
+export type NetworkThrottlePreset = 'none' | 'fast-4g' | 'slow-4g' | '3g';
+
+export interface NetworkThrottleProfile {
+    readonly offline: boolean;
+    readonly latency: number;
+    readonly downloadThroughput: number;
+    readonly uploadThroughput: number;
+}
+
 export interface InspectorSession {
     readonly platform: Platform;
     readonly capabilities: InspectorCapabilities;
@@ -73,6 +82,9 @@ export interface InspectorSession {
     navigate(url: string, options?: NavigateOptions): Promise<void>;
     reload(options?: { ignoreCache?: boolean }): Promise<void>;
     setCacheDisabled(disabled: boolean): Promise<void>;
+    setNetworkThrottle?(preset: NetworkThrottlePreset): Promise<void>;
+    setCpuThrottle?(rate: number): Promise<void>;
+    getMemoryUsageMb?(): Promise<number | null>;
     attachTelemetry?(options?: TelemetryOptions): Promise<() => void>;
     close(): void;
     readonly closed: Promise<void>;

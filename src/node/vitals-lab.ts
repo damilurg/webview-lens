@@ -12,6 +12,7 @@ import type {
     DriverTargetOptions,
     InspectableTarget,
     InspectorCapabilities,
+    NetworkThrottlePreset,
 } from './drivers/types.ts';
 import {
     isMetricName,
@@ -60,12 +61,23 @@ export interface LabRun {
     marks?: Record<string, number>;
 }
 
+export const NETWORK_THROTTLE_PRESETS: readonly NetworkThrottlePreset[] = [
+    'none',
+    'fast-4g',
+    'slow-4g',
+    '3g',
+];
+
+export const isNetworkThrottlePreset = (value: string): value is NetworkThrottlePreset =>
+    (NETWORK_THROTTLE_PRESETS as readonly string[]).includes(value);
+
 export type LabRow = Record<MetricName, number | null> & {
     path: string;
     lcpElement: string | null;
     shifts: number[];
     longTasks?: { count: number; totalMs: number };
     marks?: Record<string, number>;
+    jsHeapMb?: number;
 };
 
 export interface LabResult {
@@ -142,6 +154,10 @@ export interface LabOptions {
     cold?: boolean;
     /** Seconds to tap around after load, for INP. Default 0: INP is not measured. */
     interact?: number;
+    /** Network throttling profile (Android CDP). Default: `'none'`. */
+    throttle?: NetworkThrottlePreset;
+    /** CPU slowdown multiplier (e.g. `4` = 4x slowdown, Android CDP). Default: `1`. */
+    cpu?: number;
     /** Wait after the load event for late paints and shifts. Default 4000 ms. */
     settleMs?: number;
     isTarget?: (target: Pick<InspectableTarget, 'id' | 'type' | 'url' | 'title'>) => boolean;
@@ -177,6 +193,8 @@ export const measureVitals = async ({
     runs = 3,
     cold = false,
     interact = 0,
+    throttle = 'none',
+    cpu = 1,
     settleMs = 4000,
     isTarget = (target) => target.type === 'page' && /^https?:/.test(target.url),
     log = console.log,
@@ -206,11 +224,21 @@ export const measureVitals = async ({
     const device = await activeDriver.getDeviceDescription(targetOptions);
 
     await session.setCacheDisabled(cold);
+    if (throttle !== 'none') {
+        if (session.setNetworkThrottle) await session.setNetworkThrottle(throttle);
+        else log(`Note: network throttling (${throttle}) is not supported on ${session.platform}`);
+    }
+    if (cpu > 1) {
+        if (session.setCpuThrottle) await session.setCpuThrottle(cpu);
+        else log(`Note: CPU throttling (${cpu}x) is not supported on ${session.platform}`);
+    }
     await session.addInitScript(COLLECTOR);
 
     log(`Measuring ${origin}: ${paths.join(', ')} × ${runs}${cold ? ', cache disabled' : ''}`);
 
-    const measure = async (url: string): Promise<LabRun | null> => {
+    const measure = async (
+        url: string,
+    ): Promise<{ vitals: LabRun | null; jsHeapMb: number | null }> => {
         await session.navigate(url, { waitForLoad: true, timeoutMs: 30_000 });
         if (settleMs > 0) await sleep(settleMs);
 
@@ -222,8 +250,9 @@ export const measureVitals = async ({
         const raw = await session.evaluate<string | undefined>(
             'JSON.stringify(window.__webviewLensVitals ?? null)',
         );
+        const jsHeapMb = session.getMemoryUsageMb ? await session.getMemoryUsageMb() : null;
 
-        return JSON.parse(raw ?? 'null');
+        return { vitals: JSON.parse(raw ?? 'null'), jsHeapMb };
     };
 
     const rows: LabRow[] = [];
@@ -231,11 +260,13 @@ export const measureVitals = async ({
     try {
         for (const pagePath of paths) {
             const results: LabRun[] = [];
+            const heaps: (number | null)[] = [];
 
             for (let run = 1; run <= runs; run += 1) {
-                const vitals = await measure(origin + pagePath);
+                const { vitals, jsHeapMb } = await measure(origin + pagePath);
 
                 results.push(vitals ?? { lcp: null, fcp: null, cls: null, inp: null, ttfb: null });
+                heaps.push(jsHeapMb);
                 log(
                     `  ${pagePath} #${run}: LCP ${formatMetric('LCP', vitals?.lcp)}, CLS ${formatMetric('CLS', vitals?.cls)}`,
                 );
@@ -246,6 +277,7 @@ export const measureVitals = async ({
             const last = results.at(-1);
             const ltCount = median(results.map((r) => r.longTasksCount));
             const ltTotal = median(results.map((r) => r.longTasksTotalMs));
+            const medianHeap = median(heaps);
 
             rows.push({
                 path: pagePath,
@@ -265,10 +297,17 @@ export const measureVitals = async ({
                       }
                     : {}),
                 ...(last?.marks && Object.keys(last.marks).length > 0 ? { marks: last.marks } : {}),
+                ...(medianHeap !== null ? { jsHeapMb: medianHeap } : {}),
             });
         }
     } finally {
         await session.setCacheDisabled(false).catch(() => undefined);
+        if (throttle !== 'none' && session.setNetworkThrottle) {
+            await session.setNetworkThrottle('none').catch(() => undefined);
+        }
+        if (cpu > 1 && session.setCpuThrottle) {
+            await session.setCpuThrottle(1).catch(() => undefined);
+        }
         session.close();
     }
 
@@ -308,13 +347,19 @@ export const toMarkdown = (
         return `${ICON[rateOrNone(name, value) ?? 'none']} ${formatMetric(name, value)}`;
     };
     const hasLongTasks = rows.some((row) => row.longTasks !== undefined);
+    const hasHeap = rows.some((row) => row.jsHeapMb !== undefined);
     const hasMarks = rows.some((row) => row.marks && Object.keys(row.marks).length > 0);
-    const extraHeaders = [...(hasLongTasks ? ['Long Tasks'] : []), ...(hasMarks ? ['Marks'] : [])];
+    const extraHeaders = [
+        ...(hasLongTasks ? ['Long Tasks'] : []),
+        ...(hasHeap ? ['JS Heap'] : []),
+        ...(hasMarks ? ['Marks'] : []),
+    ];
 
     const extraCells = (row: LabRow): string[] => [
         ...(hasLongTasks
             ? [row.longTasks ? `${row.longTasks.count} (${row.longTasks.totalMs} ms)` : '—']
             : []),
+        ...(hasHeap ? [row.jsHeapMb !== undefined ? `${row.jsHeapMb.toFixed(1)} MB` : '—'] : []),
         ...(hasMarks
             ? [
                   row.marks && Object.keys(row.marks).length > 0

@@ -39,6 +39,7 @@ export {
     type AndroidDriverDeps,
     createAndroidDriver,
     createCdpInspectorSession,
+    NETWORK_THROTTLE_PROFILES,
     pageToTarget,
 } from './drivers/android.ts';
 export {
@@ -119,6 +120,8 @@ export {
     type InspectorSession,
     isPlatformSelection,
     type NavigateOptions,
+    type NetworkThrottlePreset,
+    type NetworkThrottleProfile,
     type Platform,
     PLATFORM_SELECTIONS,
     type PlatformSelection,
@@ -189,12 +192,14 @@ export {
     checkBudgets,
     COLLECTOR,
     formatMetric,
+    isNetworkThrottlePreset,
     type LabOptions,
     type LabResult,
     type LabRow,
     type LabRun,
     measureVitals,
     median,
+    NETWORK_THROTTLE_PRESETS,
     parseBudgets,
     toMarkdown,
 } from './vitals-lab.ts';

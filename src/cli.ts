@@ -24,7 +24,9 @@ import { attachTelemetry } from './node/telemetry.ts';
 import {
     checkBudgets,
     formatMetric,
+    isNetworkThrottlePreset,
     measureVitals,
+    NETWORK_THROTTLE_PRESETS,
     parseBudgets,
     toMarkdown,
 } from './node/vitals-lab.ts';
@@ -68,6 +70,8 @@ vitals
   --runs <n>        runs per screen, the median is reported (3)
   --cold            disable the cache (first visit)
   --interact <s>    seconds to tap around after load, for INP (0: not measured)
+  --throttle <p>    network throttling on Android: none, fast-4g, slow-4g, 3g (none)
+  --cpu <rate>      CPU slowdown multiplier on Android, e.g. 4 (1)
   --budget <spec>   CI thresholds, e.g. lcp=2500,cls=0.1 (exits 1 if exceeded)
   --out <file>      Markdown report (webview-vitals.md)
 
@@ -99,6 +103,8 @@ const { values, positionals } = parseArgs({
         runs: { type: 'string', default: '3' },
         cold: { type: 'boolean', default: false },
         interact: { type: 'string', default: '0' },
+        throttle: { type: 'string', default: 'none' },
+        cpu: { type: 'string', default: '1' },
         budget: { type: 'string' },
         out: { type: 'string', default: 'webview-vitals.md' },
     },
@@ -385,6 +391,17 @@ async function devtools() {
 }
 
 async function vitals() {
+    if (!isNetworkThrottlePreset(values.throttle)) {
+        throw new Error(
+            `Unknown --throttle "${values.throttle}". Expected one of: ${NETWORK_THROTTLE_PRESETS.join(', ')}`,
+        );
+    }
+    const cpu = Number(values.cpu);
+
+    if (!Number.isFinite(cpu) || cpu < 1) {
+        throw new Error(`Invalid --cpu "${values.cpu}". Expected a number >= 1`);
+    }
+
     const budgets = values.budget ? parseBudgets(values.budget) : undefined;
     const driver = await selectDriver();
     const paths = args.length > 0 ? args.map(fromGitBashPath) : ['/'];
@@ -398,6 +415,8 @@ async function vitals() {
         runs: Number(values.runs),
         cold: values.cold,
         interact: Number(values.interact),
+        throttle: values.throttle,
+        cpu,
         wait: targetOptions,
         isTarget: (page) =>
             page.type === 'page' &&

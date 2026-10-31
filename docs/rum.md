@@ -1,0 +1,76 @@
+# Production RUM Integration Guide
+
+`webview-lens/rum` and `webview-lens/rum/server` provide a lightweight, zero-dependency transport and validation layer for Web Vitals, custom timings (e.g. native bridge init), and global JS errors.
+
+## Client Setup (Any Frontend Framework)
+
+```ts
+import {
+    captureGlobalErrors,
+    createErrorReporter,
+    createTimingReporter,
+    createVitalsReporter,
+    detectWebViewEnv,
+} from 'webview-lens/rum';
+import { onCLS, onFCP, onINP, onLCP, onTTFB } from 'web-vitals';
+
+const context = () => ({
+    env: detectWebViewEnv(), // 'android-webview' | 'ios-wkwebview' | 'browser'
+    release: import.meta.env.VITE_RELEASE ?? 'dev',
+});
+
+const reportVital = createVitalsReporter({
+    endpoint: '/api/vitals',
+    path: () => '/event/:id', // supports both :param and [param] templates
+    sampleRate: 0.5,
+    context,
+});
+[onCLS, onINP, onLCP, onFCP, onTTFB].forEach((on) => on(reportVital));
+
+export const reportTiming = createTimingReporter({
+    endpoint: '/api/timings',
+    context,
+});
+
+captureGlobalErrors(createErrorReporter({ endpoint: '/api/client-log', context }));
+```
+
+## Server Setup
+
+### Next.js App Router / Hono / Bun / Deno (Fetch API)
+
+```ts
+import { createTimingsHandler, createVitalsHandler } from 'webview-lens/rum/server';
+
+export const POST = createVitalsHandler({
+    onMetric: ({ name, value, rating, path, context }) => {
+        // Forward to Prometheus, ClickHouse, OpenTelemetry, or structured logs
+        prometheusHistogram.observe({ name, rating, path, env: context?.env ?? 'unknown' }, value);
+    },
+});
+```
+
+### Express / NestJS / `node:http`
+
+```ts
+import express from 'express';
+import {
+    createClientLogHandler,
+    createTimingsHandler,
+    createVitalsHandler,
+    toNodeHandler,
+} from 'webview-lens/rum/server';
+
+const app = express();
+
+app.post('/api/vitals', toNodeHandler(createVitalsHandler({ onMetric: (m) => console.info(m) })));
+app.post('/api/timings', toNodeHandler(createTimingsHandler({ onTiming: (t) => console.info(t) })));
+app.post(
+    '/api/client-log',
+    toNodeHandler(createClientLogHandler({ onLog: (e) => console.error(e) })),
+);
+```
+
+## Note on iOS WKWebView Metrics
+
+Safari/WKWebView supports `TTFB`, `FCP`, Navigation/Resource Timing, custom timings (`createTimingReporter`), and global error capture (`captureGlobalErrors`), while `CLS` and `INP` (and `LCP` on older iOS versions) are not emitted by WebKit. Always segment dashboards by `context.env` (`android-webview` vs `ios-wkwebview`).
