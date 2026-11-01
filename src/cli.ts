@@ -342,20 +342,20 @@ async function devtools() {
             const target = await driver.waitForTarget(matchesIosTarget, targetOptions);
 
             console.log(`iOS WKWebView: ${target.title} (${target.url})`);
-            if (values.logs) {
-                try {
-                    const session = await driver.connectInspector(target);
-                    const detach = await session.attachTelemetry?.();
-
-                    console.log(`Live logs attached to ${target.url}`);
-                    await session.closed;
-                    detach?.();
-                } catch (error) {
-                    console.error(errorMessage(error));
-                    await sleep(2000);
-                }
-            } else {
+            if (!values.logs) {
                 await sleep(5000);
+                continue;
+            }
+            try {
+                const session = await driver.connectInspector(target);
+                const detach = await session.attachTelemetry?.();
+
+                console.log(`Live logs attached to ${target.url}`);
+                await session.closed;
+                detach?.();
+            } catch (error) {
+                console.error(errorMessage(error));
+                await sleep(2000);
             }
         }
     }
@@ -370,22 +370,22 @@ async function devtools() {
     for (;;) {
         const page = await waitForPage(port, isTarget, targetOptions);
 
-        if (values.logs) {
-            try {
-                const cdp = await connectCdp(page.webSocketDebuggerUrl);
-                const detach = attachTelemetry(cdp);
-
-                await cdp.send('Runtime.enable');
-                await cdp.send('Network.enable');
-                console.log(`Live logs attached to ${page.url}`);
-                await cdp.closed;
-                detach();
-            } catch (error) {
-                console.error(errorMessage(error));
-                await sleep(2000);
-            }
-        } else {
+        if (!values.logs) {
             await sleep(5000);
+            continue;
+        }
+        try {
+            const cdp = await connectCdp(page.webSocketDebuggerUrl);
+            const detach = attachTelemetry(cdp);
+
+            await cdp.send('Runtime.enable');
+            await cdp.send('Network.enable');
+            console.log(`Live logs attached to ${page.url}`);
+            await cdp.closed;
+            detach();
+        } catch (error) {
+            console.error(errorMessage(error));
+            await sleep(2000);
         }
     }
 }
@@ -437,21 +437,23 @@ async function vitals() {
     fs.writeFileSync(values.out, toMarkdown(result));
     console.log(`Report: ${path.resolve(values.out)}`);
 
-    if (budgets) {
-        const violations = checkBudgets(result, budgets);
+    if (!budgets) return;
 
-        if (violations.length > 0) {
-            console.error('Performance budget exceeded:');
-            for (const v of violations) {
-                console.error(
-                    `  ✗ ${v.path} ${v.metric}: ${formatMetric(v.metric, v.actual)} > ${formatMetric(v.metric, v.limit)}`,
-                );
-            }
-            process.exitCode = 1;
-        } else {
-            console.log('✓ All performance budgets passed');
-        }
+    const violations = checkBudgets(result, budgets);
+
+    if (violations.length === 0) {
+        console.log('✓ All performance budgets passed');
+
+        return;
     }
+
+    console.error('Performance budget exceeded:');
+    for (const v of violations) {
+        console.error(
+            `  ✗ ${v.path} ${v.metric}: ${formatMetric(v.metric, v.actual)} > ${formatMetric(v.metric, v.limit)}`,
+        );
+    }
+    process.exitCode = 1;
 }
 
 async function doctor() {

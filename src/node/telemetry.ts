@@ -185,8 +185,12 @@ export const attachTelemetry = (
 
             const line = formatConsoleEvent(event);
 
-            if (level === 'error' || level === 'assert') error(line);
-            else log(line);
+            if (level === 'error' || level === 'assert') {
+                error(line);
+
+                return;
+            }
+            log(line);
         }),
     );
 

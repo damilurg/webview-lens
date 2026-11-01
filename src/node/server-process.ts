@@ -68,7 +68,8 @@ export const ensureServer = async (
     if (command && isLocalhost) {
         log(`Starting the local server: ${command}`);
         server = spawnServer(command, { log });
-    } else {
+    }
+    if (!server) {
         log(`… Local server ${url} does not respond: start it (or pass --cmd), waiting`);
     }
 

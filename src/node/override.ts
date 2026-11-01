@@ -249,9 +249,9 @@ export const bridgeShim = (
         send(data) {
             const binary = typeof data !== 'string';
             const go = (payload) => post({ sid: this.sid, type: 'send', data: payload, binary });
-            if (!binary) go(data);
-            else if (data instanceof Blob) data.arrayBuffer().then((b) => go(b64(b)));
-            else go(b64(ArrayBuffer.isView(data) ? data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength) : data));
+            if (!binary) { go(data); return; }
+            if (data instanceof Blob) { data.arrayBuffer().then((b) => go(b64(b))); return; }
+            go(b64(ArrayBuffer.isView(data) ? data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength) : data));
         }
         close() { this.readyState = 2; post({ sid: this.sid, type: 'close' }); }
         _emit(type, init) {
@@ -263,13 +263,15 @@ export const bridgeShim = (
     window.${RECEIVER} = (sid, type, data, binary) => {
         const ws = open.get(sid);
         if (!ws) return;
-        if (type === 'open') { ws.readyState = 1; ws._emit('open'); }
-        else if (type === 'message') {
+        if (type === 'open') { ws.readyState = 1; ws._emit('open'); return; }
+        if (type === 'message') {
             let payload = data;
             if (binary) { const bytes = Uint8Array.from(atob(data), (c) => c.charCodeAt(0)); payload = ws.binaryType === 'arraybuffer' ? bytes.buffer : new Blob([bytes]); }
             ws._emit('message', { data: payload });
-        } else if (type === 'error') ws._emit('error');
-        else if (type === 'close') { ws.readyState = 3; open.delete(sid); ws._emit('close'); }
+            return;
+        }
+        if (type === 'error') { ws._emit('error'); return; }
+        if (type === 'close') { ws.readyState = 3; open.delete(sid); ws._emit('close'); }
     };
     window.WebSocket = new Proxy(Native, {
         construct(target, args) { const url = String(args[0]); return prefixes.some((p) => url.startsWith(p)) ? new Bridged(args[0]) : new target(...args); },
@@ -384,11 +386,12 @@ export const startOverride = async ({
                 );
                 if (ssePolicy === 'continue') {
                     await cdp.send('Fetch.continueRequest', { requestId }).catch(() => undefined);
-                } else {
-                    await cdp
-                        .send('Fetch.failRequest', { requestId, errorReason: 'Aborted' })
-                        .catch(() => undefined);
+
+                    return;
                 }
+                await cdp
+                    .send('Fetch.failRequest', { requestId, errorReason: 'Aborted' })
+                    .catch(() => undefined);
 
                 return;
             }
@@ -429,7 +432,8 @@ export const startOverride = async ({
 
             if (code !== 'ECONNREFUSED') {
                 logger.error(`FAIL ${request.method} ${url}: ${code}`);
-            } else if (!isLocalDownReported) {
+            }
+            if (code === 'ECONNREFUSED' && !isLocalDownReported) {
                 isLocalDownReported = true;
                 logger.error(`Local server ${mapper.localOrigin} does not respond`);
             }
@@ -520,8 +524,16 @@ export const startOverride = async ({
         await cdp.send('Page.reload', { ignoreCache: true });
     };
 
-    if (mapper.matchesRemote(page.url)) await reload();
-    else await cdp.send('Page.navigate', { url: mapper.entryUrl });
+    const ensureOnTarget = async () => {
+        if (mapper.matchesRemote(page.url)) {
+            await reload();
+
+            return;
+        }
+        await cdp.send('Page.navigate', { url: mapper.entryUrl });
+    };
+
+    await ensureOnTarget();
 
     void cdp.closed.then(() => {
         detachTelemetry?.();

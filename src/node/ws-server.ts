@@ -32,27 +32,49 @@ export const buildWebSocketAcceptResponse = (key: string): string =>
         '',
     ].join('\r\n');
 
-/** Encodes a server-to-client (unmasked) RFC 6455 WebSocket frame. */
-export const encodeWsFrame = (data: string | Buffer, opcode = WS_OPCODE_TEXT): Buffer => {
-    const payload = typeof data === 'string' ? Buffer.from(data, 'utf8') : data;
-    const len = payload.length;
-    let header: Buffer;
+const encodeWsHeader = (opcode: number, len: number): Buffer => {
+    if (len < 126) return Buffer.from([0x80 | opcode, len]);
 
-    if (len < 126) {
-        header = Buffer.from([0x80 | opcode, len]);
-    } else if (len <= 0xffff) {
-        header = Buffer.alloc(4);
+    if (len <= 0xffff) {
+        const header = Buffer.alloc(4);
+
         header[0] = 0x80 | opcode;
         header[1] = 126;
         header.writeUInt16BE(len, 2);
-    } else {
-        header = Buffer.alloc(10);
-        header[0] = 0x80 | opcode;
-        header[1] = 127;
-        header.writeBigUInt64BE(BigInt(len), 2);
+
+        return header;
     }
 
-    return Buffer.concat([header, payload]);
+    const header = Buffer.alloc(10);
+
+    header[0] = 0x80 | opcode;
+    header[1] = 127;
+    header.writeBigUInt64BE(BigInt(len), 2);
+
+    return header;
+};
+
+/** Encodes a server-to-client (unmasked) RFC 6455 WebSocket frame. */
+export const encodeWsFrame = (data: string | Buffer, opcode = WS_OPCODE_TEXT): Buffer => {
+    const payload = typeof data === 'string' ? Buffer.from(data, 'utf8') : data;
+
+    return Buffer.concat([encodeWsHeader(opcode, payload.length), payload]);
+};
+
+const readWsPayloadLength = (
+    buffer: Buffer,
+    offset: number,
+    initialLen: number,
+): { payloadLen: number; headerLen: number } | null => {
+    if (initialLen < 126) return { payloadLen: initialLen, headerLen: 2 };
+    if (initialLen === 126) {
+        if (offset + 4 > buffer.length) return null;
+
+        return { payloadLen: buffer.readUInt16BE(offset + 2), headerLen: 4 };
+    }
+    if (offset + 10 > buffer.length) return null;
+
+    return { payloadLen: Number(buffer.readBigUInt64BE(offset + 2)), headerLen: 10 };
 };
 
 /** Decodes zero or more RFC 6455 frames from a stream buffer, returning any trailing fragment. */
@@ -66,26 +88,18 @@ export const decodeWsFrames = (buffer: Buffer): { frames: WsFrame[]; remainder: 
         const fin = Boolean(b0 & 0x80);
         const opcode = b0 & 0x0f;
         const masked = Boolean(b1 & 0x80);
-        let payloadLen = b1 & 0x7f;
-        let headerLen = 2;
+        const parsedLen = readWsPayloadLength(buffer, offset, b1 & 0x7f);
 
-        if (payloadLen === 126) {
-            if (offset + 4 > buffer.length) break;
-            payloadLen = buffer.readUInt16BE(offset + 2);
-            headerLen = 4;
-        } else if (payloadLen === 127) {
-            if (offset + 10 > buffer.length) break;
-            payloadLen = Number(buffer.readBigUInt64BE(offset + 2));
-            headerLen = 10;
-        }
+        if (!parsedLen) break;
 
+        const { payloadLen, headerLen } = parsedLen;
         const maskLen = masked ? 4 : 0;
         const frameLen = headerLen + maskLen + payloadLen;
 
         if (offset + frameLen > buffer.length) break;
 
         const payloadStart = offset + headerLen + maskLen;
-        let payload = Buffer.from(buffer.subarray(payloadStart, payloadStart + payloadLen));
+        const payload = Buffer.from(buffer.subarray(payloadStart, payloadStart + payloadLen));
 
         if (masked) {
             const maskStart = offset + headerLen;

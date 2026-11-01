@@ -225,12 +225,20 @@ export const measureVitals = async ({
 
     await session.setCacheDisabled(cold);
     if (throttle !== 'none') {
-        if (session.setNetworkThrottle) await session.setNetworkThrottle(throttle);
-        else log(`Note: network throttling (${throttle}) is not supported on ${session.platform}`);
+        if (session.setNetworkThrottle) {
+            await session.setNetworkThrottle(throttle);
+        }
+        if (!session.setNetworkThrottle) {
+            log(`Note: network throttling (${throttle}) is not supported on ${session.platform}`);
+        }
     }
     if (cpu > 1) {
-        if (session.setCpuThrottle) await session.setCpuThrottle(cpu);
-        else log(`Note: CPU throttling (${cpu}x) is not supported on ${session.platform}`);
+        if (session.setCpuThrottle) {
+            await session.setCpuThrottle(cpu);
+        }
+        if (!session.setCpuThrottle) {
+            log(`Note: CPU throttling (${cpu}x) is not supported on ${session.platform}`);
+        }
     }
     await session.addInitScript(COLLECTOR);
 

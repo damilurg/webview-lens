@@ -126,11 +126,13 @@ export const handleDecryptedRequest = async ({
 
         if (!bypassed && lower === 'origin') {
             outHeaders.origin = mapper.localOrigin;
-        } else if (!bypassed && lower === 'referer') {
-            outHeaders.referer = mapper.toLocal(value);
-        } else {
-            outHeaders[lower] = value;
+            continue;
         }
+        if (!bypassed && lower === 'referer') {
+            outHeaders.referer = mapper.toLocal(value);
+            continue;
+        }
+        outHeaders[lower] = value;
     }
 
     const init: RequestInit = {

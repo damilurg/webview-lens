@@ -335,11 +335,11 @@ export const toNodeHandler =
 
         for (const [name, value] of Object.entries(req.headers)) {
             if (value === undefined) continue;
-            if (Array.isArray(value)) {
-                for (const item of value) headers.append(name, item);
-            } else {
+            if (!Array.isArray(value)) {
                 headers.set(name, value);
+                continue;
             }
+            for (const item of value) headers.append(name, item);
         }
 
         const init: RequestInit & { duplex?: 'half' } = { method, headers };

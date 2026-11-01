@@ -101,8 +101,12 @@ export const connectCdp = async (webSocketDebuggerUrl: string): Promise<Cdp> => 
             const call = pending.get(message.id);
 
             pending.delete(message.id);
-            if (message.error) call?.reject(new Error(message.error.message));
-            else call?.resolve(message.result);
+            if (message.error) {
+                call?.reject(new Error(message.error.message));
+
+                return;
+            }
+            call?.resolve(message.result);
 
             return;
         }

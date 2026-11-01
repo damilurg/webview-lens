@@ -47,28 +47,29 @@ const derBitString = (content: Buffer, unusedBits = 0): Buffer =>
 const derBoolean = (value: boolean): Buffer => derTag(0x01, Buffer.from([value ? 0xff : 0x00]));
 const derUtf8 = (value: string): Buffer => derTag(0x0c, Buffer.from(value, 'utf8'));
 
-const derInteger = (raw: Buffer | number): Buffer => {
-    let buf: Buffer;
-
-    if (typeof raw === 'number') {
-        if (raw === 0) {
-            buf = Buffer.from([0]);
-        } else {
-            const bytes: number[] = [];
-            let n = raw;
-
-            while (n > 0) {
-                bytes.unshift(n & 0xff);
-                n >>= 8;
-            }
-            buf = Buffer.from(bytes);
-        }
-    } else {
+const encodeIntegerBytes = (raw: Buffer | number): Buffer => {
+    if (typeof raw !== 'number') {
         let start = 0;
 
         while (start < raw.length - 1 && raw[start] === 0) start += 1;
-        buf = raw.subarray(start);
+
+        return raw.subarray(start);
     }
+    if (raw === 0) return Buffer.from([0]);
+
+    const bytes: number[] = [];
+    let n = raw;
+
+    while (n > 0) {
+        bytes.unshift(n & 0xff);
+        n >>= 8;
+    }
+
+    return Buffer.from(bytes);
+};
+
+const derInteger = (raw: Buffer | number): Buffer => {
+    let buf = encodeIntegerBytes(raw);
 
     if ((buf[0] ?? 0) & 0x80) buf = Buffer.concat([Buffer.from([0]), buf]);
 
