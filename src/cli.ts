@@ -6,8 +6,9 @@ import path from 'node:path';
 import readline from 'node:readline';
 import { parseArgs } from 'node:util';
 
-import { resolveAdb } from './node/adb.ts';
+import { createAdbRunner, removeReversePort, resolveAdb, reversePort } from './node/adb.ts';
 import { connectCdp, type PagePredicate } from './node/cdp.ts';
+import { loadProjectConfig, mergeCliConfig } from './node/config.ts';
 import { waitForPage } from './node/device.ts';
 import { startDevtoolsLink } from './node/devtools-link.ts';
 import { defaultCertDir, ensureRootCa } from './node/drivers/ios/certs.ts';
@@ -19,6 +20,7 @@ import { isPlatformSelection, PLATFORM_SELECTIONS } from './node/drivers/types.t
 import { startOverride, type OverrideSession, type SsePolicy } from './node/override.ts';
 import { fromGitBashPath } from './node/paths.ts';
 import { isPresetSelection, PRESET_SELECTIONS, resolvePreset } from './node/presets.ts';
+import { renderQrTerminal } from './node/qr.ts';
 import { ensureServer } from './node/server-process.ts';
 import { attachTelemetry } from './node/telemetry.ts';
 import {
@@ -42,6 +44,7 @@ Usage
   webview-lens doctor                      what blocks the connection to the phone
 
 Common options
+  --config <file>   path to project config JSON (default: webview-lens.config.json if present)
   --platform <p>    device platform: auto, android, ios (auto)
   --port <n>        local port forwarded to the WebView DevTools socket (9223, env DEVTOOLS_PORT)
   --serial <id>     target Android device serial when multiple phones are connected (env ANDROID_SERIAL)
@@ -82,42 +85,36 @@ const { values, positionals } = parseArgs({
     allowPositionals: true,
     options: {
         help: { type: 'boolean', short: 'h' },
-        platform: { type: 'string', default: 'auto' },
-        port: { type: 'string', default: process.env.DEVTOOLS_PORT ?? '9223' },
+        config: { type: 'string' },
+        platform: { type: 'string' },
+        port: { type: 'string' },
         serial: { type: 'string' },
         app: { type: 'string' },
         match: { type: 'string' },
-        logs: { type: 'boolean', default: false },
+        logs: { type: 'boolean' },
         remote: { type: 'string' },
         'remote-base': { type: 'string' },
         'local-base': { type: 'string' },
-        preset: { type: 'string', default: 'auto' },
+        preset: { type: 'string' },
         cmd: { type: 'string' },
         ws: { type: 'string', multiple: true },
         'hmr-port': { type: 'string', multiple: true },
         quiet: { type: 'string', multiple: true },
         bypass: { type: 'string', multiple: true },
-        sse: { type: 'string', default: 'fail' },
-        'proxy-port': { type: 'string', default: '8888' },
-        'link-port': { type: 'string', default: process.env.DEVTOOLS_LINK_PORT ?? '3300' },
+        sse: { type: 'string' },
+        'proxy-port': { type: 'string' },
+        'link-port': { type: 'string' },
         runs: { type: 'string', default: '3' },
         cold: { type: 'boolean', default: false },
         interact: { type: 'string', default: '0' },
-        throttle: { type: 'string', default: 'none' },
-        cpu: { type: 'string', default: '1' },
+        throttle: { type: 'string' },
+        cpu: { type: 'string' },
         budget: { type: 'string' },
         out: { type: 'string', default: 'webview-vitals.md' },
     },
 });
 
 const [command, ...args] = positionals;
-const port = values.port;
-const serial = values.serial ?? process.env.ANDROID_SERIAL;
-const app = values.app;
-const targetOptions = {
-    ...(serial ? { serial } : {}),
-    ...(app ? { app } : {}),
-};
 
 if (values.help || !command) {
     console.log(HELP);
@@ -129,11 +126,77 @@ if (typeof WebSocket === 'undefined') {
     process.exit(1);
 }
 
-const remoteOrigin = values.remote ? new URL(values.remote).origin : undefined;
+const loadedConfig = loadProjectConfig(values.config ? { configPath: values.config } : {});
+const cliHmrPorts = values['hmr-port']?.map((p) => {
+    const num = Number(p);
+
+    if (!Number.isInteger(num) || num <= 0 || num > 65535) {
+        throw new Error(`Invalid --hmr-port "${p}"`);
+    }
+
+    return num;
+});
+
+if (values.platform !== undefined && !isPlatformSelection(values.platform)) {
+    throw new Error(
+        `Unknown --platform "${values.platform}". Expected one of: ${PLATFORM_SELECTIONS.join(', ')}`,
+    );
+}
+if (values.preset !== undefined && !isPresetSelection(values.preset)) {
+    throw new Error(
+        `Unknown --preset "${values.preset}". Expected one of: ${PRESET_SELECTIONS.join(', ')}`,
+    );
+}
+if (values.sse !== undefined && values.sse !== 'fail' && values.sse !== 'continue') {
+    throw new Error(`Unknown --sse "${values.sse}". Expected "fail" or "continue"`);
+}
+if (values.throttle !== undefined && !isNetworkThrottlePreset(values.throttle)) {
+    throw new Error(
+        `Unknown --throttle "${values.throttle}". Expected one of: ${NETWORK_THROTTLE_PRESETS.join(', ')}`,
+    );
+}
+
+const cfg = mergeCliConfig(loadedConfig.config, {
+    ...(values.platform !== undefined ? { platform: values.platform } : {}),
+    ...(values.preset !== undefined ? { preset: values.preset } : {}),
+    ...(args[0] !== undefined && command === 'dev' ? { local: args[0] } : {}),
+    ...(values.remote !== undefined ? { remote: values.remote } : {}),
+    ...(values['remote-base'] !== undefined ? { remoteBase: values['remote-base'] } : {}),
+    ...(values['local-base'] !== undefined ? { localBase: values['local-base'] } : {}),
+    ...(values.cmd !== undefined ? { cmd: values.cmd } : {}),
+    ...(values.ws !== undefined ? { ws: values.ws } : {}),
+    ...(cliHmrPorts !== undefined ? { hmrPorts: cliHmrPorts } : {}),
+    ...(values.quiet !== undefined ? { quiet: values.quiet } : {}),
+    ...(values.bypass !== undefined ? { bypass: values.bypass } : {}),
+    ...(values.sse !== undefined ? { sse: values.sse } : {}),
+    ...(values.port !== undefined ? { port: values.port } : {}),
+    ...(values['link-port'] !== undefined ? { linkPort: values['link-port'] } : {}),
+    ...(values['proxy-port'] !== undefined ? { proxyPort: values['proxy-port'] } : {}),
+    ...(values.serial !== undefined ? { serial: values.serial } : {}),
+    ...(values.app !== undefined ? { app: values.app } : {}),
+    ...(values.match !== undefined ? { match: values.match } : {}),
+    ...(values.logs !== undefined ? { logs: values.logs } : {}),
+    ...(values.throttle !== undefined ? { throttle: values.throttle } : {}),
+    ...(values.cpu !== undefined ? { cpu: Number(values.cpu) } : {}),
+    ...(values.budget !== undefined ? { budget: values.budget } : {}),
+});
+
+const port = String(cfg.port ?? process.env.DEVTOOLS_PORT ?? '9223');
+const linkPort = String(cfg.linkPort ?? process.env.DEVTOOLS_LINK_PORT ?? '3300');
+const proxyPort = Number(cfg.proxyPort ?? 8888);
+const serial = cfg.serial ?? process.env.ANDROID_SERIAL;
+const app = cfg.app;
+const logsEnabled = Boolean(cfg.logs);
+const targetOptions = {
+    ...(serial ? { serial } : {}),
+    ...(app ? { app } : {}),
+};
+
+const remoteOrigin = cfg.remote ? new URL(cfg.remote).origin : undefined;
 
 const isTarget: PagePredicate = (page) => {
     if (page.type !== 'page') return false;
-    if (values.match) return page.url.includes(values.match);
+    if (cfg.match) return page.url.includes(cfg.match);
     if (remoteOrigin) return true;
 
     return page.url.startsWith('https://');
@@ -151,33 +214,21 @@ const logAdbPath = () => {
     }
 };
 
-const selectDriver = async () => {
-    if (!isPlatformSelection(values.platform)) {
-        throw new Error(
-            `Unknown --platform "${values.platform}". Expected one of: ${PLATFORM_SELECTIONS.join(', ')}`,
-        );
-    }
-
-    return resolveDriver(values.platform);
-};
+const selectDriver = async () => resolveDriver(cfg.platform ?? 'auto');
 
 async function dev() {
     const driver = await selectDriver();
+    const preset = resolvePreset(cfg.preset ?? 'auto');
+    const ssePolicy: SsePolicy = cfg.sse ?? 'fail';
+    const wsPrefixes = cfg.ws ?? preset.wsPrefixes;
+    const quietPrefixes = cfg.quiet ?? preset.quietPrefixes;
+    const hmrPorts = cfg.hmrPorts ?? [];
+    const local = (cfg.local ?? process.env.LOCAL_URL ?? 'http://localhost:3000').replace(
+        /\/$/,
+        '',
+    );
 
-    if (!isPresetSelection(values.preset)) {
-        throw new Error(
-            `Unknown --preset "${values.preset}". Expected one of: ${PRESET_SELECTIONS.join(', ')}`,
-        );
-    }
-    if (values.sse !== 'fail' && values.sse !== 'continue') {
-        throw new Error(`Unknown --sse "${values.sse}". Expected "fail" or "continue"`);
-    }
-
-    const preset = resolvePreset(values.preset);
-    const ssePolicy: SsePolicy = values.sse;
-    const wsPrefixes = values.ws ?? preset.wsPrefixes;
-    const quietPrefixes = values.quiet ?? preset.quietPrefixes;
-    const local = (args[0] ?? process.env.LOCAL_URL ?? 'http://localhost:3000').replace(/\/$/, '');
+    if (loadedConfig.path) console.log(`Config: ${loadedConfig.path}`);
 
     if (driver.platform === 'ios') {
         if (!remoteOrigin) {
@@ -186,18 +237,15 @@ async function dev() {
             );
         }
 
-        const server = await ensureServer(local, values.cmd ? { command: values.cmd } : {});
-        const proxyPort = Number(values['proxy-port']);
+        const server = await ensureServer(local, cfg.cmd ? { command: cfg.cmd } : {});
         const proxy = await startIosMitmProxy({
             remote: remoteOrigin,
             local,
-            ...(values['remote-base']
-                ? { remoteBase: fromGitBashPath(values['remote-base']) }
-                : {}),
-            ...(values['local-base'] ? { localBase: fromGitBashPath(values['local-base']) } : {}),
+            ...(cfg.remoteBase ? { remoteBase: fromGitBashPath(cfg.remoteBase) } : {}),
+            ...(cfg.localBase ? { localBase: fromGitBashPath(cfg.localBase) } : {}),
             port: proxyPort,
             quietPrefixes,
-            ...(values.bypass ? { bypassPrefixes: values.bypass.map(fromGitBashPath) } : {}),
+            ...(cfg.bypass ? { bypassPrefixes: cfg.bypass.map(fromGitBashPath) } : {}),
         });
 
         const cleanup = () => {
@@ -210,24 +258,24 @@ async function dev() {
         process.on('SIGTERM', () => process.exit(0));
 
         const lanIp = detectLanAddresses()[0] ?? 'localhost';
+        const profileUrl = `http://${lanIp}:${proxy.port}/webview-lens.mobileconfig`;
 
         console.log(`iOS selective MITM proxy listening on ${lanIp}:${proxy.port}`);
         console.log(
             `Intercepting ONLY ${proxy.targetHost} → ${local} (other domains pass through)`,
         );
         console.log(`Install CA on iPhone (once): http://${lanIp}:${proxy.port}/`);
+        console.log(renderQrTerminal(profileUrl));
         console.log(
             `Set iPhone Wi-Fi HTTP Proxy → Manual: Server ${lanIp}, Port ${proxy.port}. Ctrl+C exits.`,
         );
 
-        if (values.logs) {
+        if (logsEnabled) {
             for (;;) {
                 const target = await driver.waitForTarget(
                     (t) =>
                         t.type === 'page' &&
-                        (values.match
-                            ? t.url.includes(values.match)
-                            : t.url.startsWith(remoteOrigin)),
+                        (cfg.match ? t.url.includes(cfg.match) : t.url.startsWith(remoteOrigin)),
                     targetOptions,
                 );
 
@@ -248,19 +296,24 @@ async function dev() {
         await new Promise(() => undefined);
     }
 
-    const hmrPorts = (values['hmr-port'] ?? []).map((p) => {
-        const num = Number(p);
+    const server = await ensureServer(local, cfg.cmd ? { command: cfg.cmd } : {});
+    const reversedPorts: number[] = [];
 
-        if (!Number.isInteger(num) || num <= 0 || num > 65535) {
-            throw new Error(`Invalid --hmr-port "${p}"`);
+    const cleanupAndroid = () => {
+        const deviceRun = createAdbRunner(serial);
+
+        for (const hmrPort of reversedPorts) {
+            try {
+                removeReversePort(hmrPort, deviceRun);
+            } catch {
+                // Best-effort cleanup on exit.
+            }
         }
+        server?.stop();
+    };
 
-        return num;
-    });
-    const server = await ensureServer(local, values.cmd ? { command: values.cmd } : {});
-
-    if (server) {
-        process.on('exit', server.stop);
+    if (server || hmrPorts.length > 0) {
+        process.on('exit', cleanupAndroid);
         process.on('SIGINT', () => process.exit(0));
         process.on('SIGTERM', () => process.exit(0));
     }
@@ -268,7 +321,7 @@ async function dev() {
     logAdbPath();
     console.log(`Preset: ${preset.name} (ws: ${wsPrefixes.join(', ')})`);
 
-    const link = startDevtoolsLink({ port: values['link-port'], devtoolsPort: port, isTarget });
+    const link = startDevtoolsLink({ port: linkPort, devtoolsPort: port, isTarget });
     let session: OverrideSession | undefined;
 
     readline
@@ -279,6 +332,20 @@ async function dev() {
         const page = await waitForPage(port, isTarget, targetOptions);
         const remote = remoteOrigin ?? new URL(page.url).origin;
 
+        if (hmrPorts.length > 0) {
+            const deviceRun = createAdbRunner(serial);
+
+            for (const hmrPort of hmrPorts) {
+                if (reversedPorts.includes(hmrPort)) continue;
+                try {
+                    reversePort(hmrPort, hmrPort, deviceRun);
+                    reversedPorts.push(hmrPort);
+                } catch {
+                    // CDP bridgeShim still relays WebSockets on this port.
+                }
+            }
+        }
+
         console.log(`WebView: ${page.title} (${remote})`);
         console.log(`DevTools of the phone: ${link.url}, open it in Chrome`);
         try {
@@ -286,18 +353,14 @@ async function dev() {
                 page,
                 remote,
                 local,
-                ...(values['remote-base']
-                    ? { remoteBase: fromGitBashPath(values['remote-base']) }
-                    : {}),
-                ...(values['local-base']
-                    ? { localBase: fromGitBashPath(values['local-base']) }
-                    : {}),
+                ...(cfg.remoteBase ? { remoteBase: fromGitBashPath(cfg.remoteBase) } : {}),
+                ...(cfg.localBase ? { localBase: fromGitBashPath(cfg.localBase) } : {}),
                 wsPrefixes,
                 quietPrefixes,
                 ...(hmrPorts.length ? { hmrPorts } : {}),
-                ...(values.bypass ? { bypassPrefixes: values.bypass.map(fromGitBashPath) } : {}),
+                ...(cfg.bypass ? { bypassPrefixes: cfg.bypass.map(fromGitBashPath) } : {}),
                 ssePolicy,
-                telemetry: values.logs,
+                telemetry: logsEnabled,
             });
             console.log(`Override on: ${remote} → ${local}. Enter reloads the page, Ctrl+C exits.`);
             await session.closed;
@@ -325,14 +388,14 @@ async function devtools() {
 
         const matchesIosTarget = (t: { type: string; url: string }) =>
             t.type === 'page' &&
-            (!values.match
+            (!cfg.match
                 ? remoteOrigin
                     ? true
                     : t.url.startsWith('https://')
-                : t.url.includes(values.match));
+                : t.url.includes(cfg.match));
 
         const link = startIosDevtoolsLink({
-            port: values['link-port'],
+            port: linkPort,
             resolveTarget: async () =>
                 (await driver.listTargets(targetOptions))?.find(matchesIosTarget),
         });
@@ -342,7 +405,7 @@ async function devtools() {
             const target = await driver.waitForTarget(matchesIosTarget, targetOptions);
 
             console.log(`iOS WKWebView: ${target.title} (${target.url})`);
-            if (!values.logs) {
+            if (!logsEnabled) {
                 await sleep(5000);
                 continue;
             }
@@ -362,7 +425,7 @@ async function devtools() {
 
     logAdbPath();
 
-    const link = startDevtoolsLink({ port: values['link-port'], devtoolsPort: port, isTarget });
+    const link = startDevtoolsLink({ port: linkPort, devtoolsPort: port, isTarget });
 
     console.log(`DevTools of the phone: ${link.url}, open it in Chrome. Ctrl+C exits.`);
 
@@ -370,7 +433,7 @@ async function devtools() {
     for (;;) {
         const page = await waitForPage(port, isTarget, targetOptions);
 
-        if (!values.logs) {
+        if (!logsEnabled) {
             await sleep(5000);
             continue;
         }
@@ -391,18 +454,14 @@ async function devtools() {
 }
 
 async function vitals() {
-    if (!isNetworkThrottlePreset(values.throttle)) {
-        throw new Error(
-            `Unknown --throttle "${values.throttle}". Expected one of: ${NETWORK_THROTTLE_PRESETS.join(', ')}`,
-        );
-    }
-    const cpu = Number(values.cpu);
+    const throttle = cfg.throttle ?? 'none';
+    const cpu = cfg.cpu ?? 1;
 
     if (!Number.isFinite(cpu) || cpu < 1) {
-        throw new Error(`Invalid --cpu "${values.cpu}". Expected a number >= 1`);
+        throw new Error(`Invalid --cpu "${cpu}". Expected a number >= 1`);
     }
 
-    const budgets = values.budget ? parseBudgets(values.budget) : undefined;
+    const budgets = cfg.budget ? parseBudgets(cfg.budget) : undefined;
     const driver = await selectDriver();
     const paths = args.length > 0 ? args.map(fromGitBashPath) : ['/'];
 
@@ -415,13 +474,13 @@ async function vitals() {
         runs: Number(values.runs),
         cold: values.cold,
         interact: Number(values.interact),
-        throttle: values.throttle,
+        throttle,
         cpu,
         wait: targetOptions,
         isTarget: (page) =>
             page.type === 'page' &&
             /^https?:/.test(page.url) &&
-            (!values.match || page.url.includes(values.match)),
+            (!cfg.match || page.url.includes(cfg.match)),
     });
 
     console.table(
@@ -471,7 +530,6 @@ async function doctor() {
 async function cert() {
     const certDir = defaultCertDir();
     const ca = ensureRootCa(certDir);
-    const proxyPort = Number(values['proxy-port']);
     const proxy = await startIosMitmProxy({
         remote: remoteOrigin ?? 'https://webview-lens.local',
         local: 'http://127.0.0.1:3000',
@@ -484,12 +542,14 @@ async function cert() {
     });
 
     const lanIp = detectLanAddresses()[0] ?? 'localhost';
+    const profileUrl = `http://${lanIp}:${proxy.port}/webview-lens.mobileconfig`;
 
     console.log(`Root CA stored in: ${certDir}`);
     console.log(`Open on your iPhone in Safari: http://${lanIp}:${proxy.port}/`);
-    console.log(
-        `Direct profile URL:            http://${lanIp}:${proxy.port}/webview-lens.mobileconfig`,
-    );
+    console.log(`Direct profile URL:            ${profileUrl}`);
+    console.log('');
+    console.log(renderQrTerminal(profileUrl));
+    console.log('');
     console.log(
         'After installing, enable trust in: Settings → General → About → Certificate Trust Settings. Ctrl+C exits.',
     );

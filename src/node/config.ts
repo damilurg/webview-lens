@@ -1,0 +1,236 @@
+// Project configuration loader (`webview-lens.config.json`) with strict validation and CLI merging.
+
+import fs from 'node:fs';
+import path from 'node:path';
+
+import { isPlatformSelection, type PlatformSelection } from './drivers/types.ts';
+import type { SsePolicy } from './override.ts';
+import { isPresetSelection, type PresetSelection } from './presets.ts';
+import { isNetworkThrottlePreset } from './vitals-lab.ts';
+import type { NetworkThrottlePreset } from './drivers/types.ts';
+
+export const DEFAULT_CONFIG_FILE = 'webview-lens.config.json';
+
+export interface ProjectConfig {
+    platform?: PlatformSelection;
+    preset?: PresetSelection;
+    local?: string;
+    remote?: string;
+    remoteBase?: string;
+    localBase?: string;
+    cmd?: string;
+    ws?: string[];
+    hmrPorts?: number[];
+    quiet?: string[];
+    bypass?: string[];
+    sse?: SsePolicy;
+    port?: number | string;
+    linkPort?: number | string;
+    proxyPort?: number | string;
+    serial?: string;
+    app?: string;
+    match?: string;
+    logs?: boolean;
+    throttle?: NetworkThrottlePreset;
+    cpu?: number;
+    budget?: string;
+}
+
+export interface LoadedProjectConfig {
+    path: string | undefined;
+    config: ProjectConfig;
+}
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+    typeof value === 'object' && value !== null && !Array.isArray(value);
+
+const assertString = (obj: Record<string, unknown>, key: string): string | undefined => {
+    const val = obj[key];
+
+    if (val === undefined) return undefined;
+    if (typeof val !== 'string') throw new Error(`Config "${key}" must be a string`);
+
+    return val;
+};
+
+const assertStringArray = (obj: Record<string, unknown>, key: string): string[] | undefined => {
+    const val = obj[key];
+
+    if (val === undefined) return undefined;
+    if (!Array.isArray(val) || !val.every((item) => typeof item === 'string')) {
+        throw new Error(`Config "${key}" must be an array of strings`);
+    }
+
+    return [...val];
+};
+
+const assertPort = (value: unknown, field: string): number => {
+    const num = typeof value === 'string' ? Number(value) : value;
+
+    if (typeof num !== 'number' || !Number.isInteger(num) || num <= 0 || num > 65535) {
+        throw new Error(`Config "${field}" must be a valid TCP port (1..65535)`);
+    }
+
+    return num;
+};
+
+const assertPortArray = (obj: Record<string, unknown>, key: string): number[] | undefined => {
+    const val = obj[key];
+
+    if (val === undefined) return undefined;
+    if (!Array.isArray(val)) throw new Error(`Config "${key}" must be an array of TCP ports`);
+
+    return val.map((item) => assertPort(item, key));
+};
+
+const assertPortLike = (obj: Record<string, unknown>, key: string): number | string | undefined => {
+    const val = obj[key];
+
+    if (val === undefined) return undefined;
+    assertPort(val, key);
+
+    return typeof val === 'string' || typeof val === 'number' ? val : undefined;
+};
+
+/** Validates untrusted JSON into a typed `ProjectConfig` using early-return guards. */
+export const validateProjectConfig = (raw: unknown): ProjectConfig => {
+    if (!isRecord(raw)) {
+        throw new Error('webview-lens config must be a JSON object');
+    }
+
+    const config: ProjectConfig = {};
+
+    const platform = assertString(raw, 'platform');
+
+    if (platform !== undefined) {
+        if (!isPlatformSelection(platform)) {
+            throw new Error(`Invalid config "platform": "${platform}"`);
+        }
+        config.platform = platform;
+    }
+
+    const preset = assertString(raw, 'preset');
+
+    if (preset !== undefined) {
+        if (!isPresetSelection(preset)) {
+            throw new Error(`Invalid config "preset": "${preset}"`);
+        }
+        config.preset = preset;
+    }
+
+    const sse = assertString(raw, 'sse');
+
+    if (sse !== undefined) {
+        if (sse !== 'fail' && sse !== 'continue') {
+            throw new Error(`Invalid config "sse": "${sse}" (expected "fail" or "continue")`);
+        }
+        config.sse = sse;
+    }
+
+    const throttle = assertString(raw, 'throttle');
+
+    if (throttle !== undefined) {
+        if (!isNetworkThrottlePreset(throttle)) {
+            throw new Error(`Invalid config "throttle": "${throttle}"`);
+        }
+        config.throttle = throttle;
+    }
+
+    if (raw.logs !== undefined) {
+        if (typeof raw.logs !== 'boolean') throw new Error('Config "logs" must be a boolean');
+        config.logs = raw.logs;
+    }
+
+    if (raw.cpu !== undefined) {
+        if (typeof raw.cpu !== 'number' || !Number.isFinite(raw.cpu) || raw.cpu < 1) {
+            throw new Error('Config "cpu" must be a number >= 1');
+        }
+        config.cpu = raw.cpu;
+    }
+
+    const local = assertString(raw, 'local');
+    const remote = assertString(raw, 'remote');
+    const remoteBase = assertString(raw, 'remoteBase');
+    const localBase = assertString(raw, 'localBase');
+    const cmd = assertString(raw, 'cmd');
+    const serial = assertString(raw, 'serial');
+    const app = assertString(raw, 'app');
+    const match = assertString(raw, 'match');
+    const budget = assertString(raw, 'budget');
+    const ws = assertStringArray(raw, 'ws');
+    const quiet = assertStringArray(raw, 'quiet');
+    const bypass = assertStringArray(raw, 'bypass');
+    const hmrPorts = assertPortArray(raw, 'hmrPorts');
+    const port = assertPortLike(raw, 'port');
+    const linkPort = assertPortLike(raw, 'linkPort');
+    const proxyPort = assertPortLike(raw, 'proxyPort');
+
+    if (local !== undefined) config.local = local;
+    if (remote !== undefined) config.remote = remote;
+    if (remoteBase !== undefined) config.remoteBase = remoteBase;
+    if (localBase !== undefined) config.localBase = localBase;
+    if (cmd !== undefined) config.cmd = cmd;
+    if (serial !== undefined) config.serial = serial;
+    if (app !== undefined) config.app = app;
+    if (match !== undefined) config.match = match;
+    if (budget !== undefined) config.budget = budget;
+    if (ws !== undefined) config.ws = ws;
+    if (quiet !== undefined) config.quiet = quiet;
+    if (bypass !== undefined) config.bypass = bypass;
+    if (hmrPorts !== undefined) config.hmrPorts = hmrPorts;
+    if (port !== undefined) config.port = port;
+    if (linkPort !== undefined) config.linkPort = linkPort;
+    if (proxyPort !== undefined) config.proxyPort = proxyPort;
+
+    return config;
+};
+
+/** Loads `webview-lens.config.json` from `cwd` (or an explicit `configPath`). */
+export const loadProjectConfig = ({
+    cwd = process.cwd(),
+    configPath,
+}: {
+    cwd?: string;
+    configPath?: string;
+} = {}): LoadedProjectConfig => {
+    const resolved = configPath
+        ? path.resolve(cwd, configPath)
+        : path.join(cwd, DEFAULT_CONFIG_FILE);
+
+    if (!fs.existsSync(resolved)) {
+        if (configPath) throw new Error(`Config file not found: ${resolved}`);
+
+        return { path: undefined, config: {} };
+    }
+
+    const rawText = fs.readFileSync(resolved, 'utf8');
+    let parsed: unknown;
+
+    try {
+        parsed = JSON.parse(rawText);
+    } catch (error) {
+        throw new Error(
+            `Invalid JSON in ${resolved}: ${error instanceof Error ? error.message : String(error)}`,
+        );
+    }
+
+    return { path: resolved, config: validateProjectConfig(parsed) };
+};
+
+/** Merges CLI overrides on top of project config; explicit CLI fields always win. */
+export const mergeCliConfig = (
+    base: ProjectConfig,
+    overrides: Partial<ProjectConfig>,
+): ProjectConfig => {
+    const merged: ProjectConfig = { ...base };
+
+    for (const [key, value] of Object.entries(overrides) as [
+        keyof ProjectConfig,
+        ProjectConfig[keyof ProjectConfig],
+    ][]) {
+        if (value === undefined) continue;
+        (merged as Record<string, unknown>)[key] = value;
+    }
+
+    return merged;
+};

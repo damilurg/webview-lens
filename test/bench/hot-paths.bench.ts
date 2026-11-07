@@ -1,5 +1,6 @@
 // Hot-path performance benchmarks for webview-lens (`npm run bench`).
 
+import { mergeCliConfig, validateProjectConfig } from '../../src/node/config.ts';
 import { generateLeafCert, generateRootCa } from '../../src/node/drivers/ios/certs.ts';
 import { createIosDevtoolsTranslator } from '../../src/node/drivers/ios/devtools-bridge.ts';
 import {
@@ -9,6 +10,7 @@ import {
     parseListDevicesPlist,
 } from '../../src/node/drivers/ios/usbmux.ts';
 import { bridgeShim, createUrlMapper, toLocalHeaders } from '../../src/node/override.ts';
+import { renderQrTerminal } from '../../src/node/qr.ts';
 import { formatConsoleEvent, formatExceptionEvent } from '../../src/node/telemetry.ts';
 import { decodeWsFrames, encodeWsFrame } from '../../src/node/ws-server.ts';
 import { detectWebViewEnv, sanitizeContext, sanitizePath } from '../../src/rum/index.ts';
@@ -129,6 +131,20 @@ const results = [
         },
         { warmup: 3, iterations: 15, minTimeMs: 50 },
     ),
+    runBench('config: validate + mergeCliConfig', () => {
+        const parsed = validateProjectConfig({
+            platform: 'android',
+            preset: 'vite',
+            remote: 'https://stand.example.test',
+            hmrPorts: [24678],
+            logs: true,
+        });
+
+        mergeCliConfig(parsed, { platform: 'ios', logs: false });
+    }),
+    runBench('qr: encode + render UTF-8 terminal QR', () => {
+        renderQrTerminal('http://192.168.1.42:8888/webview-lens.mobileconfig');
+    }),
 ];
 
 console.log('\nwebview-lens performance benchmarks\n');
@@ -145,6 +161,8 @@ const violations = checkBenchBudgets(results, {
     'rum-server: parseVital + parseTiming': 1,
     'telemetry: format console + exception': 1,
     'ios-certs: generateLeafCert (ECDSA P-256)': 100,
+    'config: validate + mergeCliConfig': 1,
+    'qr: encode + render UTF-8 terminal QR': 5,
 });
 
 if (violations.length > 0) {

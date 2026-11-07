@@ -29,6 +29,14 @@ export {
     type PagePredicate,
 } from './cdp.ts';
 export {
+    DEFAULT_CONFIG_FILE,
+    type LoadedProjectConfig,
+    loadProjectConfig,
+    mergeCliConfig,
+    type ProjectConfig,
+    validateProjectConfig,
+} from './config.ts';
+export {
     diagnose,
     type DiagnoseOptions,
     isAnyPage,
@@ -152,6 +160,7 @@ export {
     type UrlMapperOptions,
 } from './override.ts';
 export { fromGitBashPath } from './paths.ts';
+export { encodeQrMatrix, type QrMatrix, renderQrTerminal } from './qr.ts';
 export {
     detectPreset,
     detectPresetFromDependencies,
