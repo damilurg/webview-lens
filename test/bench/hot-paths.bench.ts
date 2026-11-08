@@ -14,7 +14,12 @@ import { renderQrTerminal } from '../../src/node/qr.ts';
 import { formatConsoleEvent, formatExceptionEvent } from '../../src/node/telemetry.ts';
 import { decodeWsFrames, encodeWsFrame } from '../../src/node/ws-server.ts';
 import { detectWebViewEnv, sanitizeContext, sanitizePath } from '../../src/rum/index.ts';
-import { parseTiming, parseVital } from '../../src/rum/server.ts';
+import {
+    createRumAggregator,
+    parseTiming,
+    parseVital,
+    toPrometheusText,
+} from '../../src/rum/server.ts';
 import { checkBenchBudgets, formatBenchTable, runBench } from './runner.ts';
 
 const mapper = createUrlMapper({
@@ -69,6 +74,17 @@ const timingInput = {
     context: { env: 'ios-wkwebview' },
 };
 const rootCa = generateRootCa('bench CA');
+const benchAggregator = createRumAggregator({ maxSamplesPerSeries: 256 });
+
+for (let i = 0; i < 50; i += 1) {
+    benchAggregator.recordVital({
+        name: 'LCP',
+        value: 1000 + i * 25,
+        rating: i < 40 ? 'good' : 'needs-improvement',
+        path: '/event/:id',
+        context: { env: 'android-webview' },
+    });
+}
 
 const results = [
     runBench('ws-server: encode + decode frame', () => {
@@ -145,6 +161,16 @@ const results = [
     runBench('qr: encode + render UTF-8 terminal QR', () => {
         renderQrTerminal('http://192.168.1.42:8888/webview-lens.mobileconfig');
     }),
+    runBench('rum-aggregator: recordVital + toPrometheusText', () => {
+        benchAggregator.recordVital({
+            name: 'LCP',
+            value: 1420,
+            rating: 'good',
+            path: '/event/:id',
+            context: { env: 'android-webview' },
+        });
+        toPrometheusText(benchAggregator.snapshot());
+    }),
 ];
 
 console.log('\nwebview-lens performance benchmarks\n');
@@ -163,6 +189,7 @@ const violations = checkBenchBudgets(results, {
     'ios-certs: generateLeafCert (ECDSA P-256)': 100,
     'config: validate + mergeCliConfig': 1,
     'qr: encode + render UTF-8 terminal QR': 5,
+    'rum-aggregator: recordVital + toPrometheusText': 2,
 });
 
 if (violations.length > 0) {

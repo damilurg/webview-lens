@@ -17,6 +17,20 @@ import {
     type Rating,
 } from '../shared/thresholds.ts';
 
+export {
+    createMetricsHandler,
+    createRumAggregator,
+    type ErrorCounter,
+    escapePromLabel,
+    type MetricsHandlerOptions,
+    type RumAggregator,
+    type RumAggregatorOptions,
+    type RumSnapshot,
+    type TimingSummary,
+    toPrometheusText,
+    type VitalSummary,
+} from './aggregator.ts';
+
 export interface VitalMetric {
     name: MetricName;
     value: number;

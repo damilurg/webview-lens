@@ -71,6 +71,35 @@ app.post(
 );
 ```
 
+### Built-in Bounded Aggregator & Prometheus `/metrics` Endpoint
+
+```ts
+import {
+    createClientLogHandler,
+    createMetricsHandler,
+    createRumAggregator,
+    createTimingsHandler,
+    createVitalsHandler,
+    toNodeHandler,
+} from 'webview-lens/rum/server';
+
+const rum = createRumAggregator({ maxSamplesPerSeries: 1000, maxSeries: 200 });
+
+app.post(
+    '/api/vitals',
+    toNodeHandler(createVitalsHandler({ onMetric: (m) => rum.recordVital(m) })),
+);
+app.post(
+    '/api/timings',
+    toNodeHandler(createTimingsHandler({ onTiming: (t) => rum.recordTiming(t) })),
+);
+app.post(
+    '/api/client-log',
+    toNodeHandler(createClientLogHandler({ onLog: (e) => rum.recordError(e) })),
+);
+app.get('/metrics', toNodeHandler(createMetricsHandler(rum)));
+```
+
 ## Note on iOS WKWebView Metrics
 
 Safari/WKWebView supports `TTFB`, `FCP`, Navigation/Resource Timing, custom timings (`createTimingReporter`), and global error capture (`captureGlobalErrors`), while `CLS` and `INP` (and `LCP` on older iOS versions) are not emitted by WebKit. Always segment dashboards by `context.env` (`android-webview` vs `ios-wkwebview`).
