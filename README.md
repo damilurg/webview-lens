@@ -29,7 +29,9 @@ to the app.
 
 ```bash
 npm i -D webview-lens
+npx webview-lens init --remote https://stand.example.com
 npx webview-lens doctor
+npx webview-lens dev
 ```
 
 ## Local dev server inside the app

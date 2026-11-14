@@ -29,12 +29,15 @@ export {
     type PagePredicate,
 } from './cdp.ts';
 export {
+    buildStarterConfig,
     DEFAULT_CONFIG_FILE,
     type LoadedProjectConfig,
     loadProjectConfig,
     mergeCliConfig,
     type ProjectConfig,
+    type StarterConfigOptions,
     validateProjectConfig,
+    writeStarterConfig,
 } from './config.ts';
 export {
     diagnose,

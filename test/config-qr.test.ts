@@ -4,7 +4,12 @@ import os from 'node:os';
 import path from 'node:path';
 import { describe, it } from 'node:test';
 
-import { loadProjectConfig, validateProjectConfig } from '../src/node/config.ts';
+import {
+    buildStarterConfig,
+    loadProjectConfig,
+    validateProjectConfig,
+    writeStarterConfig,
+} from '../src/node/config.ts';
 import { encodeQrMatrix, renderQrTerminal } from '../src/node/qr.ts';
 
 describe('validateProjectConfig & loadProjectConfig', () => {
@@ -21,6 +26,28 @@ describe('validateProjectConfig & loadProjectConfig', () => {
         assert.throws(() => validateProjectConfig({ preset: 'parcel' }), /preset/);
         assert.throws(() => validateProjectConfig({ hmrPorts: [99999] }), /hmrPorts/);
         assert.throws(() => validateProjectConfig({ throttle: '5g' }), /throttle/);
+    });
+
+    it('builds starter configs tailored for Angular, Next.js and Vite workspaces', () => {
+        const ngDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wvl-ng-'));
+
+        fs.writeFileSync(
+            path.join(ngDir, 'package.json'),
+            JSON.stringify({
+                dependencies: { '@angular/core': '19.0.0' },
+                scripts: { start: 'ng serve' },
+            }),
+        );
+        const ngCfg = buildStarterConfig({ cwd: ngDir });
+
+        assert.equal(ngCfg.preset, 'angular');
+        assert.equal(ngCfg.local, 'http://localhost:4200');
+        assert.equal(ngCfg.cmd, 'npm start');
+
+        const writtenPath = writeStarterConfig({ cwd: ngDir });
+
+        assert.equal(writtenPath, path.join(ngDir, 'webview-lens.config.json'));
+        assert.throws(() => writeStarterConfig({ cwd: ngDir }), /already exists/);
     });
 });
 

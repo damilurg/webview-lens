@@ -5,7 +5,13 @@ import path from 'node:path';
 
 import { isPlatformSelection, type PlatformSelection } from './drivers/types.ts';
 import type { SsePolicy } from './override.ts';
-import { isPresetSelection, type PresetSelection } from './presets.ts';
+import {
+    detectPreset,
+    isPresetSelection,
+    PRESETS,
+    type PresetName,
+    type PresetSelection,
+} from './presets.ts';
 import { isNetworkThrottlePreset } from './vitals-lab.ts';
 import type { NetworkThrottlePreset } from './drivers/types.ts';
 
@@ -233,4 +239,78 @@ export const mergeCliConfig = (
     }
 
     return merged;
+};
+
+const DEFAULT_PORT_BY_PRESET: Readonly<Record<PresetName, number>> = {
+    vite: 5173,
+    angular: 4200,
+    next: 3000,
+    nuxt: 3000,
+    webpack: 3000,
+    generic: 3000,
+};
+
+const detectDevCommand = (cwd: string): string | undefined => {
+    try {
+        const raw = fs.readFileSync(path.join(cwd, 'package.json'), 'utf8');
+        const pkg: unknown = JSON.parse(raw);
+
+        if (!isRecord(pkg) || !isRecord(pkg.scripts)) return undefined;
+        if (typeof pkg.scripts.dev === 'string') return 'npm run dev';
+        if (typeof pkg.scripts.start === 'string') return 'npm start';
+
+        return undefined;
+    } catch {
+        return undefined;
+    }
+};
+
+export interface StarterConfigOptions {
+    cwd?: string;
+    configPath?: string;
+    force?: boolean;
+    remote?: string;
+    app?: string;
+}
+
+/** Builds a ready-to-use starter `ProjectConfig` tailored to the workspace's bundler/scripts. */
+export const buildStarterConfig = ({
+    cwd = process.cwd(),
+    remote,
+    app,
+}: StarterConfigOptions = {}): ProjectConfig => {
+    const presetName = detectPreset(cwd);
+    const preset = PRESETS[presetName];
+    const port = DEFAULT_PORT_BY_PRESET[presetName];
+    const cmd = detectDevCommand(cwd);
+
+    return {
+        platform: 'auto',
+        preset: presetName,
+        local: `http://localhost:${port}`,
+        ...(remote ? { remote } : {}),
+        ...(app ? { app } : {}),
+        ...(cmd ? { cmd } : {}),
+        ws: [...preset.wsPrefixes],
+        logs: true,
+    };
+};
+
+/** Writes `webview-lens.config.json` in `cwd` (refusing to overwrite unless `force: true`). */
+export const writeStarterConfig = (options: StarterConfigOptions = {}): string => {
+    const cwd = options.cwd ?? process.cwd();
+    const target = options.configPath
+        ? path.resolve(cwd, options.configPath)
+        : path.join(cwd, DEFAULT_CONFIG_FILE);
+
+    if (fs.existsSync(target) && !options.force) {
+        throw new Error(`Config already exists at ${target} (pass --force to overwrite)`);
+    }
+
+    const config = buildStarterConfig(options);
+
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    fs.writeFileSync(target, `${JSON.stringify(config, null, 4)}\n`);
+
+    return target;
 };

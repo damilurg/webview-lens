@@ -8,7 +8,7 @@ import { parseArgs } from 'node:util';
 
 import { createAdbRunner, removeReversePort, resolveAdb, reversePort } from './node/adb.ts';
 import { connectCdp, type PagePredicate } from './node/cdp.ts';
-import { loadProjectConfig, mergeCliConfig } from './node/config.ts';
+import { loadProjectConfig, mergeCliConfig, writeStarterConfig } from './node/config.ts';
 import { waitForPage } from './node/device.ts';
 import { startDevtoolsLink } from './node/devtools-link.ts';
 import { defaultCertDir, ensureRootCa } from './node/drivers/ios/certs.ts';
@@ -34,9 +34,10 @@ import {
 } from './node/vitals-lab.ts';
 import { METRIC_NAMES } from './shared/thresholds.ts';
 
-const HELP = `webview-lens: inspect, override and measure the page inside an Android app's WebView.
+const HELP = `webview-lens: inspect, override and measure the page inside an Android & iOS app's WebView.
 
 Usage
+  webview-lens init [options]              create a starter webview-lens.config.json for this project
   webview-lens dev [local-url] [options]   serve the WebView's origin from your local server
   webview-lens devtools [options]          DevTools of the WebView page at a fixed localhost URL
   webview-lens vitals [paths…] [options]   lab Web Vitals from the phone, Markdown report
@@ -86,6 +87,7 @@ const { values, positionals } = parseArgs({
     options: {
         help: { type: 'boolean', short: 'h' },
         config: { type: 'string' },
+        force: { type: 'boolean', default: false },
         platform: { type: 'string' },
         port: { type: 'string' },
         serial: { type: 'string' },
@@ -556,7 +558,28 @@ async function cert() {
     await new Promise(() => undefined);
 }
 
-const commands: Record<string, () => Promise<void>> = { dev, devtools, vitals, cert, doctor };
+async function init() {
+    const written = writeStarterConfig({
+        ...(values.config ? { configPath: values.config } : {}),
+        force: values.force,
+        ...(values.remote ? { remote: values.remote } : {}),
+        ...(values.app ? { app: values.app } : {}),
+    });
+
+    console.log(`Created ${written}`);
+    console.log('Next steps:');
+    console.log('  1. npx webview-lens doctor');
+    console.log('  2. npx webview-lens dev');
+}
+
+const commands: Record<string, () => Promise<void>> = {
+    init,
+    dev,
+    devtools,
+    vitals,
+    cert,
+    doctor,
+};
 const run = commands[command];
 
 if (!run) {
