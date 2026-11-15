@@ -139,6 +139,12 @@ export {
     type TargetPredicate,
 } from './drivers/types.ts';
 export {
+    createFrontendLoader,
+    DEFAULT_FRONTEND_ORIGIN,
+    type FrontendFile,
+    type FrontendLoaderOptions,
+} from './devtools-frontend.ts';
+export {
     type DevtoolsLink,
     type DevtoolsLinkOptions,
     frontendPath,

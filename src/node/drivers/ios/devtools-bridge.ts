@@ -5,7 +5,8 @@
 import http from 'node:http';
 import type net from 'node:net';
 
-import { frontendPath, stripCspMeta, type DevtoolsLink } from '../../devtools-link.ts';
+import { createFrontendLoader } from '../../devtools-frontend.ts';
+import { frontendPath, type DevtoolsLink } from '../../devtools-link.ts';
 import {
     buildWebSocketAcceptResponse,
     createWsFrameAssembler,
@@ -24,9 +25,9 @@ import {
     translateWipResultToCdp,
 } from './wip-cdp-bridge.ts';
 
-const FRONTEND_ORIGIN = 'https://chrome-devtools-frontend.appspot.com';
 /** Known stable Chromium DevTools frontend revision compatible with core CDP domains. */
 const DEFAULT_FRONTEND_REVISION = 'e6a1d0b34c3a4475a6f595284e83a6c8e0f10d5e';
+const loadFrontendFile = createFrontendLoader();
 
 /** Chromium-only CDP domains/methods that WebKit does not implement; auto-acked to keep UI clean. */
 const AUTO_ACK_PREFIXES = [
@@ -135,33 +136,6 @@ const WAITING_PAGE = `<!doctype html><meta charset="utf-8"><meta http-equiv="ref
 <body style="font:16px system-ui;padding:24px">
 <p>No inspectable iOS WKWebView page yet.</p>
 <p>Enable <b>Settings → Safari → Advanced → Web Inspector</b> on iPhone and open your test app screen.</p>`;
-
-interface FrontendFile {
-    status: number;
-    type: string;
-    body: Buffer;
-}
-
-const frontendCache = new Map<string, FrontendFile>();
-
-const loadFrontendFile = async (pathname: string): Promise<FrontendFile> => {
-    const cached = frontendCache.get(pathname);
-
-    if (cached) return cached;
-
-    const response = await fetch(FRONTEND_ORIGIN + pathname);
-
-    if (!response.ok) return { status: response.status, type: 'text/plain', body: Buffer.alloc(0) };
-
-    const type = response.headers.get('content-type') ?? 'application/octet-stream';
-    const raw = Buffer.from(await response.arrayBuffer());
-    const body = type.includes('text/html') ? Buffer.from(stripCspMeta(raw.toString('utf8'))) : raw;
-    const file = { status: 200, type, body };
-
-    frontendCache.set(pathname, file);
-
-    return file;
-};
 
 export interface IosDevtoolsLinkOptions {
     port: string | number;

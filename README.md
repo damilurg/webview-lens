@@ -147,6 +147,7 @@ and others. This way you can script your own flows, such as a CI job against a d
 - Architecture: [docs/how-it-works.md](docs/how-it-works.md)
 - iOS WKWebView setup (macOS & Windows): [docs/ios.md](docs/ios.md)
 - Production RUM & custom timings: [docs/rum.md](docs/rum.md)
+- ISO / RFC protocol conformance: [docs/standards.md](docs/standards.md)
 
 ## Limitations
 

@@ -14,8 +14,11 @@ import http from 'node:http';
 import net from 'node:net';
 
 import { getVersion, listPages, type DevtoolsPage, type PagePredicate } from './cdp.ts';
+import { createFrontendLoader, stripCspMeta } from './devtools-frontend.ts';
 
-const FRONTEND_ORIGIN = 'https://chrome-devtools-frontend.appspot.com';
+export { stripCspMeta };
+
+const loadFrontendFile = createFrontendLoader();
 
 /** Our path of the DevTools UI: the WebView's revision; the page socket goes through our port. */
 export const frontendPath = (pageId: string, linkPort: string | number, revision: string): string =>
@@ -56,43 +59,11 @@ export const frontendRevision = (
     page.devtoolsFrontendUrl?.match(/serve_rev\/@([0-9a-f]+)\//)?.[1] ??
     String(version['WebKit-Version'] ?? '').match(/@([0-9a-f]+)/)?.[1];
 
-/** The UI's CSP blocks ws://localhost: removed from headers (not forwarded) and from <meta>. */
-export const stripCspMeta = (html: string): string =>
-    html.replace(/<meta[^>]+http-equiv=["']?Content-Security-Policy["']?[^>]*>/gi, '');
-
 const WAITING_PAGE = `<!doctype html><meta charset="utf-8"><meta http-equiv="refresh" content="2">
 <title>webview-lens · DevTools</title>
 <body style="font:16px system-ui;padding:24px">
 <p>No WebView page yet: open the WebView screen in the app on the phone.</p>
 <p>This page reloads itself and opens DevTools as soon as the page appears.</p>`;
-
-interface FrontendFile {
-    status: number;
-    type: string;
-    body: Buffer;
-}
-
-/** Files of one revision never change: kept in memory, so reopening is instant. */
-const files = new Map<string, FrontendFile>();
-
-const loadFrontendFile = async (path: string): Promise<FrontendFile> => {
-    const cached = files.get(path);
-
-    if (cached) return cached;
-
-    const response = await fetch(FRONTEND_ORIGIN + path);
-
-    if (!response.ok) return { status: response.status, type: 'text/plain', body: Buffer.alloc(0) };
-
-    const type = response.headers.get('content-type') ?? 'application/octet-stream';
-    const raw = Buffer.from(await response.arrayBuffer());
-    const body = type.includes('text/html') ? Buffer.from(stripCspMeta(raw.toString('utf8'))) : raw;
-    const file = { status: 200, type, body };
-
-    files.set(path, file);
-
-    return file;
-};
 
 export interface DevtoolsLinkOptions {
     /** Port of this server. */
