@@ -115,3 +115,97 @@ export const decodeWsFrames = (buffer: Buffer): { frames: WsFrame[]; remainder: 
 
     return { frames, remainder: buffer.subarray(offset) };
 };
+
+/** Encodes an RFC 6455 §5.5.1 Close frame with a 2-byte big-endian status code and optional reason. */
+export const encodeCloseFrame = (code = 1000, reason = ''): Buffer => {
+    const reasonBytes = Buffer.from(reason, 'utf8').subarray(0, 123);
+    const payload = Buffer.alloc(2 + reasonBytes.length);
+
+    payload.writeUInt16BE(code, 0);
+    reasonBytes.copy(payload, 2);
+
+    return encodeWsFrame(payload, WS_OPCODE_CLOSE);
+};
+
+export interface WsMessage {
+    opcode: number;
+    payload: Buffer;
+}
+
+export interface WsFrameAssemblerOptions {
+    /** Maximum reassembled message size in bytes (guards against OOM). Default: 16 MiB. */
+    maxMessageBytes?: number;
+}
+
+export interface WsFrameAssembler {
+    push(frame: WsFrame): WsMessage | null;
+}
+
+/**
+ * Reassembles RFC 6455 §5.4 fragmented messages, enforces §5.5 control frame rules
+ * (`FIN=1`, payload <= 125 bytes), and caps message size (§7.4.1 code 1009).
+ */
+export const createWsFrameAssembler = ({
+    maxMessageBytes = 16 * 1024 * 1024,
+}: WsFrameAssemblerOptions = {}): WsFrameAssembler => {
+    let activeOpcode: number | null = null;
+    let chunks: Buffer[] = [];
+    let activeSize = 0;
+
+    return {
+        push(frame: WsFrame): WsMessage | null {
+            const isControl = frame.opcode >= 0x8;
+
+            if (isControl) {
+                if (!frame.fin)
+                    throw new Error('RFC 6455 §5.5: Control frame must not be fragmented');
+                if (frame.payload.length > 125) {
+                    throw new Error('RFC 6455 §5.5: Control frame payload exceeds 125 bytes');
+                }
+
+                return { opcode: frame.opcode, payload: frame.payload };
+            }
+
+            if (frame.opcode === WS_OPCODE_CONTINUATION) {
+                if (activeOpcode === null) {
+                    throw new Error('RFC 6455 §5.4: Unexpected continuation frame (1002)');
+                }
+                activeSize += frame.payload.length;
+                if (activeSize > maxMessageBytes) {
+                    activeOpcode = null;
+                    chunks = [];
+                    activeSize = 0;
+                    throw new Error('RFC 6455: Message too large (1009)');
+                }
+                chunks.push(frame.payload);
+                if (!frame.fin) return null;
+
+                const message = { opcode: activeOpcode, payload: Buffer.concat(chunks) };
+
+                activeOpcode = null;
+                chunks = [];
+                activeSize = 0;
+
+                return message;
+            }
+
+            if (activeOpcode !== null) {
+                throw new Error(
+                    'RFC 6455 §5.4: New data frame started before previous message finished (1002)',
+                );
+            }
+            if (frame.payload.length > maxMessageBytes) {
+                throw new Error('RFC 6455: Message too large (1009)');
+            }
+            if (frame.fin) {
+                return { opcode: frame.opcode, payload: frame.payload };
+            }
+
+            activeOpcode = frame.opcode;
+            chunks = [frame.payload];
+            activeSize = frame.payload.length;
+
+            return null;
+        },
+    };
+};

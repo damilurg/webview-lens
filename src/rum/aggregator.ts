@@ -275,7 +275,9 @@ export interface MetricsHandlerOptions {
 export const createMetricsHandler =
     (aggregator: RumAggregator, { prefix = 'webview_lens' }: MetricsHandlerOptions = {}) =>
     async (request: Request): Promise<Response> => {
-        if (request.method !== 'GET') return new Response(null, { status: 405 });
+        if (request.method !== 'GET') {
+            return new Response(null, { status: 405, headers: { allow: 'GET' } });
+        }
 
         return new Response(toPrometheusText(aggregator.snapshot(), prefix), {
             status: 200,

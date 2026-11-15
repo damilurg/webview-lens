@@ -279,6 +279,48 @@ export const bridgeShim = (
 })();`;
 };
 
+/** RFC 9110 §7.6.1 standard hop-by-hop headers. */
+const HOP_BY_HOP = new Set([
+    'connection',
+    'keep-alive',
+    'proxy-authenticate',
+    'proxy-authorization',
+    'proxy-connection',
+    'te',
+    'trailer',
+    'transfer-encoding',
+    'upgrade',
+]);
+
+/** Strips standard RFC 9110 §7.6.1 hop-by-hop headers and headers nominated by `Connection`. */
+export const stripHopByHopHeaders = <T extends string | string[] | undefined>(
+    headers: Record<string, T>,
+): Record<string, T> => {
+    const dynamicDrop = new Set<string>();
+
+    for (const [name, value] of Object.entries(headers)) {
+        if (name.toLowerCase() !== 'connection' || value === undefined) continue;
+        const raw: string = Array.isArray(value) ? value.join(',') : String(value);
+
+        for (const token of raw.split(',')) {
+            const normalized = token.trim().toLowerCase();
+
+            if (normalized) dynamicDrop.add(normalized);
+        }
+    }
+
+    const result: Record<string, T> = {};
+
+    for (const [name, value] of Object.entries(headers)) {
+        const lower = name.toLowerCase();
+
+        if (HOP_BY_HOP.has(lower) || dynamicDrop.has(lower)) continue;
+        result[name] = value;
+    }
+
+    return result;
+};
+
 /** Request headers for the local server: cookies of the stand's domain, Origin and Referer rewritten. */
 export const toLocalHeaders = (
     headers: Record<string, string>,
@@ -286,8 +328,9 @@ export const toLocalHeaders = (
     local: string,
     toLocal: (url: string) => string,
 ): Record<string, string> => {
+    const cleaned = stripHopByHopHeaders(headers);
     const result = Object.fromEntries(
-        Object.entries(headers).filter(([name]) => !DROP_REQUEST.has(name.toLowerCase())),
+        Object.entries(cleaned).filter(([name]) => !DROP_REQUEST.has(name.toLowerCase())),
     );
     const referer = headers.Referer ?? headers.referer;
 

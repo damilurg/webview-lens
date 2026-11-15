@@ -183,7 +183,11 @@ export const parseTiming = (input: unknown): TimingMetric | null => {
     };
 };
 
-const empty = (status: number) => new Response(null, { status });
+const empty = (status: number, headers?: Record<string, string>) =>
+    new Response(null, headers ? { status, headers } : { status });
+
+const rejectResponse = (reason: RejectReason, allow = 'POST') =>
+    reason === 'method' ? empty(STATUS[reason], { allow }) : empty(STATUS[reason]);
 
 const STATUS: Record<RejectReason, number> = { method: 405, 'too-large': 413, invalid: 400 };
 
@@ -205,7 +209,7 @@ export const createVitalsHandler =
         const reject = (reason: RejectReason) => {
             onReject?.(reason, request);
 
-            return empty(STATUS[reason]);
+            return rejectResponse(reason, 'POST');
         };
 
         if (request.method !== 'POST') return reject('method');
@@ -237,7 +241,7 @@ export const createTimingsHandler =
         const reject = (reason: RejectReason) => {
             onReject?.(reason, request);
 
-            return empty(STATUS[reason]);
+            return rejectResponse(reason, 'POST');
         };
 
         if (request.method !== 'POST') return reject('method');
@@ -286,7 +290,7 @@ export const createClientLogHandler =
         const reject = (reason: RejectReason) => {
             onReject?.(reason, request);
 
-            return empty(STATUS[reason]);
+            return rejectResponse(reason, 'POST');
         };
 
         if (request.method !== 'POST') return reject('method');

@@ -7,7 +7,12 @@ import net from 'node:net';
 import os from 'node:os';
 import tls from 'node:tls';
 
-import { createUrlMapper, type OverrideLogger, type UrlMapper } from '../../override.ts';
+import {
+    createUrlMapper,
+    stripHopByHopHeaders,
+    type OverrideLogger,
+    type UrlMapper,
+} from '../../override.ts';
 import { buildIosMobileConfig, type CertPair, ensureRootCa, generateLeafCert } from './certs.ts';
 
 const DROP_REQUEST_HEADERS = new Set([
@@ -114,9 +119,10 @@ export const handleDecryptedRequest = async ({
         bypassPrefixes.some((prefix) => remotePath.startsWith(prefix));
     const targetUrl = bypassed ? remoteUrl : mapper.toLocal(remoteUrl);
 
+    const cleanedHeaders = stripHopByHopHeaders(headers);
     const outHeaders: Record<string, string> = {};
 
-    for (const [rawName, rawValue] of Object.entries(headers)) {
+    for (const [rawName, rawValue] of Object.entries(cleanedHeaders)) {
         if (rawValue === undefined) continue;
         const lower = rawName.toLowerCase();
 

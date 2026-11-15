@@ -8,7 +8,9 @@ import type net from 'node:net';
 import { frontendPath, stripCspMeta, type DevtoolsLink } from '../../devtools-link.ts';
 import {
     buildWebSocketAcceptResponse,
+    createWsFrameAssembler,
     decodeWsFrames,
+    encodeCloseFrame,
     encodeWsFrame,
     WS_OPCODE_CLOSE,
     WS_OPCODE_PING,
@@ -229,6 +231,7 @@ export const startIosDevtoolsLink = ({
 
         const upstream = new WebSocket(target.debuggerUrl);
         const translator = createIosDevtoolsTranslator();
+        const assembler = createWsFrameAssembler();
         let buffer: Buffer = Buffer.from(head);
         let clientAccepted = false;
 
@@ -247,18 +250,30 @@ export const startIosDevtoolsLink = ({
 
             buffer = remainder;
             for (const frame of frames) {
-                if (frame.opcode === WS_OPCODE_CLOSE) {
+                let message;
+
+                try {
+                    message = assembler.push(frame);
+                } catch {
+                    socket.write(encodeCloseFrame(1002, 'protocol error'));
                     closeAll();
 
                     return;
                 }
-                if (frame.opcode === WS_OPCODE_PING) {
-                    socket.write(encodeWsFrame(frame.payload, WS_OPCODE_PONG));
+                if (!message) continue;
+                if (message.opcode === WS_OPCODE_CLOSE) {
+                    socket.write(encodeCloseFrame(1000));
+                    closeAll();
+
+                    return;
+                }
+                if (message.opcode === WS_OPCODE_PING) {
+                    socket.write(encodeWsFrame(message.payload, WS_OPCODE_PONG));
                     continue;
                 }
-                if (frame.opcode === WS_OPCODE_TEXT) {
+                if (message.opcode === WS_OPCODE_TEXT) {
                     const { immediateResponse, forward } = translator.fromClient(
-                        frame.payload.toString('utf8'),
+                        message.payload.toString('utf8'),
                     );
 
                     if (immediateResponse) socket.write(encodeWsFrame(immediateResponse));

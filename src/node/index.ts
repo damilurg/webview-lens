@@ -158,12 +158,13 @@ export {
     resolveHmrTarget,
     type SsePolicy,
     startOverride,
+    stripHopByHopHeaders,
     toLocalHeaders,
     type UrlMapper,
     type UrlMapperOptions,
 } from './override.ts';
 export { fromGitBashPath } from './paths.ts';
-export { encodeQrMatrix, type QrMatrix, renderQrTerminal } from './qr.ts';
+export { encodeQrMatrix, evaluateQrPenalty, type QrMatrix, renderQrTerminal } from './qr.ts';
 export {
     detectPreset,
     detectPresetFromDependencies,
@@ -218,7 +219,9 @@ export {
 export {
     acceptWebSocketKey,
     buildWebSocketAcceptResponse,
+    createWsFrameAssembler,
     decodeWsFrames,
+    encodeCloseFrame,
     encodeWsFrame,
     WS_OPCODE_BINARY,
     WS_OPCODE_CLOSE,
@@ -227,6 +230,9 @@ export {
     WS_OPCODE_PONG,
     WS_OPCODE_TEXT,
     type WsFrame,
+    type WsFrameAssembler,
+    type WsFrameAssemblerOptions,
+    type WsMessage,
 } from './ws-server.ts';
 export {
     METRIC_NAMES,

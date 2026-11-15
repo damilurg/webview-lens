@@ -22,6 +22,8 @@ const VERSIONS: readonly VersionSpec[] = [
 export interface QrMatrix {
     readonly version: number;
     readonly size: number;
+    /** Optimal ISO/IEC 18004 §7.8 data mask pattern (0..7) chosen by penalty minimization. */
+    readonly mask: number;
     get(row: number, col: number): boolean;
 }
 
@@ -244,15 +246,117 @@ const writeFormatBits = (modules: Uint8Array, size: number, mask: number) => {
     for (let i = 0; i < 7; i += 1) modules[(size - 7 + i) * size + 8] = bit(14 - i);
 };
 
-const shouldInvertMask0 = (r: number, c: number): boolean => (r + c) % 2 === 0;
+/** ISO/IEC 18004 §7.8.2: all 8 standard data mask predicates. */
+const MASK_PREDICATES: readonly ((r: number, c: number) => boolean)[] = [
+    (r, c) => (r + c) % 2 === 0,
+    (r) => r % 2 === 0,
+    (_r, c) => c % 3 === 0,
+    (r, c) => (r + c) % 3 === 0,
+    (r, c) => (Math.floor(r / 2) + Math.floor(c / 3)) % 2 === 0,
+    (r, c) => ((r * c) % 2) + ((r * c) % 3) === 0,
+    (r, c) => (((r * c) % 2) + ((r * c) % 3)) % 2 === 0,
+    (r, c) => (((r + c) % 2) + ((r * c) % 3)) % 2 === 0,
+];
 
-/** Encodes a UTF-8 string into an ISO/IEC 18004 QR boolean matrix (ECC Level L). */
+const FINDER_PAT_A = [1, 0, 1, 1, 1, 0, 1, 0, 0, 0, 0];
+const FINDER_PAT_B = [0, 0, 0, 0, 1, 0, 1, 1, 1, 0, 1];
+
+const matchesPattern = (
+    get: (idx: number) => number,
+    start: number,
+    pattern: readonly number[],
+): boolean => {
+    for (let i = 0; i < pattern.length; i += 1) {
+        if (get(start + i) !== pattern[i]) return false;
+    }
+
+    return true;
+};
+
+/** ISO/IEC 18004 §7.8.3: computes total mask penalty score (N1 + N2 + N3 + N4). */
+export const evaluateQrPenalty = (matrix: Pick<QrMatrix, 'size' | 'get'>): number => {
+    const { size } = matrix;
+    let penalty = 0;
+    let darkCount = 0;
+
+    // Rule N1 (adjacent runs >= 5) and Rule N3 (finder-like 1:1:3:1:1 + 4 light) on rows & cols.
+    for (let i = 0; i < size; i += 1) {
+        let rowRun = 1;
+        let colRun = 1;
+        let prevRow = matrix.get(i, 0) ? 1 : 0;
+        let prevCol = matrix.get(0, i) ? 1 : 0;
+
+        if (prevRow === 1) darkCount += 1;
+
+        for (let j = 1; j < size; j += 1) {
+            const curRow = matrix.get(i, j) ? 1 : 0;
+            const curCol = matrix.get(j, i) ? 1 : 0;
+
+            if (curRow === 1) darkCount += 1;
+
+            if (curRow === prevRow) {
+                rowRun += 1;
+                if (rowRun === 5) penalty += 3;
+                if (rowRun > 5) penalty += 1;
+            }
+            if (curRow !== prevRow) {
+                prevRow = curRow;
+                rowRun = 1;
+            }
+
+            if (curCol === prevCol) {
+                colRun += 1;
+                if (colRun === 5) penalty += 3;
+                if (colRun > 5) penalty += 1;
+            }
+            if (curCol !== prevCol) {
+                prevCol = curCol;
+                colRun = 1;
+            }
+        }
+
+        const rowAt = (k: number) => (matrix.get(i, k) ? 1 : 0);
+        const colAt = (k: number) => (matrix.get(k, i) ? 1 : 0);
+
+        for (let k = 0; k <= size - 11; k += 1) {
+            if (matchesPattern(rowAt, k, FINDER_PAT_A) || matchesPattern(rowAt, k, FINDER_PAT_B)) {
+                penalty += 40;
+            }
+            if (matchesPattern(colAt, k, FINDER_PAT_A) || matchesPattern(colAt, k, FINDER_PAT_B)) {
+                penalty += 40;
+            }
+        }
+    }
+
+    // Rule N2: 2x2 same-color blocks.
+    for (let r = 0; r < size - 1; r += 1) {
+        for (let c = 0; c < size - 1; c += 1) {
+            const v = matrix.get(r, c);
+
+            if (
+                v === matrix.get(r, c + 1) &&
+                v === matrix.get(r + 1, c) &&
+                v === matrix.get(r + 1, c + 1)
+            ) {
+                penalty += 3;
+            }
+        }
+    }
+
+    // Rule N4: balance of dark modules relative to 50%.
+    const ratioPct = (darkCount * 100) / (size * size);
+    const deviation = Math.floor(Math.abs(ratioPct - 50) / 5);
+
+    return penalty + deviation * 10;
+};
+
+/** Encodes a UTF-8 string into an ISO/IEC 18004 QR boolean matrix (ECC Level L, optimal mask 0..7). */
 export const encodeQrMatrix = (text: string): QrMatrix => {
     const bytes = Buffer.from(text, 'utf8');
     const spec = pickVersion(bytes.length);
     const codewords = interleaveCodewords(buildDataCodewords(bytes, spec), spec);
     const { size } = spec;
-    const { modules, reserved } = placeFunctionPatterns(size, spec.alignment);
+    const { modules: baseModules, reserved } = placeFunctionPatterns(size, spec.alignment);
 
     let bitIndex = 0;
     const totalBits = codewords.length * 8;
@@ -270,25 +374,53 @@ export const encodeQrMatrix = (text: string): QrMatrix => {
 
                 if (reserved[idx] === 1) continue;
 
-                let dark = false;
+                let dark = 0;
 
                 if (bitIndex < totalBits) {
-                    dark = Boolean((codewords[bitIndex >> 3]! >> (7 - (bitIndex & 7))) & 1);
+                    dark = (codewords[bitIndex >> 3]! >> (7 - (bitIndex & 7))) & 1;
                     bitIndex += 1;
                 }
-                if (shouldInvertMask0(row, col)) dark = !dark;
-                modules[idx] = dark ? 1 : 0;
+                baseModules[idx] = dark;
             }
         }
         upward = !upward;
     }
 
-    writeFormatBits(modules, size, 0);
+    let bestMask = 0;
+    let bestScore = Infinity;
+    let bestModules = baseModules;
+
+    for (let mask = 0; mask < MASK_PREDICATES.length; mask += 1) {
+        const predicate = MASK_PREDICATES[mask]!;
+        const candidate = new Uint8Array(baseModules);
+
+        for (let r = 0; r < size; r += 1) {
+            for (let c = 0; c < size; c += 1) {
+                const idx = r * size + c;
+
+                if (reserved[idx] === 1) continue;
+                if (predicate(r, c)) candidate[idx] = candidate[idx]! ^ 1;
+            }
+        }
+        writeFormatBits(candidate, size, mask);
+
+        const score = evaluateQrPenalty({
+            size,
+            get: (r, c) => candidate[r * size + c] === 1,
+        });
+
+        if (score < bestScore) {
+            bestScore = score;
+            bestMask = mask;
+            bestModules = candidate;
+        }
+    }
 
     return {
         version: spec.version,
         size,
-        get: (row, col) => modules[row * size + col] === 1,
+        mask: bestMask,
+        get: (row, col) => bestModules[row * size + col] === 1,
     };
 };
 

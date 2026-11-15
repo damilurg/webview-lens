@@ -14,9 +14,11 @@ export interface CertPair {
 
 const OID_ECDSA_SHA256 = '1.2.840.10045.4.3.2';
 const OID_CN = '2.5.4.3';
+const OID_SKI = '2.5.29.14';
 const OID_KEY_USAGE = '2.5.29.15';
 const OID_SAN = '2.5.29.17';
 const OID_BASIC_CONSTRAINTS = '2.5.29.19';
+const OID_AKI = '2.5.29.35';
 const OID_EXT_KEY_USAGE = '2.5.29.37';
 const OID_SERVER_AUTH = '1.3.6.1.5.5.7.3.1';
 
@@ -190,12 +192,41 @@ const signCertificate = ({
     return derToPem(certDer, 'CERTIFICATE');
 };
 
-/** Generates a self-signed X.509 v3 Root CA certificate (ECDSA P-256). */
+const readDerLength = (buf: Buffer, offset: number): { length: number; next: number } => {
+    const first = buf[offset]!;
+
+    if ((first & 0x80) === 0) return { length: first, next: offset + 1 };
+
+    const count = first & 0x7f;
+    let length = 0;
+
+    for (let i = 0; i < count; i += 1) {
+        length = (length << 8) | buf[offset + 1 + i]!;
+    }
+
+    return { length, next: offset + 1 + count };
+};
+
+/** Computes RFC 5280 §4.2.1.2 Method 1 SubjectKeyIdentifier (SHA-1 of the SPKI BIT STRING value). */
+const computeSubjectKeyId = (spkiDer: Buffer): Buffer => {
+    // SPKI = SEQUENCE { AlgorithmIdentifier SEQUENCE, subjectPublicKey BIT STRING }
+    const outer = readDerLength(spkiDer, 1);
+    const alg = readDerLength(spkiDer, outer.next + 1);
+    const bitStringOffset = alg.next + alg.length;
+    const bitString = readDerLength(spkiDer, bitStringOffset + 1);
+    // Skip the leading unused-bits byte (0x00) inside the BIT STRING.
+    const pubKeyBytes = spkiDer.subarray(bitString.next + 1, bitString.next + bitString.length);
+
+    return crypto.createHash('sha1').update(pubKeyBytes).digest();
+};
+
+/** Generates a self-signed X.509 v3 Root CA certificate (ECDSA P-256, RFC 5280 / 5480 / 5758). */
 export const generateRootCa = (commonName = 'webview-lens Local CA'): CertPair => {
     const { publicKey, privateKey } = crypto.generateKeyPairSync('ec', {
         namedCurve: 'prime256v1',
     });
     const spki = publicKey.export({ type: 'spki', format: 'der' });
+    const ski = computeSubjectKeyId(spki);
     const certPem = signCertificate({
         subjectCn: commonName,
         issuerCn: commonName,
@@ -205,6 +236,8 @@ export const generateRootCa = (commonName = 'webview-lens Local CA'): CertPair =
         extensions: [
             derExtension(OID_BASIC_CONSTRAINTS, derSequence(derBoolean(true)), true),
             derExtension(OID_KEY_USAGE, derBitString(Buffer.from([0x06]), 1), true),
+            derExtension(OID_SKI, derOctetString(ski)),
+            derExtension(OID_AKI, derSequence(derImplicit(0, ski))),
         ],
     });
     const keyPem = privateKey.export({ type: 'pkcs8', format: 'pem' }).toString();
@@ -218,7 +251,10 @@ export const generateLeafCert = (host: string, ca: CertPair): CertPair => {
         namedCurve: 'prime256v1',
     });
     const spki = publicKey.export({ type: 'spki', format: 'der' });
+    const leafSki = computeSubjectKeyId(spki);
     const caCert = new crypto.X509Certificate(ca.certPem);
+    const caSpki = caCert.publicKey.export({ type: 'spki', format: 'der' });
+    const caSki = computeSubjectKeyId(caSpki);
     const issuerCn = caCert.subject.match(/CN=([^\n]+)/)?.[1] ?? 'webview-lens Local CA';
     const caKey = crypto.createPrivateKey(ca.keyPem);
 
@@ -237,8 +273,11 @@ export const generateLeafCert = (host: string, ca: CertPair): CertPair => {
         daysValid: 365,
         extensions: [
             derExtension(OID_BASIC_CONSTRAINTS, derSequence(), true),
-            derExtension(OID_KEY_USAGE, derBitString(Buffer.from([0xa0]), 5), true),
+            // RFC 5480 §3: ECDSA TLS server leaf uses digitalSignature (0x80, 7 unused bits).
+            derExtension(OID_KEY_USAGE, derBitString(Buffer.from([0x80]), 7), true),
             derExtension(OID_EXT_KEY_USAGE, derSequence(derOid(OID_SERVER_AUTH))),
+            derExtension(OID_SKI, derOctetString(leafSki)),
+            derExtension(OID_AKI, derSequence(derImplicit(0, caSki))),
             derExtension(OID_SAN, derSequence(sanEntry)),
         ],
     });
