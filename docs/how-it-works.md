@@ -55,4 +55,16 @@ with `Page.navigate`. The tool waits for `load` plus a settle time, reads the va
 - The client sends one small JSON per metric with `sendBeacon`, which is still delivered when the WebView closes,
   the moment when CLS and INP become final. It falls back to `fetch(..., { keepalive: true })`.
 - The server handlers use only the Fetch API (`Request`, `Response`, `ReadableStream`), so the same code runs in
-  Next.js route handlers, edge runtimes, Bun, Deno and Node.
+  Next.js route handlers, edge runtimes, Bun, Deno and Node (`toNodeHandler`), and feed into a bounded in-memory
+  aggregator (`src/rum/aggregator.ts`) with Prometheus `/metrics` export.
+
+## iOS WKWebView (`src/node/drivers/ios/*`)
+
+- **USB discovery (`usbmux.ts`)**: speaks the v1 XML plist framing protocol directly to `/var/run/usbmuxd` on macOS/Linux
+  or `127.0.0.1:27015` (Apple Mobile Device Support) on Windows.
+- **Inspector & DevTools (`iwdp.ts`, `wip-cdp-bridge.ts`, `devtools-bridge.ts`)**: discovers or auto-starts
+  `ios_webkit_debug_proxy`, accepts Chrome DevTools WebSocket connections over an RFC 6455 codec (`src/node/ws-server.ts`),
+  and translates CDP ↔ WebKit Inspector Protocol (WIP) bidirectionally.
+- **Selective HTTPS MITM (`certs.ts`, `mitm-proxy.ts`)**: generates a local ECDSA P-256 X.509 v3 Root CA and per-host
+  SAN leaf certificates with zero external binaries, serves an Apple `.mobileconfig` profile with a terminal QR code
+  (`src/node/qr.ts`), and intercepts only the configured `--remote` hostname while passing all other traffic through raw TCP `CONNECT`.

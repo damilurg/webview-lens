@@ -1,31 +1,35 @@
 # webview-lens
 
-See, override and measure the web page that lives inside a native app's **Android WebView**, from
-your computer. Also included: a small **RUM** (real user monitoring) client and server pair for the
-same page in production.
+**[English](README.md)** | **[Русский](README.ru.md)**
 
-A page in a WebView differs from the same page in desktop Chrome: it has a native JS bridge, the
-app's User-Agent, theme and locale, and often an app that refuses cleartext `http://`. webview-lens
-works with the real app on a real phone over adb and the Chrome DevTools Protocol, with no changes
-to the app.
+Inspect, override and measure any web application inside an **Android WebView** or **iOS WKWebView**,
+from **macOS**, **Windows**, or **Linux** — with **zero runtime dependencies**. Also included: a
+lightweight, Edge-safe **RUM** (Real User Monitoring) client, server handlers, bounded quantile
+aggregator and Prometheus `/metrics` exporter.
 
-| Piece                     | What it does                                                                                                            |
-| ------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| `webview-lens dev`        | The WebView keeps its https origin, and every request to that origin is served from your local dev server (CDP `Fetch`) |
-| `webview-lens devtools`   | Full DevTools for the WebView page at a **fixed** `http://localhost:3300`, which survives app restarts                  |
-| `webview-lens vitals`     | Lab LCP, FCP, CLS, INP and TTFB measured on the phone: median of N runs, cold or warm cache, Markdown report            |
-| `webview-lens doctor`     | Shows what blocks the connection: adb, phone authorization, locked screen, debuggable WebViews, pages                   |
-| `webview-lens/rum`        | Browser: Web Vitals and uncaught errors sent with `sendBeacon`, no dependencies, sampling, privacy-safe paths           |
-| `webview-lens/rum/server` | Fetch API handlers (`Request → Response`) for Next.js, Hono, Bun, Deno and others, with size limits and checked fields  |
+A page inside a native WebView differs from desktop Chrome/Safari: it runs with a native JS bridge,
+app-managed cookies and User-Agent, custom themes/locales, and strict HTTPS policies. `webview-lens`
+lets you run your local dev server (Vite, Next.js, Webpack, Nuxt, Angular, or any HTTP server) behind
+the real stand's HTTPS origin with zero changes to your frontend code.
+
+| Piece                     | What it does                                                                                                                                                   |
+| ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `webview-lens init`       | Detects your bundler (`vite`, `next`, `webpack`, `nuxt`, `angular`) and creates `webview-lens.config.json`                                                     |
+| `webview-lens dev`        | Serves the stand's HTTPS origin from your local dev server (Android: CDP `Fetch`; iOS: selective HTTPS MITM) with HMR and `--logs`                             |
+| `webview-lens devtools`   | Full Chrome DevTools at a **fixed** `http://localhost:3300` (survives app restarts; bridges iOS WIP ↔ CDP on Windows & macOS)                                  |
+| `webview-lens cert`       | Generates a local X.509 v3 Root CA and prints a terminal QR code to install `.mobileconfig` on a test iPhone                                                   |
+| `webview-lens vitals`     | Lab LCP, FCP, CLS, INP, TTFB, Long Tasks, JS Heap and marks from a real phone + `--throttle`, `--cpu`, and CI `--budget`                                       |
+| `webview-lens doctor`     | Diagnoses everything blocking the connection (`adb`, `usbmuxd`, `ios_webkit_debug_proxy`, screen lock, debuggable WebViews)                                    |
+| `webview-lens/rum`        | Browser client (0 `node:*` imports): Web Vitals, custom timings, global errors, `detectWebViewEnv`, context tags                                               |
+| `webview-lens/rum/server` | Edge-safe Fetch API handlers (`Request → Response`), Express/Node `toNodeHandler`, bounded `createRumAggregator` (`p50`/`p75`/`p95`) and Prometheus `/metrics` |
 
 ## Requirements
 
-- Node.js 22.4+ for the CLI. The `rum` entry points have no Node requirement.
-- A phone with USB debugging on, connected over USB.
-- A debuggable WebView: the app calls `WebView.setWebContentsDebuggingEnabled(true)` (usual in debug or test builds).
-- adb. It is found automatically in `ADB`, `ANDROID_HOME`, `ANDROID_SDK_ROOT`, the default Android SDK
-  location, `PATH`, or a [platform-tools](https://developer.android.com/tools/releases/platform-tools)
-  archive unpacked into `~/Downloads`.
+- **Node.js 22.4+** for the CLI (`webview-lens/rum` and `webview-lens/rum/server` have no Node requirement).
+- **Android:** USB debugging enabled, test build calling `WebView.setWebContentsDebuggingEnabled(true)`, and `adb` (auto-detected from `ADB`, `ANDROID_HOME`, `ANDROID_SDK_ROOT`, Android SDK, `PATH`, or `~/Downloads`).
+- **iOS (macOS & Windows):** test build calling `webView.isInspectable = true` (iOS 16.4+), _Settings → Safari → Advanced → Web Inspector_ enabled. For `devtools`/`vitals`/`--logs`: `ios_webkit_debug_proxy` (auto-started) and Apple Devices / iTunes on Windows. See [docs/ios.md](docs/ios.md).
+
+## Quick Start
 
 ```bash
 npm i -D webview-lens
@@ -34,127 +38,136 @@ npx webview-lens doctor
 npx webview-lens dev
 ```
 
-## Local dev server inside the app
+## Local Dev Server Inside the App
 
 ```bash
-npx webview-lens dev http://localhost:3000 --cmd "npm run dev"
+# Android (auto-detects Vite / Next.js / Webpack / Nuxt / Angular)
+npx webview-lens dev http://localhost:5173 --cmd "npm run dev" --logs
+
+# iOS (macOS or Windows — run `npx webview-lens cert` once on the test iPhone)
+npx webview-lens dev http://localhost:5173 --platform ios --remote https://stand.example.com --cmd "npm run dev" --logs
 ```
 
-Open the WebView screen in the app. The tool attaches to it and reloads it, and from then on the page
-is served by your code. The address bar still shows the stand's https origin, so the native bridge,
-cookies on that domain and a `'self'` CSP all keep working.
+Key options (also configurable via `webview-lens.config.json` or `--config <file>`):
 
-- `--preset auto|next|vite|webpack|nuxt|angular|generic` picks bundler defaults for WebSocket HMR and quiet request logs (by default `auto` detects from `package.json`).
-- `--remote https://stand.example.com` sets the origin to override. By default it is the origin the WebView is on.
-- `--remote-base /shop` and `--local-base /` map a stand subpath to your local server root (rewriting requests, `Referer`, and `Location` redirects).
-- `--ws /_next/` bridges WebSockets under that prefix to the local server; the option can be repeated.
-  CDP `Fetch` does not intercept WebSockets, so the page gets a stub `WebSocket` that relays frames
-  through a CDP binding.
-- `--hmr-port 24678` bridges a separate local HMR WebSocket port (common in Vite/Webpack) over CDP, avoiding Mixed Content issues on `https://` WebViews.
-- `--quiet <prefix>` hides noisy asset paths from request logs; `--bypass <prefix>` passes paths straight through to the stand (e.g. live SSE streams).
-- `--sse fail|continue` controls how `text/event-stream` responses from the local server are handled without hanging CDP `Fetch` (default `fail`).
-- `--logs` streams `console.*`, uncaught exceptions, and 4xx/5xx or failed network requests from the phone right into your terminal (works in `dev` and `devtools`).
-- `--serial <id>` (or `ANDROID_SERIAL`) picks a specific phone when multiple devices are connected; `--app <package>` pins WebView discovery to a specific Android package.
-- `--match text` attaches to the page whose URL contains `text`.
-- Press Enter to reload the page on the phone. Ctrl+C exits and stops a server started with `--cmd`.
+- `--platform auto|android|ios` selects the device driver (`auto` picks whichever phone is connected).
+- `--preset auto|next|vite|webpack|nuxt|angular|generic` configures WebSocket HMR prefixes and quiet static logs.
+- `--remote <url>` sets the stand origin to override (default: the current WebView origin on Android; required on iOS).
+- `--remote-base /shop` and `--local-base /` map a stand subpath to your local server root (rewriting URLs, `Referer`, and `Location`).
+- `--ws <prefix>` bridges WebSockets under that prefix over CDP on Android (repeatable).
+- `--hmr-port <n>` bridges separate local HMR ports (Vite/Webpack) over CDP and sets up `adb reverse` automatically.
+- `--quiet <prefix>` hides noisy asset paths from logs; `--bypass <prefix>` forwards matching paths directly to the stand.
+- `--sse fail|continue` prevents infinite `text/event-stream` responses from hanging CDP `Fetch`.
+- `--logs` streams `console.*`, uncaught exceptions (1-based `path:line:col`), and 4xx/5xx or failed network requests to your terminal.
+- `--serial <id>` (or `ANDROID_SERIAL`) selects a specific phone; `--app <package>` pins Android WebView discovery to a specific package.
+- Press **Enter** to reload the page on Android. **Ctrl+C** exits and stops servers started with `--cmd`.
 
-While it runs, DevTools for the page are at `http://localhost:3300`.
-
-## DevTools at a fixed address
+## DevTools at a Fixed Address
 
 ```bash
-npx webview-lens devtools
+npx webview-lens devtools --logs
+npx webview-lens devtools --platform ios --logs
 ```
 
-`devtools://…/page/<id>` cannot be opened as a link, and the id changes on every app restart.
-Opening `chrome-devtools-frontend.appspot.com` in a normal tab shows an empty UI, because its CSP
-blocks `ws://localhost`. This command serves the DevTools frontend of the WebView's own revision
-from localhost and pipes the inspector socket to the phone without the browser's `Origin`. You get
-one bookmark that always opens the current page.
+Opens Chrome DevTools at `http://localhost:3300` without `devtools://` copy-pasting or broken page IDs after app restarts. On iOS, the built-in RFC 6455 WebSocket server translates WebKit Inspector Protocol (WIP) ↔ Chrome DevTools Protocol (CDP), so Chrome DevTools works identically on Windows and macOS. Set `DEVTOOLS_FRONTEND_ORIGIN` to use an internal mirror behind corporate VPNs.
 
-## Lab Web Vitals from the phone
+## Lab Web Vitals & CI Budgets
 
 ```bash
-npx webview-lens vitals / /events "/event/42" --runs 3 --cold --out reports/vitals.md
+npx webview-lens vitals / /events "/event/42" \
+  --runs 3 --cold --throttle slow-4g --cpu 4 \
+  --budget lcp=2500,cls=0.1 \
+  --out reports/vitals.md
 ```
 
-The command measures whatever origin the WebView is on. To measure a production build of your code,
-run `webview-lens dev http://localhost:3001 --cmd "npm run build && npm start -- -p 3001"` in a
-second terminal. `--interact 10` gives you 10 seconds to tap around after each load, so INP gets
-measured. On Git Bash, paths like `/events` are fixed back from `C:/Program Files/Git/events`.
+- Measures median **LCP** (with element), **FCP**, **CLS** (with shifts ≥ 0.01), **INP** (with `--interact <s>`), **TTFB**, **Long Tasks**, **JS Heap** (Android), and custom `performance.mark` entries.
+- Exits with code `1` when any `--budget` threshold is exceeded — ready for CI and device farms.
+- On iOS WKWebView, metrics unsupported by WebKit are honestly marked as `n/a`.
+- Measure a production build (`npm run build && npm start`), not a dev server.
 
-## RUM
+## Production RUM & Prometheus
 
-### Browser
+### Browser (`webview-lens/rum`)
 
 ```ts
-import { captureGlobalErrors, createErrorReporter, createVitalsReporter } from 'webview-lens/rum';
-import { onCLS, onINP, onLCP, onFCP, onTTFB } from 'web-vitals';
+import {
+    captureGlobalErrors,
+    createErrorReporter,
+    createTimingReporter,
+    createVitalsReporter,
+    detectWebViewEnv,
+} from 'webview-lens/rum';
+import { onCLS, onFCP, onINP, onLCP, onTTFB } from 'web-vitals';
 
-const report = createVitalsReporter({ endpoint: '/api/vitals', sampleRate: 0.5 });
+const context = () => ({ env: detectWebViewEnv(), release: '1.4.0' });
+const report = createVitalsReporter({
+    endpoint: '/api/vitals',
+    path: () => '/event/:id', // supports both :param and [param]
+    sampleRate: 0.5,
+    context,
+});
 [onCLS, onINP, onLCP, onFCP, onTTFB].forEach((on) => on(report));
 
-captureGlobalErrors(createErrorReporter({ endpoint: '/api/client-log' }));
+export const reportTiming = createTimingReporter({ endpoint: '/api/timings', context });
+captureGlobalErrors(createErrorReporter({ endpoint: '/api/client-log', context }));
 ```
 
-In Next.js, use `useReportWebVitals(report)` and create `report` at module scope.
+### Server (`webview-lens/rum/server`)
 
-The path sent with each metric is `location.pathname` without the query or hash, limited to route
-characters. To group pages and keep ids out of the data, pass `path: () => '/event/[id]'` or
-`path: () => '/event/:id'`.
-
-### Server
+Works natively in Fetch API runtimes (Next.js App Router, Hono, Bun, Deno, Cloudflare Workers) and in Express / NestJS / `node:http` via `toNodeHandler`:
 
 ```ts
-// app/api/vitals/route.ts (Next.js)
-import { createVitalsHandler } from 'webview-lens/rum/server';
+import {
+    createClientLogHandler,
+    createMetricsHandler,
+    createRumAggregator,
+    createTimingsHandler,
+    createVitalsHandler,
+    toNodeHandler,
+} from 'webview-lens/rum/server';
 
-export const POST = createVitalsHandler({
-    onMetric: ({ name, value, rating, path }) =>
-        logger.info(`${name} ${rating} ${path}`, { value }),
-});
+const rum = createRumAggregator({ maxSamplesPerSeries: 1000, maxSeries: 200 });
+
+app.post(
+    '/api/vitals',
+    toNodeHandler(createVitalsHandler({ onMetric: (m) => rum.recordVital(m) })),
+);
+app.post(
+    '/api/timings',
+    toNodeHandler(createTimingsHandler({ onTiming: (t) => rum.recordTiming(t) })),
+);
+app.post(
+    '/api/client-log',
+    toNodeHandler(createClientLogHandler({ onLog: (e) => rum.recordError(e) })),
+);
+app.get('/metrics', toNodeHandler(createMetricsHandler(rum))); // Prometheus 0.0.4
 ```
 
-For `node:http`, Express, Connect, or NestJS, wrap the handler with `toNodeHandler`:
+## Programmatic API & Benchmarks
 
-```ts
-import { createVitalsHandler, toNodeHandler } from 'webview-lens/rum/server';
+All CLI building blocks are exported from `webview-lens` (`createAndroidDriver`, `createIosDriver`, `resolveDriver`, `startOverride`, `startIosMitmProxy`, `startDevtoolsLink`, `startIosDevtoolsLink`, `measureVitals`, `parseBudgets`, `checkBudgets`, `renderQrTerminal`, `loadProjectConfig`, and more).
 
-app.post('/api/vitals', toNodeHandler(createVitalsHandler({ onMetric: (m) => logger.info(m) })));
+Run unit/BDD/conformance tests and hot-path benchmarks:
+
+```bash
+npm run verify
+npm run bench
 ```
 
-```ts
-// app/api/client-log/route.ts
-import { createClientLogHandler } from 'webview-lens/rum/server';
-
-export const POST = createClientLogHandler({
-    onLog: ({ message, fields, userAgent }) => logger.error(message, { ...fields, userAgent }),
-});
-```
-
-Both endpoints are public. Bodies are read as a stream and cut at the limit (2 KiB for vitals,
-16 KiB for logs). A vital must match its schema exactly; a log entry is limited by field count and
-value length. Only checked fields reach your callback.
-
-## API
-
-Everything the CLI uses is exported from `webview-lens`: `findAdb`, `forwardWebView`,
-`waitForPage`, `connectCdp`, `startDevtoolsLink`, `startOverride`, `measureVitals`, `toMarkdown`
-and others. This way you can script your own flows, such as a CI job against a device farm.
-
-## How it works
+## Documentation
 
 - Architecture: [docs/how-it-works.md](docs/how-it-works.md)
 - iOS WKWebView setup (macOS & Windows): [docs/ios.md](docs/ios.md)
-- Production RUM & custom timings: [docs/rum.md](docs/rum.md)
+- Production RUM & Prometheus guide: [docs/rum.md](docs/rum.md)
 - ISO / RFC protocol conformance: [docs/standards.md](docs/standards.md)
+- Release history: [CHANGELOG.md](CHANGELOG.md)
 
 ## Limitations
 
-- iOS `dev` override uses a selective local HTTPS MITM proxy (`webview-lens cert` + Wi-Fi HTTP Proxy) because WebKit Inspector Protocol has no equivalent of CDP `Fetch.fulfillRequest`; test builds must have SSL Pinning disabled and `webView.isInspectable = true` (iOS 16.4+) for live inspection/logs.
-- iOS `WKWebView` does not expose all Core Web Vitals (CLS/INP and older iOS LCP show as `n/a`).
-- The lab INP counts only the taps you make during `--interact`.
-- Production numbers come from RUM; lab numbers from a dev server are inflated.
+- Test builds must enable WebView debugging (`WebView.setWebContentsDebuggingEnabled(true)` on Android; `webView.isInspectable = true` on iOS 16.4+) and disable SSL Pinning for iOS MITM override.
+- iOS `WKWebView` does not expose all Core Web Vitals (`CLS`, `INP`, and older iOS `LCP` appear as `n/a`); `--throttle`, `--cpu`, and `JS Heap` are Android CDP-only.
+- Lab INP counts only taps made during `--interact`.
+- Production numbers come from RUM; lab numbers against a dev server are inflated.
 
 ## License
 
