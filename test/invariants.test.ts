@@ -68,4 +68,36 @@ describe('Repository architectural invariants', () => {
 
         assert.deepEqual(violations, []);
     });
+
+    it('satisfies npm release package.json invariants (engines, files, exports, bin shebang)', () => {
+        const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8')) as {
+            engines?: { node?: string };
+            files?: string[];
+            bin?: Record<string, string>;
+            exports?: Record<string, { default?: string; types?: string } | string>;
+            scripts?: Record<string, string>;
+            description?: string;
+            keywords?: string[];
+        };
+
+        assert.match(pkg.engines?.node ?? '', />=22\.4/);
+        assert.ok(pkg.files?.includes('dist'));
+        assert.ok(pkg.files?.includes('docs'));
+        assert.ok(pkg.files?.includes('README.md'));
+        assert.ok(pkg.files?.includes('LICENSE'));
+        assert.ok(pkg.scripts?.clean);
+        assert.ok(pkg.scripts?.prebuild);
+        assert.match(pkg.description ?? '', /iOS|WKWebView/i);
+        assert.ok(pkg.keywords?.includes('ios'));
+        assert.ok(pkg.keywords?.includes('wkwebview'));
+
+        const cliBin = pkg.bin?.['webview-lens'];
+
+        assert.ok(cliBin);
+        const cliFile = path.join(ROOT, cliBin);
+
+        if (fs.existsSync(cliFile)) {
+            assert.ok(fs.readFileSync(cliFile, 'utf8').startsWith('#!/usr/bin/env node\n'));
+        }
+    });
 });

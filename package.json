@@ -1,21 +1,30 @@
 {
     "name": "webview-lens",
-    "version": "0.1.0",
-    "description": "Inspect, override and measure the web page inside a native app's Android WebView: DevTools on a fixed localhost URL, local dev server behind the production origin, lab Web Vitals from a real phone and a tiny RUM client/server pair.",
+    "version": "0.2.0",
+    "description": "Inspect, override and measure any web app inside Android WebView & iOS WKWebView (macOS & Windows): fixed DevTools URL, local dev server behind production HTTPS, live logs, lab Web Vitals with CI budgets, and a zero-dep RUM + Prometheus toolkit.",
     "keywords": [
         "webview",
         "android",
+        "ios",
+        "wkwebview",
         "devtools",
         "cdp",
         "chrome-devtools-protocol",
+        "webkit-inspector",
         "adb",
+        "usbmuxd",
+        "mitm",
         "web-vitals",
         "rum",
-        "real-user-monitoring"
+        "real-user-monitoring",
+        "prometheus"
     ],
     "license": "MIT",
     "type": "module",
     "sideEffects": false,
+    "engines": {
+        "node": ">=22.4.0"
+    },
     "bin": {
         "webview-lens": "./dist/cli.js"
     },
@@ -36,11 +45,16 @@
     },
     "files": [
         "dist",
+        "docs",
         "README.md",
+        "CHANGELOG.md",
         "LICENSE"
     ],
     "scripts": {
+        "clean": "node -e \"import('node:fs').then(fs => fs.rmSync('dist', { recursive: true, force: true }))\"",
+        "prebuild": "npm run clean",
         "build": "tsc -p tsconfig.build.json",
+        "postbuild": "node -e \"import('node:fs').then(fs => { try { fs.chmodSync('dist/cli.js', 0o755); } catch {} })\"",
         "check": "tsc -p tsconfig.json",
         "format": "prettier --write .",
         "format:check": "prettier --check .",
@@ -57,7 +71,7 @@
     "devEngines": {
         "runtime": {
             "name": "node",
-            "version": ">=24",
+            "version": ">=22.4.0",
             "onFail": "warn"
         }
     }
