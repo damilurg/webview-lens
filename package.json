@@ -20,13 +20,25 @@
         "prometheus"
     ],
     "license": "MIT",
+    "author": "damilurg <rootdamilurg@gmail.com>",
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/damilurg/webview-lens.git"
+    },
+    "homepage": "https://github.com/damilurg/webview-lens#readme",
+    "bugs": {
+        "url": "https://github.com/damilurg/webview-lens/issues"
+    },
     "type": "module",
     "sideEffects": false,
     "engines": {
         "node": ">=22.4.0"
     },
     "bin": {
-        "webview-lens": "./dist/cli.js"
+        "webview-lens": "dist/cli.js"
+    },
+    "publishConfig": {
+        "access": "public"
     },
     "exports": {
         ".": {

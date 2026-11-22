@@ -171,4 +171,4 @@ npm run bench
 
 ## License
 
-MIT
+Copyright © 2026 [damilurg](https://github.com/damilurg) (`rootdamilurg@gmail.com`). Distributed under the [MIT License](LICENSE).

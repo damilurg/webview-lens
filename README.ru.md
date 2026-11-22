@@ -172,4 +172,4 @@ npm run bench
 
 ## Лицензия
 
-MIT
+Copyright © 2026 [damilurg](https://github.com/damilurg) (`rootdamilurg@gmail.com`). Распространяется под лицензией [MIT](LICENSE).
