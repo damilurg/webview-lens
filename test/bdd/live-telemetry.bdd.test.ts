@@ -2,68 +2,10 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
 import { createAdbRunner, forwardWebView } from '../../src/node/adb.ts';
-import type { Cdp, DevtoolsPage } from '../../src/node/cdp.ts';
+import type { DevtoolsPage } from '../../src/node/cdp.ts';
 import { diagnose } from '../../src/node/device.ts';
 import { startOverride } from '../../src/node/override.ts';
-
-interface FakeCdpCall {
-    method: string;
-    params: unknown;
-}
-
-const createFakeCdp = () => {
-    const calls: FakeCdpCall[] = [];
-    const listeners = new Map<string, Set<(params: unknown) => void>>();
-    let resolveClosed!: () => void;
-    const closed = new Promise<void>((resolve) => {
-        resolveClosed = resolve;
-    });
-
-    const cdp: Cdp = {
-        send: async <T>(method: string, params: object = {}) => {
-            calls.push({ method, params });
-            if (method === 'Network.getCookies') return { cookies: [] } as T;
-
-            return {} as T;
-        },
-        on: <T>(method: string, listener: (params: T) => void) => {
-            const set = listeners.get(method) ?? new Set();
-            const fn = listener as (params: unknown) => void;
-
-            set.add(fn);
-            listeners.set(method, set);
-
-            return () => set.delete(fn);
-        },
-        once: <T>(method: string) =>
-            new Promise<T>((resolve) => {
-                const off = cdp.on<T>(method, (params) => {
-                    off();
-                    resolve(params);
-                });
-            }),
-        close: () => resolveClosed(),
-        closed,
-    };
-
-    const emit = (method: string, params: unknown) => {
-        for (const listener of listeners.get(method) ?? []) listener(params);
-    };
-
-    const waitForCall = async (method: string, timeoutMs = 1000): Promise<FakeCdpCall> => {
-        const deadline = Date.now() + timeoutMs;
-
-        while (Date.now() < deadline) {
-            const found = calls.find((c) => c.method === method);
-
-            if (found) return found;
-            await new Promise((r) => setTimeout(r, 5));
-        }
-        throw new Error(`Timed out waiting for CDP call: ${method}`);
-    };
-
-    return { cdp, calls, emit, waitForCall };
-};
+import { createFakeCdp } from '../helpers/fake-cdp.ts';
 
 const PAGE: DevtoolsPage = {
     id: 'page-1',

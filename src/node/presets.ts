@@ -1,8 +1,8 @@
 // Framework and bundler presets for `webview-lens dev`: sensible WebSocket bridge prefixes and
 // quiet log filters out of the box, detected from package.json or picked explicitly via --preset.
 
-import fs from 'node:fs';
-import path from 'node:path';
+import { isRecord } from '../shared/utils.ts';
+import { readPackageJson } from './fs-utils.ts';
 
 export type PresetName = 'next' | 'vite' | 'webpack' | 'nuxt' | 'angular' | 'generic';
 
@@ -75,26 +75,18 @@ export const detectPresetFromDependencies = (
     return 'generic';
 };
 
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-    typeof value === 'object' && value !== null && !Array.isArray(value);
-
 /** Detects the frontend bundler/framework from package.json in cwd. */
 export const detectPreset = (cwd = process.cwd()): PresetName => {
-    try {
-        const raw = fs.readFileSync(path.join(cwd, 'package.json'), 'utf8');
-        const pkg: unknown = JSON.parse(raw);
+    const pkg = readPackageJson(cwd);
 
-        if (!isRecord(pkg)) return 'generic';
+    if (!pkg) return 'generic';
 
-        const deps: Record<string, unknown> = {
-            ...(isRecord(pkg.dependencies) ? pkg.dependencies : {}),
-            ...(isRecord(pkg.devDependencies) ? pkg.devDependencies : {}),
-        };
+    const deps: Record<string, unknown> = {
+        ...(isRecord(pkg.dependencies) ? pkg.dependencies : {}),
+        ...(isRecord(pkg.devDependencies) ? pkg.devDependencies : {}),
+    };
 
-        return detectPresetFromDependencies(deps);
-    } catch {
-        return 'generic';
-    }
+    return detectPresetFromDependencies(deps);
 };
 
 export const resolvePreset = (

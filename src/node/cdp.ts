@@ -1,5 +1,7 @@
 // A minimal Chrome DevTools Protocol client over the global WebSocket (Node 22.4+).
 
+import { isRecord } from '../shared/utils.ts';
+
 export interface DevtoolsPage {
     id: string;
     type: string;
@@ -10,9 +12,6 @@ export interface DevtoolsPage {
 }
 
 export type PagePredicate = (page: DevtoolsPage) => boolean;
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-    typeof value === 'object' && value !== null;
 
 const isDevtoolsPage = (value: unknown): value is DevtoolsPage =>
     isRecord(value) &&

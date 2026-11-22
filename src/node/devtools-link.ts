@@ -10,15 +10,15 @@
 // /json/list. The DevTools WebSocket goes through the same server, piped as raw TCP to the forwarded
 // port: the debugging port rejects a handshake with a foreign Origin, so the browser's Origin is dropped.
 
-import http from 'node:http';
-import net from 'node:net';
-
 import { getVersion, listPages, type DevtoolsPage, type PagePredicate } from './cdp.ts';
-import { createFrontendLoader, stripCspMeta } from './devtools-frontend.ts';
+import {
+    type DevtoolsServerHandle,
+    startDevtoolsHttpServer,
+    stripCspMeta,
+} from './devtools-frontend.ts';
+import { connectAndPipe } from './fs-utils.ts';
 
 export { stripCspMeta };
-
-const loadFrontendFile = createFrontendLoader();
 
 /** Our path of the DevTools UI: the WebView's revision; the page socket goes through our port. */
 export const frontendPath = (pageId: string, linkPort: string | number, revision: string): string =>
@@ -75,78 +75,36 @@ export interface DevtoolsLinkOptions {
     log?: (line: string) => void;
 }
 
-export interface DevtoolsLink {
-    url: string;
-    close(): void;
-}
+export type DevtoolsLink = DevtoolsServerHandle;
 
 export const startDevtoolsLink = ({
     port,
     devtoolsPort,
     isTarget,
     log = console.error,
-}: DevtoolsLinkOptions): DevtoolsLink => {
-    const server = http.createServer(async (request, response) => {
-        const url = new URL(request.url ?? '/', 'http://localhost');
-
-        try {
-            if (url.pathname.startsWith('/serve_rev/')) {
-                const file = await loadFrontendFile(url.pathname);
-
-                response.writeHead(file.status, { 'content-type': file.type });
-                response.end(file.body);
-
-                return;
-            }
-
+}: DevtoolsLinkOptions): DevtoolsLink =>
+    startDevtoolsHttpServer({
+        port,
+        label: 'DevTools link',
+        waitingPage: WAITING_PAGE,
+        log,
+        resolveRedirectPath: async () => {
             const page = (await listPages(devtoolsPort))?.find(isTarget);
             const revision = page && frontendRevision(page, await getVersion(devtoolsPort));
 
-            if (!page || !revision) {
-                response.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
-                response.end(WAITING_PAGE);
+            return page && revision ? frontendPath(page.id, port, revision) : undefined;
+        },
+        // DevTools socket → the phone's debugging port, bytes as they are both ways.
+        onUpgrade: (request, socket, head) => {
+            if (!request.url?.startsWith('/devtools/')) {
+                socket.destroy();
 
                 return;
             }
 
-            response.writeHead(302, {
-                location: frontendPath(page.id, port, revision),
-                'cache-control': 'no-store',
+            connectAndPipe(Number(devtoolsPort), 'localhost', socket, (upstream) => {
+                upstream.write(handshakeForDevtools(request, devtoolsPort));
+                if (head.length) upstream.write(head);
             });
-            response.end();
-        } catch (error) {
-            response.writeHead(502, { 'content-type': 'text/plain; charset=utf-8' });
-            response.end(`DevTools unavailable: ${error instanceof Error ? error.message : error}`);
-        }
+        },
     });
-
-    // DevTools socket → the phone's debugging port, bytes as they are both ways.
-    server.on('upgrade', (request, socket, head) => {
-        if (!request.url?.startsWith('/devtools/')) {
-            socket.destroy();
-
-            return;
-        }
-
-        const upstream = net.connect(Number(devtoolsPort), 'localhost', () => {
-            upstream.write(handshakeForDevtools(request, devtoolsPort));
-            if (head.length) upstream.write(head);
-            upstream.pipe(socket);
-            socket.pipe(upstream);
-        });
-        const close = () => {
-            upstream.destroy();
-            socket.destroy();
-        };
-
-        upstream.on('error', close);
-        socket.on('error', close);
-    });
-
-    server.on('error', (error: NodeJS.ErrnoException) => {
-        log(`DevTools link on :${port} did not start: ${error.code ?? error.message}`);
-    });
-    server.listen(Number(port), 'localhost');
-
-    return { url: `http://localhost:${port}`, close: () => server.close() };
-};

@@ -1,5 +1,6 @@
 // Android implementation of DeviceDriver and InspectorSession over ADB + Chrome DevTools Protocol.
 
+import { errorMessage } from '../../shared/utils.ts';
 import {
     AdbNotFoundError,
     type AdbRunner,
@@ -14,7 +15,7 @@ import {
 } from '../adb.ts';
 import { type Cdp, connectCdp, type DevtoolsPage, getVersion, listPages } from '../cdp.ts';
 import { diagnose, waitForPage } from '../device.ts';
-import { attachTelemetry, type TelemetryOptions } from '../telemetry.ts';
+import { createProtocolInspectorSession } from './base-session.ts';
 import type {
     ConnectedDevice,
     DeviceDriver,
@@ -24,28 +25,10 @@ import type {
     InspectableTarget,
     InspectorCapabilities,
     InspectorSession,
-    NavigateOptions,
     NetworkThrottlePreset,
     NetworkThrottleProfile,
     TargetPredicate,
 } from './types.ts';
-
-const waitWithTimeout = async <T>(promise: Promise<T>, timeoutMs: number): Promise<void> => {
-    let timer: ReturnType<typeof setTimeout> | undefined;
-
-    try {
-        await Promise.race([
-            promise,
-            new Promise<void>((resolve) => {
-                timer = setTimeout(resolve, timeoutMs);
-            }),
-        ]);
-    } finally {
-        if (timer !== undefined) clearTimeout(timer);
-    }
-};
-
-const errorMessage = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
 const ANDROID_CAPABILITIES: InspectorCapabilities = {
     lcp: true,
@@ -86,42 +69,17 @@ export const NETWORK_THROTTLE_PROFILES: Readonly<
 /** Wraps a raw CDP connection in the platform-agnostic InspectorSession contract. */
 export const createCdpInspectorSession = (cdp: Cdp): InspectorSession => {
     let perfEnabled = false;
-
-    return {
+    const base = createProtocolInspectorSession(cdp, {
         platform: 'android',
         capabilities: ANDROID_CAPABILITIES,
-        async evaluate<T = unknown>(expression: string): Promise<T> {
-            const { result } = await cdp.send<{ result: { value?: T } }>('Runtime.evaluate', {
-                expression,
-                returnByValue: true,
-            });
+        enableTelemetry: async () => {
+            await cdp.send('Runtime.enable');
+            await cdp.send('Network.enable');
+        },
+    });
 
-            return result.value as T;
-        },
-        async addInitScript(source: string): Promise<void> {
-            await cdp.send('Page.addScriptToEvaluateOnNewDocument', { source });
-        },
-        async navigate(
-            url: string,
-            { waitForLoad = false, timeoutMs = 30_000 }: NavigateOptions = {},
-        ): Promise<void> {
-            if (!waitForLoad) {
-                await cdp.send('Page.navigate', { url });
-
-                return;
-            }
-
-            const loaded = cdp.once('Page.loadEventFired');
-
-            await cdp.send('Page.navigate', { url });
-            await waitWithTimeout(loaded, timeoutMs);
-        },
-        async reload({ ignoreCache = false }: { ignoreCache?: boolean } = {}): Promise<void> {
-            await cdp.send('Page.reload', { ignoreCache });
-        },
-        async setCacheDisabled(disabled: boolean): Promise<void> {
-            await cdp.send('Network.setCacheDisabled', { cacheDisabled: disabled });
-        },
+    return {
+        ...base,
         async setNetworkThrottle(preset: NetworkThrottlePreset): Promise<void> {
             await cdp.send('Network.emulateNetworkConditions', NETWORK_THROTTLE_PROFILES[preset]);
         },
@@ -146,16 +104,6 @@ export const createCdpInspectorSession = (cdp: Cdp): InspectorSession => {
                 return null;
             }
         },
-        async attachTelemetry(options?: TelemetryOptions): Promise<() => void> {
-            const detach = attachTelemetry(cdp, options);
-
-            await cdp.send('Runtime.enable');
-            await cdp.send('Network.enable');
-
-            return detach;
-        },
-        close: () => cdp.close(),
-        closed: cdp.closed,
     };
 };
 

@@ -1,7 +1,8 @@
 // iOS implementation of DeviceDriver and InspectorSession over usbmuxd + IWDP + WIP↔CDP bridge.
 
+import { sleep } from '../../../shared/utils.ts';
 import { type Cdp, connectCdp } from '../../cdp.ts';
-import { attachTelemetry, type TelemetryOptions } from '../../telemetry.ts';
+import { createProtocolInspectorSession } from '../base-session.ts';
 import type {
     ConnectedDevice,
     DeviceDriver,
@@ -11,7 +12,6 @@ import type {
     InspectableTarget,
     InspectorCapabilities,
     InspectorSession,
-    NavigateOptions,
     TargetPredicate,
 } from '../types.ts';
 import {
@@ -23,23 +23,6 @@ import {
 } from './iwdp.ts';
 import { describeIosDevices, listIosDevices } from './usbmux.ts';
 import { createWipCdpBridge } from './wip-cdp-bridge.ts';
-
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-
-const waitWithTimeout = async <T>(promise: Promise<T>, timeoutMs: number): Promise<void> => {
-    let timer: ReturnType<typeof setTimeout> | undefined;
-
-    try {
-        await Promise.race([
-            promise,
-            new Promise<void>((resolve) => {
-                timer = setTimeout(resolve, timeoutMs);
-            }),
-        ]);
-    } finally {
-        if (timer !== undefined) clearTimeout(timer);
-    }
-};
 
 /** Honest capabilities of iOS WKWebView (WebKit lacks CDP Fetch and several Web Vitals). */
 const IOS_CAPABILITIES: InspectorCapabilities = {
@@ -60,57 +43,16 @@ export const iwdpPageToTarget = (page: IwdpPage, index: number): InspectableTarg
 });
 
 /** Wraps a raw WebKit Inspector Protocol socket into the unified InspectorSession contract. */
-export const createIosInspectorSession = (rawWip: Cdp): InspectorSession => {
-    const bridged = createWipCdpBridge(rawWip);
-
-    return {
+export const createIosInspectorSession = (rawWip: Cdp): InspectorSession =>
+    createProtocolInspectorSession(createWipCdpBridge(rawWip), {
         platform: 'ios',
         capabilities: IOS_CAPABILITIES,
-        async evaluate<T = unknown>(expression: string): Promise<T> {
-            const { result } = await bridged.send<{ result?: { value?: T } }>('Runtime.evaluate', {
-                expression,
-                returnByValue: true,
-            });
-
-            return result?.value as T;
-        },
-        async addInitScript(source: string): Promise<void> {
-            await bridged.send('Page.addScriptToEvaluateOnNewDocument', { source });
-        },
-        async navigate(
-            url: string,
-            { waitForLoad = false, timeoutMs = 30_000 }: NavigateOptions = {},
-        ): Promise<void> {
-            if (!waitForLoad) {
-                await bridged.send('Page.navigate', { url });
-
-                return;
-            }
-
-            const loaded = bridged.once('Page.loadEventFired');
-
-            await bridged.send('Page.navigate', { url });
-            await waitWithTimeout(loaded, timeoutMs);
-        },
-        async reload({ ignoreCache = false }: { ignoreCache?: boolean } = {}): Promise<void> {
-            await bridged.send('Page.reload', { ignoreCache });
-        },
-        async setCacheDisabled(disabled: boolean): Promise<void> {
-            await bridged.send('Network.setCacheDisabled', { cacheDisabled: disabled });
-        },
-        async attachTelemetry(options?: TelemetryOptions): Promise<() => void> {
-            const detach = attachTelemetry(bridged, options);
-
+        enableTelemetry: async () => {
             await rawWip.send('Console.enable').catch(() => undefined);
             await rawWip.send('Runtime.enable').catch(() => undefined);
             await rawWip.send('Network.enable').catch(() => undefined);
-
-            return detach;
         },
-        close: () => bridged.close(),
-        closed: bridged.closed,
-    };
-};
+    });
 
 export interface IosDriverDeps {
     platform?: string;

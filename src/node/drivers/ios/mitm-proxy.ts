@@ -3,12 +3,15 @@
 // your local dev server) while tunneling all other domains untouched via raw TCP CONNECT.
 
 import http from 'node:http';
-import net from 'node:net';
+import type net from 'node:net';
 import os from 'node:os';
 import tls from 'node:tls';
 
+import { errorMessage } from '../../../shared/utils.ts';
+import { connectAndPipe } from '../../fs-utils.ts';
 import {
     createUrlMapper,
+    DROP_RESPONSE_HEADERS,
     stripHopByHopHeaders,
     type OverrideLogger,
     type UrlMapper,
@@ -22,14 +25,6 @@ const DROP_REQUEST_HEADERS = new Set([
     'keep-alive',
     'transfer-encoding',
     'accept-encoding',
-]);
-
-const DROP_RESPONSE_HEADERS = new Set([
-    'content-encoding',
-    'content-length',
-    'transfer-encoding',
-    'connection',
-    'set-cookie',
 ]);
 
 export interface ConnectTarget {
@@ -321,7 +316,7 @@ export const startIosMitmProxy = async ({
             }
         } catch (error) {
             logger.error(
-                `MITM FAIL ${req.method ?? 'GET'} ${req.url ?? '/'}: ${error instanceof Error ? error.message : String(error)}`,
+                `MITM FAIL ${req.method ?? 'GET'} ${req.url ?? '/'}: ${errorMessage(error)}`,
             );
             res.statusCode = 502;
             res.end('webview-lens local proxy error');
@@ -331,19 +326,11 @@ export const startIosMitmProxy = async ({
     // Native WebSocket HMR tunneling over the decrypted HTTPS connection.
     decryptedServer.on('upgrade', (req, clientSocket, head) => {
         const localPort = Number(localUrl.port) || (localUrl.protocol === 'https:' ? 443 : 80);
-        const upstream = net.connect(localPort, localUrl.hostname, () => {
+
+        connectAndPipe(localPort, localUrl.hostname, clientSocket as net.Socket, (upstream) => {
             upstream.write(buildWsUpgradeHandshake(req, mapper));
             if (head.length > 0) upstream.write(head);
-            upstream.pipe(clientSocket);
-            clientSocket.pipe(upstream);
         });
-        const cleanup = () => {
-            upstream.destroy();
-            clientSocket.destroy();
-        };
-
-        upstream.on('error', cleanup);
-        clientSocket.on('error', cleanup);
     });
 
     // Outer HTTP proxy + CA download server.
@@ -386,19 +373,10 @@ export const startIosMitmProxy = async ({
         }
 
         if (!shouldInterceptHost(target.host, targetHost)) {
-            const upstream = net.connect(target.port, target.host, () => {
+            connectAndPipe(target.port, target.host, clientSocket as net.Socket, (upstream) => {
                 clientSocket.write('HTTP/1.1 200 Connection Established\r\n\r\n');
                 if (head.length > 0) upstream.write(head);
-                upstream.pipe(clientSocket);
-                clientSocket.pipe(upstream);
             });
-            const cleanup = () => {
-                upstream.destroy();
-                clientSocket.destroy();
-            };
-
-            upstream.on('error', cleanup);
-            clientSocket.on('error', cleanup);
 
             return;
         }

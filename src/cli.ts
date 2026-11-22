@@ -33,6 +33,7 @@ import {
     toMarkdown,
 } from './node/vitals-lab.ts';
 import { METRIC_NAMES } from './shared/thresholds.ts';
+import { errorMessage, sleep } from './shared/utils.ts';
 
 const HELP = `webview-lens: inspect, override and measure the page inside an Android & iOS app's WebView.
 
@@ -204,9 +205,66 @@ const isTarget: PagePredicate = (page) => {
     return page.url.startsWith('https://');
 };
 
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+const registerCleanup = (cleanup: () => void): void => {
+    let cleaned = false;
+    const runOnce = () => {
+        if (cleaned) return;
+        cleaned = true;
+        cleanup();
+    };
 
-const errorMessage = (error: unknown) => (error instanceof Error ? error.message : String(error));
+    process.on('exit', runOnce);
+    process.on('SIGINT', () => {
+        runOnce();
+        process.exit(0);
+    });
+    process.on('SIGTERM', () => {
+        runOnce();
+        process.exit(0);
+    });
+};
+
+const buildBasePathOptions = () => ({
+    ...(cfg.remoteBase ? { remoteBase: fromGitBashPath(cfg.remoteBase) } : {}),
+    ...(cfg.localBase ? { localBase: fromGitBashPath(cfg.localBase) } : {}),
+    ...(cfg.bypass ? { bypassPrefixes: cfg.bypass.map(fromGitBashPath) } : {}),
+});
+
+interface TelemetryLoopOptions<T extends { url: string; title?: string }> {
+    waitTarget: () => Promise<T>;
+    attach: (target: T) => Promise<{ closed: Promise<void>; detach: () => void }>;
+    streamLogs: boolean;
+    onTarget?: (target: T) => void;
+    idleDelayMs?: number;
+}
+
+const runTelemetryLoop = async <T extends { url: string; title?: string }>({
+    waitTarget,
+    attach,
+    streamLogs,
+    onTarget,
+    idleDelayMs = 5000,
+}: TelemetryLoopOptions<T>): Promise<never> => {
+    for (;;) {
+        const target = await waitTarget();
+
+        onTarget?.(target);
+        if (!streamLogs) {
+            await sleep(idleDelayMs);
+            continue;
+        }
+        try {
+            const { closed, detach } = await attach(target);
+
+            console.log(`Live logs attached to ${target.url}`);
+            await closed;
+            detach();
+        } catch (error) {
+            console.error(errorMessage(error));
+            await sleep(2000);
+        }
+    }
+};
 
 const logAdbPath = () => {
     try {
@@ -225,6 +283,7 @@ async function dev() {
     const wsPrefixes = cfg.ws ?? preset.wsPrefixes;
     const quietPrefixes = cfg.quiet ?? preset.quietPrefixes;
     const hmrPorts = cfg.hmrPorts ?? [];
+    const basePathOptions = buildBasePathOptions();
     const local = (cfg.local ?? process.env.LOCAL_URL ?? 'http://localhost:3000').replace(
         /\/$/,
         '',
@@ -243,21 +302,15 @@ async function dev() {
         const proxy = await startIosMitmProxy({
             remote: remoteOrigin,
             local,
-            ...(cfg.remoteBase ? { remoteBase: fromGitBashPath(cfg.remoteBase) } : {}),
-            ...(cfg.localBase ? { localBase: fromGitBashPath(cfg.localBase) } : {}),
+            ...basePathOptions,
             port: proxyPort,
             quietPrefixes,
-            ...(cfg.bypass ? { bypassPrefixes: cfg.bypass.map(fromGitBashPath) } : {}),
         });
 
-        const cleanup = () => {
+        registerCleanup(() => {
             void proxy.close();
             server?.stop();
-        };
-
-        process.on('exit', cleanup);
-        process.on('SIGINT', () => process.exit(0));
-        process.on('SIGTERM', () => process.exit(0));
+        });
 
         const lanIp = detectLanAddresses()[0] ?? 'localhost';
         const profileUrl = `http://${lanIp}:${proxy.port}/webview-lens.mobileconfig`;
@@ -273,26 +326,24 @@ async function dev() {
         );
 
         if (logsEnabled) {
-            for (;;) {
-                const target = await driver.waitForTarget(
-                    (t) =>
-                        t.type === 'page' &&
-                        (cfg.match ? t.url.includes(cfg.match) : t.url.startsWith(remoteOrigin)),
-                    targetOptions,
-                );
-
-                try {
+            await runTelemetryLoop({
+                streamLogs: true,
+                waitTarget: () =>
+                    driver.waitForTarget(
+                        (t) =>
+                            t.type === 'page' &&
+                            (cfg.match
+                                ? t.url.includes(cfg.match)
+                                : t.url.startsWith(remoteOrigin)),
+                        targetOptions,
+                    ),
+                attach: async (target) => {
                     const session = await driver.connectInspector(target);
-                    const detach = await session.attachTelemetry?.();
+                    const detach = (await session.attachTelemetry?.()) ?? (() => undefined);
 
-                    console.log(`Live logs attached to ${target.url}`);
-                    await session.closed;
-                    detach?.();
-                } catch (error) {
-                    console.error(errorMessage(error));
-                    await sleep(2000);
-                }
-            }
+                    return { closed: session.closed, detach };
+                },
+            });
         }
 
         await new Promise(() => undefined);
@@ -301,23 +352,19 @@ async function dev() {
     const server = await ensureServer(local, cfg.cmd ? { command: cfg.cmd } : {});
     const reversedPorts: number[] = [];
 
-    const cleanupAndroid = () => {
-        const deviceRun = createAdbRunner(serial);
-
-        for (const hmrPort of reversedPorts) {
-            try {
-                removeReversePort(hmrPort, deviceRun);
-            } catch {
-                // Best-effort cleanup on exit.
-            }
-        }
-        server?.stop();
-    };
-
     if (server || hmrPorts.length > 0) {
-        process.on('exit', cleanupAndroid);
-        process.on('SIGINT', () => process.exit(0));
-        process.on('SIGTERM', () => process.exit(0));
+        registerCleanup(() => {
+            const deviceRun = createAdbRunner(serial);
+
+            for (const hmrPort of reversedPorts) {
+                try {
+                    removeReversePort(hmrPort, deviceRun);
+                } catch {
+                    // Best-effort cleanup on exit.
+                }
+            }
+            server?.stop();
+        });
     }
 
     logAdbPath();
@@ -355,12 +402,10 @@ async function dev() {
                 page,
                 remote,
                 local,
-                ...(cfg.remoteBase ? { remoteBase: fromGitBashPath(cfg.remoteBase) } : {}),
-                ...(cfg.localBase ? { localBase: fromGitBashPath(cfg.localBase) } : {}),
+                ...basePathOptions,
                 wsPrefixes,
                 quietPrefixes,
                 ...(hmrPorts.length ? { hmrPorts } : {}),
-                ...(cfg.bypass ? { bypassPrefixes: cfg.bypass.map(fromGitBashPath) } : {}),
                 ssePolicy,
                 telemetry: logsEnabled,
             });
@@ -382,11 +427,7 @@ async function devtools() {
     if (driver.platform === 'ios') {
         const iwdpProc = await ensureIwdp();
 
-        if (iwdpProc) {
-            process.on('exit', iwdpProc.stop);
-            process.on('SIGINT', () => process.exit(0));
-            process.on('SIGTERM', () => process.exit(0));
-        }
+        if (iwdpProc) registerCleanup(iwdpProc.stop);
 
         const matchesIosTarget = (t: { type: string; url: string }) =>
             t.type === 'page' &&
@@ -403,26 +444,17 @@ async function devtools() {
         });
 
         console.log(`iOS DevTools (WIP↔CDP bridge): ${link.url}, open it in Chrome. Ctrl+C exits.`);
-        for (;;) {
-            const target = await driver.waitForTarget(matchesIosTarget, targetOptions);
-
-            console.log(`iOS WKWebView: ${target.title} (${target.url})`);
-            if (!logsEnabled) {
-                await sleep(5000);
-                continue;
-            }
-            try {
+        await runTelemetryLoop({
+            streamLogs: logsEnabled,
+            waitTarget: () => driver.waitForTarget(matchesIosTarget, targetOptions),
+            onTarget: (target) => console.log(`iOS WKWebView: ${target.title} (${target.url})`),
+            attach: async (target) => {
                 const session = await driver.connectInspector(target);
-                const detach = await session.attachTelemetry?.();
+                const detach = (await session.attachTelemetry?.()) ?? (() => undefined);
 
-                console.log(`Live logs attached to ${target.url}`);
-                await session.closed;
-                detach?.();
-            } catch (error) {
-                console.error(errorMessage(error));
-                await sleep(2000);
-            }
-        }
+                return { closed: session.closed, detach };
+            },
+        });
     }
 
     logAdbPath();
@@ -432,27 +464,19 @@ async function devtools() {
     console.log(`DevTools of the phone: ${link.url}, open it in Chrome. Ctrl+C exits.`);
 
     // Keeps the forward fresh across app restarts; the link server reads /json/list on each open.
-    for (;;) {
-        const page = await waitForPage(port, isTarget, targetOptions);
-
-        if (!logsEnabled) {
-            await sleep(5000);
-            continue;
-        }
-        try {
+    await runTelemetryLoop({
+        streamLogs: logsEnabled,
+        waitTarget: () => waitForPage(port, isTarget, targetOptions),
+        attach: async (page) => {
             const cdp = await connectCdp(page.webSocketDebuggerUrl);
             const detach = attachTelemetry(cdp);
 
             await cdp.send('Runtime.enable');
             await cdp.send('Network.enable');
-            console.log(`Live logs attached to ${page.url}`);
-            await cdp.closed;
-            detach();
-        } catch (error) {
-            console.error(errorMessage(error));
-            await sleep(2000);
-        }
-    }
+
+            return { closed: cdp.closed, detach };
+        },
+    });
 }
 
 async function vitals() {
@@ -539,8 +563,8 @@ async function cert() {
         ca,
     });
 
-    process.on('SIGINT', () => {
-        void proxy.close().finally(() => process.exit(0));
+    registerCleanup(() => {
+        void proxy.close();
     });
 
     const lanIp = detectLanAddresses()[0] ?? 'localhost';

@@ -1,5 +1,6 @@
 // Waiting for the WebView page on the phone, with one line of what to do while it is not there.
 
+import { errorMessage, sleep } from '../shared/utils.ts';
 import {
     AdbNotFoundError,
     type AdbRunner,
@@ -11,10 +12,7 @@ import {
 } from './adb.ts';
 import { type DevtoolsPage, listPages, type PagePredicate } from './cdp.ts';
 
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-
-const firstLine = (error: unknown) =>
-    (error instanceof Error ? error.message : String(error)).split('\n')[0] ?? '';
+const firstLine = (error: unknown) => errorMessage(error).split('\n')[0] ?? '';
 
 export const isAnyPage: PagePredicate = (page) => page.type === 'page';
 

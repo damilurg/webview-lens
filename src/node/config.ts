@@ -3,7 +3,13 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { isPlatformSelection, type PlatformSelection } from './drivers/types.ts';
+import { errorMessage, isRecord } from '../shared/utils.ts';
+import {
+    isPlatformSelection,
+    type NetworkThrottlePreset,
+    type PlatformSelection,
+} from './drivers/types.ts';
+import { readPackageJson } from './fs-utils.ts';
 import type { SsePolicy } from './override.ts';
 import {
     detectPreset,
@@ -13,7 +19,6 @@ import {
     type PresetSelection,
 } from './presets.ts';
 import { isNetworkThrottlePreset } from './vitals-lab.ts';
-import type { NetworkThrottlePreset } from './drivers/types.ts';
 
 export const DEFAULT_CONFIG_FILE = 'webview-lens.config.json';
 
@@ -46,9 +51,6 @@ export interface LoadedProjectConfig {
     path: string | undefined;
     config: ProjectConfig;
 }
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-    typeof value === 'object' && value !== null && !Array.isArray(value);
 
 const assertString = (obj: Record<string, unknown>, key: string): string | undefined => {
     const val = obj[key];
@@ -215,9 +217,7 @@ export const loadProjectConfig = ({
     try {
         parsed = JSON.parse(rawText);
     } catch (error) {
-        throw new Error(
-            `Invalid JSON in ${resolved}: ${error instanceof Error ? error.message : String(error)}`,
-        );
+        throw new Error(`Invalid JSON in ${resolved}: ${errorMessage(error)}`);
     }
 
     return { path: resolved, config: validateProjectConfig(parsed) };
@@ -251,18 +251,13 @@ const DEFAULT_PORT_BY_PRESET: Readonly<Record<PresetName, number>> = {
 };
 
 const detectDevCommand = (cwd: string): string | undefined => {
-    try {
-        const raw = fs.readFileSync(path.join(cwd, 'package.json'), 'utf8');
-        const pkg: unknown = JSON.parse(raw);
+    const pkg = readPackageJson(cwd);
 
-        if (!isRecord(pkg) || !isRecord(pkg.scripts)) return undefined;
-        if (typeof pkg.scripts.dev === 'string') return 'npm run dev';
-        if (typeof pkg.scripts.start === 'string') return 'npm start';
+    if (!pkg || !isRecord(pkg.scripts)) return undefined;
+    if (typeof pkg.scripts.dev === 'string') return 'npm run dev';
+    if (typeof pkg.scripts.start === 'string') return 'npm start';
 
-        return undefined;
-    } catch {
-        return undefined;
-    }
+    return undefined;
 };
 
 export interface StarterConfigOptions {

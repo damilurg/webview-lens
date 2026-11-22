@@ -131,21 +131,37 @@ export const sanitizePath = (pathname: string): string => {
 const currentPath = (): string =>
     typeof location === 'undefined' ? '/' : sanitizePath(location.pathname);
 
-export interface VitalsReporterOptions {
-    /** Default `/api/vitals`. */
+const buildEnvelope = (
+    path: () => string,
+    context?: () => ContextInput,
+): { path: string; context?: Record<string, string> } => {
+    const tags = sanitizeContext(context?.());
+
+    return {
+        path: sanitizePath(path()),
+        ...(tags ? { context: tags } : {}),
+    };
+};
+
+interface BaseReporterOptions {
     endpoint?: string;
     /**
      * Path to report. Default: `location.pathname`. Return a route template (`/event/[id]`)
      * to group pages and keep ids out of the data.
      */
     path?: () => string;
+    /** Optional context tags attached to every report (appVersion, env, release, etc.). */
+    context?: () => ContextInput;
+    transport?: Transport;
+}
+
+export interface VitalsReporterOptions extends BaseReporterOptions {
+    /** Default `/api/vitals`. */
+    endpoint?: string;
     /** Share of page loads that report, 0..1, decided once per load. Default 1. */
     sampleRate?: number;
-    /** Optional context tags attached to every metric (appVersion, env, release, etc.). */
-    context?: () => ContextInput;
     /** Also print each metric to the console: visible in the WebView DevTools right away. */
     debug?: boolean;
-    transport?: Transport;
 }
 
 /**
@@ -168,13 +184,11 @@ export const createVitalsReporter = ({
             return;
         }
 
-        const tags = sanitizeContext(context?.());
         const payload: VitalPayload = {
             name: metric.name,
             value: metric.value,
             rating: isRating(metric.rating) ? metric.rating : rate(metric.name, metric.value),
-            path: sanitizePath(path()),
-            ...(tags ? { context: tags } : {}),
+            ...buildEnvelope(path, context),
         };
 
         if (metric.navigationType) payload.navigationType = metric.navigationType.slice(0, 40);
@@ -190,13 +204,10 @@ export const createVitalsReporter = ({
     };
 };
 
-export interface TimingReporterOptions {
+export interface TimingReporterOptions extends BaseReporterOptions {
     /** Default `/api/timings`. */
     endpoint?: string;
-    path?: () => string;
     sampleRate?: number;
-    context?: () => ContextInput;
-    transport?: Transport;
 }
 
 /** Reports custom app/bridge timings (e.g. `bridge_init`, `hydration`) over sendBeacon. */
@@ -215,26 +226,21 @@ export const createTimingReporter = ({
         }
         if (!isSampled) return;
 
-        const tags = sanitizeContext(context?.());
         const payload: TimingPayload = {
             name,
             duration: durationMs,
-            path: sanitizePath(path()),
-            ...(tags ? { context: tags } : {}),
+            ...buildEnvelope(path, context),
         };
 
         transport(endpoint, JSON.stringify(payload));
     };
 };
 
-export interface ErrorReporterOptions {
+export interface ErrorReporterOptions extends BaseReporterOptions {
     /** Default `/api/client-log`. */
     endpoint?: string;
-    path?: () => string;
-    context?: () => ContextInput;
     /** Reports per page load; a render loop must not flood the log. Default 10. */
     maxReports?: number;
-    transport?: Transport;
 }
 
 /** Sends `{ message, ...fields }` to the client log endpoint; `createClientLogHandler` reads it. */
@@ -255,13 +261,10 @@ export const createErrorReporter = ({
         sent += 1;
         seen.add(key);
 
-        const tags = sanitizeContext(context?.());
-
         transport(
             endpoint,
             JSON.stringify({
-                path: sanitizePath(path()),
-                ...(tags ? { context: tags } : {}),
+                ...buildEnvelope(path, context),
                 ...report,
             }),
         );

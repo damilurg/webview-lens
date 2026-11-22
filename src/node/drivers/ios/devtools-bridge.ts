@@ -2,10 +2,7 @@
 // Accepts Chrome DevTools WebSocket frames (CDP), translates them to WebKit Inspector Protocol (WIP)
 // for the connected iPhone, and translates responses/events back to CDP.
 
-import http from 'node:http';
-import type net from 'node:net';
-
-import { createFrontendLoader } from '../../devtools-frontend.ts';
+import { startDevtoolsHttpServer } from '../../devtools-frontend.ts';
 import { frontendPath, type DevtoolsLink } from '../../devtools-link.ts';
 import {
     buildWebSocketAcceptResponse,
@@ -27,7 +24,6 @@ import {
 
 /** Known stable Chromium DevTools frontend revision compatible with core CDP domains. */
 const DEFAULT_FRONTEND_REVISION = 'e6a1d0b34c3a4475a6f595284e83a6c8e0f10d5e';
-const loadFrontendFile = createFrontendLoader();
 
 /** Chromium-only CDP domains/methods that WebKit does not implement; auto-acked to keep UI clean. */
 const AUTO_ACK_PREFIXES = [
@@ -156,135 +152,110 @@ export const startIosDevtoolsLink = ({
 }: IosDevtoolsLinkOptions): DevtoolsLink => {
     const activeTargets = new Map<string, InspectableTarget>();
 
-    const server = http.createServer(async (request, response) => {
-        const url = new URL(request.url ?? '/', 'http://localhost');
-
-        try {
-            if (url.pathname.startsWith('/serve_rev/')) {
-                const file = await loadFrontendFile(url.pathname);
-
-                response.writeHead(file.status, { 'content-type': file.type });
-                response.end(file.body);
-
-                return;
-            }
-
+    return startDevtoolsHttpServer({
+        port,
+        label: 'iOS DevTools bridge',
+        waitingPage: WAITING_PAGE,
+        log,
+        resolveRedirectPath: async () => {
             const target = await resolveTarget();
 
-            if (!target || !target.debuggerUrl) {
-                response.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
-                response.end(WAITING_PAGE);
+            if (!target || !target.debuggerUrl) return undefined;
+            activeTargets.set(target.id, target);
+
+            return frontendPath(target.id, port, revision);
+        },
+        onUpgrade: (request, socket, head) => {
+            const key = request.headers['sec-websocket-key'];
+            const pageId = request.url?.match(/^\/devtools\/page\/([^?]+)/)?.[1];
+            const target = pageId ? activeTargets.get(pageId) : undefined;
+
+            if (!key || !target?.debuggerUrl) {
+                socket.destroy();
 
                 return;
             }
 
-            activeTargets.set(target.id, target);
-            response.writeHead(302, {
-                location: frontendPath(target.id, port, revision),
-                'cache-control': 'no-store',
+            const upstream = new WebSocket(target.debuggerUrl);
+            const translator = createIosDevtoolsTranslator();
+            const assembler = createWsFrameAssembler();
+            let buffer: Buffer = Buffer.from(head);
+            let clientAccepted = false;
+
+            const closeAll = () => {
+                if (
+                    upstream.readyState === WebSocket.OPEN ||
+                    upstream.readyState === WebSocket.CONNECTING
+                ) {
+                    upstream.close();
+                }
+                socket.destroy();
+            };
+
+            const flushClientBuffer = () => {
+                const { frames, remainder } = decodeWsFrames(buffer);
+
+                buffer = remainder;
+                for (const frame of frames) {
+                    let message;
+
+                    try {
+                        message = assembler.push(frame);
+                    } catch {
+                        socket.write(encodeCloseFrame(1002, 'protocol error'));
+                        closeAll();
+
+                        return;
+                    }
+                    if (!message) continue;
+                    if (message.opcode === WS_OPCODE_CLOSE) {
+                        socket.write(encodeCloseFrame(1000));
+                        closeAll();
+
+                        return;
+                    }
+                    if (message.opcode === WS_OPCODE_PING) {
+                        socket.write(encodeWsFrame(message.payload, WS_OPCODE_PONG));
+                        continue;
+                    }
+                    if (message.opcode === WS_OPCODE_TEXT) {
+                        const { immediateResponse, forward } = translator.fromClient(
+                            message.payload.toString('utf8'),
+                        );
+
+                        if (immediateResponse) socket.write(encodeWsFrame(immediateResponse));
+                        if (forward && upstream.readyState === WebSocket.OPEN) {
+                            upstream.send(forward);
+                        }
+                    }
+                }
+            };
+
+            upstream.onopen = () => {
+                socket.write(buildWebSocketAcceptResponse(key));
+                clientAccepted = true;
+                // Enable WebKit Console domain proactively so console.log appears in Chrome DevTools.
+                upstream.send(
+                    JSON.stringify({ id: 900_001, method: 'Console.enable', params: {} }),
+                );
+                if (buffer.length > 0) flushClientBuffer();
+            };
+
+            upstream.onmessage = ({ data }) => {
+                const translated = translator.fromUpstream(String(data));
+
+                if (translated && !socket.destroyed) socket.write(encodeWsFrame(translated));
+            };
+
+            upstream.onclose = closeAll;
+            upstream.onerror = closeAll;
+
+            socket.on('data', (chunk: Buffer) => {
+                buffer = Buffer.concat([buffer, chunk]);
+                if (clientAccepted) flushClientBuffer();
             });
-            response.end();
-        } catch (error) {
-            response.writeHead(502, { 'content-type': 'text/plain; charset=utf-8' });
-            response.end(
-                `iOS DevTools unavailable: ${error instanceof Error ? error.message : String(error)}`,
-            );
-        }
+            socket.on('error', closeAll);
+            socket.on('close', closeAll);
+        },
     });
-
-    server.on('upgrade', (request, socket: net.Socket, head) => {
-        const key = request.headers['sec-websocket-key'];
-        const pageId = request.url?.match(/^\/devtools\/page\/([^?]+)/)?.[1];
-        const target = pageId ? activeTargets.get(pageId) : undefined;
-
-        if (!key || !target?.debuggerUrl) {
-            socket.destroy();
-
-            return;
-        }
-
-        const upstream = new WebSocket(target.debuggerUrl);
-        const translator = createIosDevtoolsTranslator();
-        const assembler = createWsFrameAssembler();
-        let buffer: Buffer = Buffer.from(head);
-        let clientAccepted = false;
-
-        const closeAll = () => {
-            if (
-                upstream.readyState === WebSocket.OPEN ||
-                upstream.readyState === WebSocket.CONNECTING
-            ) {
-                upstream.close();
-            }
-            socket.destroy();
-        };
-
-        const flushClientBuffer = () => {
-            const { frames, remainder } = decodeWsFrames(buffer);
-
-            buffer = remainder;
-            for (const frame of frames) {
-                let message;
-
-                try {
-                    message = assembler.push(frame);
-                } catch {
-                    socket.write(encodeCloseFrame(1002, 'protocol error'));
-                    closeAll();
-
-                    return;
-                }
-                if (!message) continue;
-                if (message.opcode === WS_OPCODE_CLOSE) {
-                    socket.write(encodeCloseFrame(1000));
-                    closeAll();
-
-                    return;
-                }
-                if (message.opcode === WS_OPCODE_PING) {
-                    socket.write(encodeWsFrame(message.payload, WS_OPCODE_PONG));
-                    continue;
-                }
-                if (message.opcode === WS_OPCODE_TEXT) {
-                    const { immediateResponse, forward } = translator.fromClient(
-                        message.payload.toString('utf8'),
-                    );
-
-                    if (immediateResponse) socket.write(encodeWsFrame(immediateResponse));
-                    if (forward && upstream.readyState === WebSocket.OPEN) upstream.send(forward);
-                }
-            }
-        };
-
-        upstream.onopen = () => {
-            socket.write(buildWebSocketAcceptResponse(key));
-            clientAccepted = true;
-            // Enable WebKit Console domain proactively so console.log appears in Chrome DevTools.
-            upstream.send(JSON.stringify({ id: 900_001, method: 'Console.enable', params: {} }));
-            if (buffer.length > 0) flushClientBuffer();
-        };
-
-        upstream.onmessage = ({ data }) => {
-            const translated = translator.fromUpstream(String(data));
-
-            if (translated && !socket.destroyed) socket.write(encodeWsFrame(translated));
-        };
-
-        upstream.onclose = closeAll;
-        upstream.onerror = closeAll;
-
-        socket.on('data', (chunk: Buffer) => {
-            buffer = Buffer.concat([buffer, chunk]);
-            if (clientAccepted) flushClientBuffer();
-        });
-        socket.on('error', closeAll);
-        socket.on('close', closeAll);
-    });
-
-    server.on('error', (error: NodeJS.ErrnoException) => {
-        log(`iOS DevTools bridge on :${port} did not start: ${error.code ?? error.message}`);
-    });
-    server.listen(Number(port), 'localhost');
-
-    return { url: `http://localhost:${port}`, close: () => server.close() };
 };

@@ -21,6 +21,7 @@ import {
     rate,
     type Rating,
 } from '../shared/thresholds.ts';
+import { sleep } from '../shared/utils.ts';
 
 /** In-page collector, installed before the app's scripts on every load. */
 export const COLLECTOR = `(() => {
@@ -164,8 +165,6 @@ export interface LabOptions {
     log?: (line: string) => void;
     wait?: Omit<WaitForPageOptions, 'log'>;
 }
-
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 export const median = (values: readonly (number | null | undefined)[]): number | null => {
     const list = values.filter((x): x is number => typeof x === 'number').sort((a, b) => a - b);

@@ -1,9 +1,10 @@
 // The local server for `webview-lens dev`: the one already running, or one started from a command.
 
-import { type ChildProcess, spawn, spawnSync } from 'node:child_process';
+import { type ChildProcess, spawn } from 'node:child_process';
 import readline from 'node:readline';
 
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+import { sleep } from '../shared/utils.ts';
+import { killProcessTree } from './fs-utils.ts';
 
 export const isServerUp = (url: string): Promise<boolean> =>
     fetch(url, { method: 'HEAD', redirect: 'manual' }).then(
@@ -33,16 +34,7 @@ export const spawnServer = (
 
     return {
         process: child,
-        stop: () => {
-            if (child.exitCode !== null || child.pid === undefined) return;
-            // shell: true makes a cmd → yarn → node tree on Windows; kill would stop only cmd.
-            if (process.platform === 'win32') {
-                spawnSync('taskkill', ['/pid', String(child.pid), '/T', '/F'], { stdio: 'ignore' });
-
-                return;
-            }
-            child.kill('SIGTERM');
-        },
+        stop: () => killProcessTree(child),
     };
 };
 

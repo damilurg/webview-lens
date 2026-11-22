@@ -2,15 +2,13 @@
 // Enables running unified telemetry, lab vitals and Chrome DevTools against iOS WKWebView
 // on both Windows and macOS.
 
+import { isRecord } from '../../../shared/utils.ts';
 import type { Cdp } from '../../cdp.ts';
 
 export interface ProtocolMessage {
     method: string;
     params: Record<string, unknown>;
 }
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-    typeof value === 'object' && value !== null;
 
 /** Translates a CDP command name and params into the WebKit Inspector Protocol equivalent. */
 export const translateCdpToWip = (

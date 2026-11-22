@@ -3,6 +3,8 @@
 
 import net from 'node:net';
 
+import { errorMessage } from '../../../shared/utils.ts';
+
 const USBMUX_VERSION_PLIST = 1;
 const USBMUX_MESSAGE_PLIST = 8;
 const HEADER_BYTES = 16;
@@ -180,7 +182,7 @@ export const listIosDevices = async ({
                 finish({
                     available: false,
                     devices: [],
-                    error: error instanceof Error ? error.message : String(error),
+                    error: errorMessage(error),
                 });
             }
         });

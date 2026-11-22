@@ -1,6 +1,7 @@
 // Edge-safe, zero-dependency RUM aggregator (bounded ring buffer) and Prometheus text exporter.
 
 import type { MetricName } from '../shared/thresholds.ts';
+import { isRecord } from '../shared/utils.ts';
 import type { ClientLogEntry, TimingMetric, VitalMetric } from './server.ts';
 
 export interface RumAggregatorOptions {
@@ -78,8 +79,39 @@ const quantile = (sorted: readonly number[], q: number): number => {
     return sorted[Math.max(0, index)] ?? 0;
 };
 
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-    typeof value === 'object' && value !== null && !Array.isArray(value);
+const getOrCreateSeries = <K>(
+    store: Map<string, SeriesBuffer<K>>,
+    key: string,
+    createMeta: () => K,
+    maxSeries: number,
+): SeriesBuffer<K> | undefined => {
+    const existing = store.get(key);
+
+    if (existing) return existing;
+    if (store.size >= maxSeries) return undefined;
+
+    const created: SeriesBuffer<K> = {
+        meta: createMeta(),
+        count: 0,
+        goodCount: 0,
+        samples: [],
+        cursor: 0,
+    };
+
+    store.set(key, created);
+
+    return created;
+};
+
+const summarizeQuantiles = (samples: readonly number[]) => {
+    const sorted = [...samples].sort((a, b) => a - b);
+
+    return {
+        p50: quantile(sorted, 0.5),
+        p75: quantile(sorted, 0.75),
+        p95: quantile(sorted, 0.95),
+    };
+};
 
 const extractEnv = (context?: Record<string, string>): string => context?.env ?? 'unknown';
 
@@ -102,42 +134,28 @@ export const createRumAggregator = ({
 
     const recordVital = (metric: VitalMetric): void => {
         const env = extractEnv(metric.context);
-        const key = `${metric.name}\0${metric.path}\0${env}`;
-        let series = vitals.get(key);
+        const series = getOrCreateSeries(
+            vitals,
+            `${metric.name}\0${metric.path}\0${env}`,
+            () => ({ name: metric.name, path: metric.path, env }),
+            maxSeries,
+        );
 
-        if (!series) {
-            if (vitals.size >= maxSeries) return;
-            series = {
-                meta: { name: metric.name, path: metric.path, env },
-                count: 0,
-                goodCount: 0,
-                samples: [],
-                cursor: 0,
-            };
-            vitals.set(key, series);
-        }
-
+        if (!series) return;
         pushSample(series, metric.value, maxSamplesPerSeries);
         if (metric.rating === 'good') series.goodCount += 1;
     };
 
     const recordTiming = (timing: TimingMetric): void => {
         const env = extractEnv(timing.context);
-        const key = `${timing.name}\0${timing.path}\0${env}`;
-        let series = timings.get(key);
+        const series = getOrCreateSeries(
+            timings,
+            `${timing.name}\0${timing.path}\0${env}`,
+            () => ({ name: timing.name, path: timing.path, env }),
+            maxSeries,
+        );
 
-        if (!series) {
-            if (timings.size >= maxSeries) return;
-            series = {
-                meta: { name: timing.name, path: timing.path, env },
-                count: 0,
-                goodCount: 0,
-                samples: [],
-                cursor: 0,
-            };
-            timings.set(key, series);
-        }
-
+        if (!series) return;
         pushSample(series, timing.duration, maxSamplesPerSeries);
     };
 
@@ -156,29 +174,17 @@ export const createRumAggregator = ({
     };
 
     const snapshot = (): RumSnapshot => ({
-        vitals: [...vitals.values()].map((s) => {
-            const sorted = [...s.samples].sort((a, b) => a - b);
-
-            return {
-                ...s.meta,
-                count: s.count,
-                goodRate: s.count > 0 ? Math.round((s.goodCount / s.count) * 1000) / 1000 : 0,
-                p50: quantile(sorted, 0.5),
-                p75: quantile(sorted, 0.75),
-                p95: quantile(sorted, 0.95),
-            };
-        }),
-        timings: [...timings.values()].map((s) => {
-            const sorted = [...s.samples].sort((a, b) => a - b);
-
-            return {
-                ...s.meta,
-                count: s.count,
-                p50: quantile(sorted, 0.5),
-                p75: quantile(sorted, 0.75),
-                p95: quantile(sorted, 0.95),
-            };
-        }),
+        vitals: [...vitals.values()].map((s) => ({
+            ...s.meta,
+            count: s.count,
+            goodRate: s.count > 0 ? Math.round((s.goodCount / s.count) * 1000) / 1000 : 0,
+            ...summarizeQuantiles(s.samples),
+        })),
+        timings: [...timings.values()].map((s) => ({
+            ...s.meta,
+            count: s.count,
+            ...summarizeQuantiles(s.samples),
+        })),
         errors: [...errors.values()].map((e) => ({ ...e })),
     });
 
@@ -199,6 +205,36 @@ const formatLabels = (labels: Record<string, string>): string =>
     `{${Object.entries(labels)
         .map(([k, v]) => `${k}="${escapePromLabel(v)}"`)
         .join(',')}}`;
+
+interface QuantileEntry {
+    name: string;
+    path: string;
+    env: string;
+    p50: number;
+    p75: number;
+    p95: number;
+}
+
+const pushQuantileMetric = (
+    lines: string[],
+    metricName: string,
+    help: string,
+    entries: readonly QuantileEntry[],
+): void => {
+    lines.push(`# HELP ${metricName} ${help}`);
+    lines.push(`# TYPE ${metricName} gauge`);
+    for (const entry of entries) {
+        for (const [q, val] of [
+            ['0.5', entry.p50],
+            ['0.75', entry.p75],
+            ['0.95', entry.p95],
+        ] as const) {
+            lines.push(
+                `${metricName}${formatLabels({ name: entry.name, path: entry.path, env: entry.env, quantile: q })} ${val}`,
+            );
+        }
+    }
+};
 
 /** Renders a `RumSnapshot` into Prometheus exposition format (`version=0.0.4`). */
 export const toPrometheusText = (snapshot: RumSnapshot, prefix = 'webview_lens'): string => {
@@ -221,35 +257,21 @@ export const toPrometheusText = (snapshot: RumSnapshot, prefix = 'webview_lens')
             );
         }
 
-        lines.push(`# HELP ${prefix}_vital_quantile Web Vital quantile value`);
-        lines.push(`# TYPE ${prefix}_vital_quantile gauge`);
-        for (const v of snapshot.vitals) {
-            for (const [q, val] of [
-                ['0.5', v.p50],
-                ['0.75', v.p75],
-                ['0.95', v.p95],
-            ] as const) {
-                lines.push(
-                    `${prefix}_vital_quantile${formatLabels({ name: v.name, path: v.path, env: v.env, quantile: q })} ${val}`,
-                );
-            }
-        }
+        pushQuantileMetric(
+            lines,
+            `${prefix}_vital_quantile`,
+            'Web Vital quantile value',
+            snapshot.vitals,
+        );
     }
 
     if (snapshot.timings.length > 0) {
-        lines.push(`# HELP ${prefix}_timing_quantile Custom timing quantile in milliseconds`);
-        lines.push(`# TYPE ${prefix}_timing_quantile gauge`);
-        for (const t of snapshot.timings) {
-            for (const [q, val] of [
-                ['0.5', t.p50],
-                ['0.75', t.p75],
-                ['0.95', t.p95],
-            ] as const) {
-                lines.push(
-                    `${prefix}_timing_quantile${formatLabels({ name: t.name, path: t.path, env: t.env, quantile: q })} ${val}`,
-                );
-            }
-        }
+        pushQuantileMetric(
+            lines,
+            `${prefix}_timing_quantile`,
+            'Custom timing quantile in milliseconds',
+            snapshot.timings,
+        );
     }
 
     if (snapshot.errors.length > 0) {

@@ -1,9 +1,11 @@
 // Discovery and HTTP queries for ios_webkit_debug_proxy (IWDP) on macOS, Windows and Linux.
 
-import { spawn, spawnSync } from 'node:child_process';
-import fs from 'node:fs';
+import { spawn } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
+
+import { isRecord, sleep } from '../../../shared/utils.ts';
+import { findFileInDirs, isFile, killProcessTree } from '../../fs-utils.ts';
 
 export interface FindIwdpOptions {
     env?: Record<string, string | undefined>;
@@ -30,40 +32,6 @@ export interface IwdpPage {
     devtoolsFrontendUrl?: string;
     appId?: string;
 }
-
-const isFile = (file: string): boolean => {
-    try {
-        return fs.statSync(file).isFile();
-    } catch {
-        return false;
-    }
-};
-
-const listDirs = (dir: string): string[] => {
-    try {
-        return fs
-            .readdirSync(dir, { withFileTypes: true })
-            .filter((entry) => entry.isDirectory())
-            .map((entry) => path.join(dir, entry.name));
-    } catch {
-        return [];
-    }
-};
-
-const findInDir = (dir: string, binFile: string, depth: number): string | undefined => {
-    const direct = path.join(dir, binFile);
-
-    if (isFile(direct)) return direct;
-    if (depth === 0) return undefined;
-
-    for (const child of listDirs(dir)) {
-        const found = findInDir(child, binFile, depth - 1);
-
-        if (found) return found;
-    }
-
-    return undefined;
-};
 
 /**
  * Finds `ios_webkit_debug_proxy` without setup: `IWDP` / `IOS_WEBKIT_DEBUG_PROXY`, `PATH`,
@@ -95,15 +63,12 @@ export const findIwdp = ({
     checked.push('PATH, Homebrew/Scoop');
 
     const downloads = path.join(home, 'Downloads');
-    const fromDownloads = findInDir(downloads, binFile, 2);
+    const fromDownloads = findFileInDirs(downloads, [binFile], 2);
 
     checked.push(`${downloads} (${binFile})`);
 
     return { iwdp: fromDownloads, checked };
 };
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-    typeof value === 'object' && value !== null;
 
 /** Reads connected iOS device port mappings from IWDP's control port (default 9221). */
 export const listIwdpDevices = async (
@@ -202,19 +167,9 @@ const defaultSpawnIwdp = (bin: string, args: string[]): StartedIwdp => {
         get exitCode() {
             return child.exitCode;
         },
-        stop: () => {
-            if (child.exitCode !== null || child.pid === undefined) return;
-            if (process.platform === 'win32') {
-                spawnSync('taskkill', ['/pid', String(child.pid), '/T', '/F'], { stdio: 'ignore' });
-
-                return;
-            }
-            child.kill('SIGTERM');
-        },
+        stop: () => killProcessTree(child),
     };
 };
-
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /**
  * Ensures `ios_webkit_debug_proxy` is listening on `controlPort`. If it is down and the binary is

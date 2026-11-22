@@ -1,5 +1,10 @@
-// Shared in-memory cached loader for Chrome DevTools frontend assets (used by Android & iOS links).
+// Shared Chrome DevTools frontend loader and HTTP link server skeleton (used by Android & iOS links).
 // Supports overriding the origin via `DEVTOOLS_FRONTEND_ORIGIN` for corporate mirrors/VPNs.
+
+import http from 'node:http';
+import type net from 'node:net';
+
+import { errorMessage } from '../shared/utils.ts';
 
 export const DEFAULT_FRONTEND_ORIGIN = 'https://chrome-devtools-frontend.appspot.com';
 
@@ -49,4 +54,79 @@ export const createFrontendLoader = ({
 
         return file;
     };
+};
+
+export interface DevtoolsHttpServerOptions {
+    port: string | number;
+    label: string;
+    waitingPage: string;
+    resolveRedirectPath: () => Promise<string | undefined>;
+    onUpgrade: (request: http.IncomingMessage, socket: net.Socket, head: Buffer) => void;
+    loadFrontendFile?: (pathname: string) => Promise<FrontendFile>;
+    log?: (line: string) => void;
+}
+
+export interface DevtoolsServerHandle {
+    url: string;
+    close(): void;
+}
+
+const sharedFrontendLoader = createFrontendLoader();
+
+/**
+ * Starts a local HTTP server that serves `/serve_rev/*` assets without CSP, redirects `/` to the
+ * active WebView inspector URL (or renders a refreshing waiting page), and delegates WebSocket
+ * upgrades to `onUpgrade`.
+ */
+export const startDevtoolsHttpServer = ({
+    port,
+    label,
+    waitingPage,
+    resolveRedirectPath,
+    onUpgrade,
+    loadFrontendFile = sharedFrontendLoader,
+    log = console.error,
+}: DevtoolsHttpServerOptions): DevtoolsServerHandle => {
+    const server = http.createServer(async (request, response) => {
+        const url = new URL(request.url ?? '/', 'http://localhost');
+
+        try {
+            if (url.pathname.startsWith('/serve_rev/')) {
+                const file = await loadFrontendFile(url.pathname);
+
+                response.writeHead(file.status, { 'content-type': file.type });
+                response.end(file.body);
+
+                return;
+            }
+
+            const location = await resolveRedirectPath();
+
+            if (!location) {
+                response.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+                response.end(waitingPage);
+
+                return;
+            }
+
+            response.writeHead(302, {
+                location,
+                'cache-control': 'no-store',
+            });
+            response.end();
+        } catch (error) {
+            response.writeHead(502, { 'content-type': 'text/plain; charset=utf-8' });
+            response.end(`${label} unavailable: ${errorMessage(error)}`);
+        }
+    });
+
+    server.on('upgrade', (request, socket, head) => {
+        onUpgrade(request, socket as net.Socket, head);
+    });
+    server.on('error', (error: NodeJS.ErrnoException) => {
+        log(`${label} on :${port} did not start: ${error.code ?? error.message}`);
+    });
+    server.listen(Number(port), 'localhost');
+
+    return { url: `http://localhost:${port}`, close: () => server.close() };
 };

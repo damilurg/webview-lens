@@ -16,6 +16,7 @@ import {
     type MetricName,
     type Rating,
 } from '../shared/thresholds.ts';
+import { isRecord } from '../shared/utils.ts';
 
 export {
     createMetricsHandler,
@@ -96,8 +97,8 @@ const parseJson = (text: string): unknown => {
     }
 };
 
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-    typeof value === 'object' && value !== null && !Array.isArray(value);
+const isValidPath = (value: unknown): value is string =>
+    typeof value === 'string' && value.length <= MAX_PATH_LENGTH && PATH_PATTERN.test(value);
 
 /** Validates optional context tags; returns undefined when absent or null when malformed. */
 export const parseContext = (input: unknown): Record<string, string> | undefined | null => {
@@ -129,25 +130,16 @@ export const parseVital = (input: unknown): VitalMetric | null => {
 
     if (!isMetricName(name) || !isRating(rating)) return null;
     if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) return null;
-    if (typeof path !== 'string' || path.length > MAX_PATH_LENGTH || !PATH_PATTERN.test(path)) {
-        return null;
-    }
+    if (!isValidPath(path)) return null;
 
     const parsedContext = parseContext(context);
 
     if (parsedContext === null) return null;
-
-    if (navigationType !== undefined) {
-        if (typeof navigationType !== 'string' || navigationType.length > 40) return null;
-
-        return {
-            name,
-            value,
-            rating,
-            path,
-            navigationType,
-            ...(parsedContext ? { context: parsedContext } : {}),
-        };
+    if (
+        navigationType !== undefined &&
+        (typeof navigationType !== 'string' || navigationType.length > 40)
+    ) {
+        return null;
     }
 
     return {
@@ -155,6 +147,7 @@ export const parseVital = (input: unknown): VitalMetric | null => {
         value,
         rating,
         path,
+        ...(navigationType !== undefined ? { navigationType } : {}),
         ...(parsedContext ? { context: parsedContext } : {}),
     };
 };
@@ -167,9 +160,7 @@ export const parseTiming = (input: unknown): TimingMetric | null => {
 
     if (typeof name !== 'string' || !TIMING_NAME_PATTERN.test(name)) return null;
     if (typeof duration !== 'number' || !Number.isFinite(duration) || duration < 0) return null;
-    if (typeof path !== 'string' || path.length > MAX_PATH_LENGTH || !PATH_PATTERN.test(path)) {
-        return null;
-    }
+    if (!isValidPath(path)) return null;
 
     const parsedContext = parseContext(context);
 
@@ -191,6 +182,38 @@ const rejectResponse = (reason: RejectReason, allow = 'POST') =>
 
 const STATUS: Record<RejectReason, number> = { method: 405, 'too-large': 413, invalid: 400 };
 
+interface JsonPostHandlerConfig<T> {
+    maxBytes: number;
+    parse: (body: unknown, request: Request) => T | null;
+    onValid: (payload: T, request: Request) => void | Promise<void>;
+    onReject?: ((reason: RejectReason, request: Request) => void) | undefined;
+}
+
+/** Shared Fetch API POST pipeline: method guard (405+Allow), streaming cap (413), JSON parse & validate (400), callback, 204. */
+const createJsonPostHandler =
+    <T>({ maxBytes, parse, onValid, onReject }: JsonPostHandlerConfig<T>) =>
+    async (request: Request): Promise<Response> => {
+        const reject = (reason: RejectReason) => {
+            onReject?.(reason, request);
+
+            return rejectResponse(reason, 'POST');
+        };
+
+        if (request.method !== 'POST') return reject('method');
+
+        const text = await readLimitedText(request, maxBytes).catch(() => null);
+
+        if (text === null) return reject('too-large');
+
+        const payload = parse(parseJson(text), request);
+
+        if (payload === null) return reject('invalid');
+
+        await onValid(payload, request);
+
+        return empty(204);
+    };
+
 export interface VitalsHandlerOptions {
     onMetric: (metric: VitalMetric, request: Request) => void | Promise<void>;
     onReject?: (reason: RejectReason, request: Request) => void;
@@ -203,29 +226,17 @@ export interface VitalsHandlerOptions {
  *
  * @example Next.js: `export const POST = createVitalsHandler({ onMetric: (m) => log.info(m) });`
  */
-export const createVitalsHandler =
-    ({ onMetric, onReject, maxBytes = 2 * 1024 }: VitalsHandlerOptions) =>
-    async (request: Request): Promise<Response> => {
-        const reject = (reason: RejectReason) => {
-            onReject?.(reason, request);
-
-            return rejectResponse(reason, 'POST');
-        };
-
-        if (request.method !== 'POST') return reject('method');
-
-        const text = await readLimitedText(request, maxBytes).catch(() => null);
-
-        if (text === null) return reject('too-large');
-
-        const metric = parseVital(parseJson(text));
-
-        if (!metric) return reject('invalid');
-
-        await onMetric(metric, request);
-
-        return empty(204);
-    };
+export const createVitalsHandler = ({
+    onMetric,
+    onReject,
+    maxBytes = 2 * 1024,
+}: VitalsHandlerOptions) =>
+    createJsonPostHandler({
+        maxBytes,
+        parse: parseVital,
+        onValid: onMetric,
+        onReject,
+    });
 
 export interface TimingsHandlerOptions {
     onTiming: (timing: TimingMetric, request: Request) => void | Promise<void>;
@@ -235,29 +246,17 @@ export interface TimingsHandlerOptions {
 }
 
 /** Handler for POST /api/timings: custom app/bridge timings from `createTimingReporter`. */
-export const createTimingsHandler =
-    ({ onTiming, onReject, maxBytes = 2 * 1024 }: TimingsHandlerOptions) =>
-    async (request: Request): Promise<Response> => {
-        const reject = (reason: RejectReason) => {
-            onReject?.(reason, request);
-
-            return rejectResponse(reason, 'POST');
-        };
-
-        if (request.method !== 'POST') return reject('method');
-
-        const text = await readLimitedText(request, maxBytes).catch(() => null);
-
-        if (text === null) return reject('too-large');
-
-        const timing = parseTiming(parseJson(text));
-
-        if (!timing) return reject('invalid');
-
-        await onTiming(timing, request);
-
-        return empty(204);
-    };
+export const createTimingsHandler = ({
+    onTiming,
+    onReject,
+    maxBytes = 2 * 1024,
+}: TimingsHandlerOptions) =>
+    createJsonPostHandler({
+        maxBytes,
+        parse: parseTiming,
+        onValid: onTiming,
+        onReject,
+    });
 
 export interface ClientLogEntry {
     message: string;
@@ -278,51 +277,38 @@ export interface ClientLogHandlerOptions {
 }
 
 /** Handler for POST /api/client-log: errors from the browser, so the server log shows them. */
-export const createClientLogHandler =
-    ({
-        onLog,
+export const createClientLogHandler = ({
+    onLog,
+    onReject,
+    maxBytes = 16 * 1024,
+    maxFields = 20,
+    maxValueLength = 1000,
+}: ClientLogHandlerOptions) => {
+    const truncate = (value: unknown): unknown =>
+        typeof value === 'string' && value.length > maxValueLength
+            ? `${value.slice(0, maxValueLength)}…`
+            : value;
+
+    return createJsonPostHandler<ClientLogEntry>({
+        maxBytes,
         onReject,
-        maxBytes = 16 * 1024,
-        maxFields = 20,
-        maxValueLength = 1000,
-    }: ClientLogHandlerOptions) =>
-    async (request: Request): Promise<Response> => {
-        const reject = (reason: RejectReason) => {
-            onReject?.(reason, request);
+        onValid: onLog,
+        parse: (body, request) => {
+            if (!isRecord(body) || Object.keys(body).length > maxFields) return null;
 
-            return rejectResponse(reason, 'POST');
-        };
+            const { message, ...rest } = Object.fromEntries(
+                Object.entries(body).map(([key, value]) => [key, truncate(value)]),
+            );
 
-        if (request.method !== 'POST') return reject('method');
-
-        const text = await readLimitedText(request, maxBytes).catch(() => null);
-
-        if (text === null) return reject('too-large');
-
-        const body = parseJson(text);
-
-        if (!isRecord(body) || Object.keys(body).length > maxFields) return reject('invalid');
-
-        const truncate = (value: unknown): unknown =>
-            typeof value === 'string' && value.length > maxValueLength
-                ? `${value.slice(0, maxValueLength)}…`
-                : value;
-        const { message, ...rest } = Object.fromEntries(
-            Object.entries(body).map(([key, value]) => [key, truncate(value)]),
-        );
-
-        await onLog(
-            {
+            return {
                 message: typeof message === 'string' ? message : 'browser error',
                 fields: rest,
                 userAgent: request.headers.get('user-agent'),
                 referer: request.headers.get('referer'),
-            },
-            request,
-        );
-
-        return empty(204);
-    };
+            };
+        },
+    });
+};
 
 /** Structural subset of Node's `http.IncomingMessage` so this module stays Edge-runtime safe. */
 export interface NodeIncomingMessage extends AsyncIterable<Uint8Array | string> {

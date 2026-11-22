@@ -9,11 +9,12 @@
 // HMR ports) go through a stub WebSocket in the page and a CDP binding:
 // page → binding → this process → local server, and back via Runtime.evaluate.
 
+import { errorMessage } from '../shared/utils.ts';
 import { type Cdp, connectCdp, type DevtoolsPage } from './cdp.ts';
 import { attachTelemetry, type TelemetryOptions } from './telemetry.ts';
 
 /** Headers fetch computes itself, or that must not reach the WebView as they are. */
-const DROP_RESPONSE = new Set([
+export const DROP_RESPONSE_HEADERS: ReadonlySet<string> = new Set([
     'content-encoding',
     'content-length',
     'transfer-encoding',
@@ -442,7 +443,7 @@ export const startOverride = async ({
             const responseHeaders: { name: string; value: string }[] = [];
 
             response.headers.forEach((value, name) => {
-                if (DROP_RESPONSE.has(name)) return;
+                if (DROP_RESPONSE_HEADERS.has(name)) return;
                 responseHeaders.push({
                     name,
                     value: name === 'location' ? mapper.toRemote(value) : value,
@@ -471,7 +472,7 @@ export const startOverride = async ({
             const cause = error instanceof Error ? error.cause : undefined;
             const code =
                 (typeof cause === 'object' && cause && 'code' in cause && String(cause.code)) ||
-                (error instanceof Error ? error.message : String(error));
+                errorMessage(error);
 
             if (code !== 'ECONNREFUSED') {
                 logger.error(`FAIL ${request.method} ${url}: ${code}`);

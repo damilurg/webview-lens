@@ -100,4 +100,30 @@ describe('Repository architectural invariants', () => {
             assert.ok(fs.readFileSync(cliFile, 'utf8').startsWith('#!/usr/bin/env node\n'));
         }
     });
+
+    it('keeps core helpers single-sourced (no duplicate utility definitions across src/)', () => {
+        const singleSourceRules: readonly { pattern: RegExp; owner: string }[] = [
+            { pattern: /\bconst\s+isRecord\s*=/, owner: 'src/shared/utils.ts' },
+            { pattern: /\bconst\s+errorMessage\s*=/, owner: 'src/shared/utils.ts' },
+            { pattern: /\bconst\s+sleep\s*=/, owner: 'src/shared/utils.ts' },
+            { pattern: /\bconst\s+waitWithTimeout\s*=/, owner: 'src/shared/utils.ts' },
+            { pattern: /\bconst\s+isFile\s*=/, owner: 'src/node/fs-utils.ts' },
+            { pattern: /\bconst\s+listDirs\s*=/, owner: 'src/node/fs-utils.ts' },
+            { pattern: /spawnSync\(\s*['"]taskkill['"]/, owner: 'src/node/fs-utils.ts' },
+        ];
+        const violations: string[] = [];
+
+        for (const file of listTsFiles(path.join(ROOT, 'src'))) {
+            const rel = path.relative(ROOT, file).replace(/\\/g, '/');
+            const source = fs.readFileSync(file, 'utf8');
+
+            for (const rule of singleSourceRules) {
+                if (rel !== rule.owner && rule.pattern.test(source)) {
+                    violations.push(`${rel} duplicates helper owned by ${rule.owner}`);
+                }
+            }
+        }
+
+        assert.deepEqual(violations, []);
+    });
 });

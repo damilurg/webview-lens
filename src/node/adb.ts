@@ -5,44 +5,10 @@
 // (`adb shell cat /proc/net/unix`) and the port is forwarded to it.
 
 import { execFileSync } from 'node:child_process';
-import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-const isFile = (file: string): boolean => {
-    try {
-        return fs.statSync(file).isFile();
-    } catch {
-        return false;
-    }
-};
-
-const listDirs = (dir: string): string[] => {
-    try {
-        return fs
-            .readdirSync(dir, { withFileTypes: true })
-            .filter((entry) => entry.isDirectory())
-            .map((entry) => path.join(dir, entry.name));
-    } catch {
-        return [];
-    }
-};
-
-/** `platform-tools/adb` inside dir, up to `depth` folders down (Downloads/platform-tools-latest/platform-tools). */
-const findPlatformTools = (dir: string, adbFile: string, depth: number): string | undefined => {
-    const direct = path.join(dir, 'platform-tools', adbFile);
-
-    if (isFile(direct)) return direct;
-    if (depth === 0) return undefined;
-
-    for (const child of listDirs(dir)) {
-        const found = findPlatformTools(child, adbFile, depth - 1);
-
-        if (found) return found;
-    }
-
-    return undefined;
-};
+import { findFileInDirs, isFile } from './fs-utils.ts';
 
 export interface FindAdbOptions {
     env?: Record<string, string | undefined>;
@@ -89,7 +55,7 @@ export const findAdb = ({
     }
     checked.push('ANDROID_HOME, ANDROID_SDK_ROOT, Android SDK, PATH');
 
-    const fromDownloads = findPlatformTools(downloads, adbFile, 2);
+    const fromDownloads = findFileInDirs(downloads, ['platform-tools', adbFile], 2);
 
     checked.push(`${downloads} (platform-tools)`);
 
