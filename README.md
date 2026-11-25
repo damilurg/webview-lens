@@ -158,7 +158,7 @@ export const server = http.createServer((req, res) => {
 The two snippets above are [`examples/rum/client.js`](examples/rum/client.js) and [`examples/rum/server.ts`](examples/rum/server.ts), copied into this README by `npm run examples:sync` (CI fails when they drift). Run them end to end:
 
 ```bash
-npm run demo:rum   # http://localhost:3000/ → interact → http://localhost:3000/metrics
+npm run demo:rum   # prints the URL (3000, or the next free port; PORT=… to pin it)
 ```
 
 ## Programmatic API & Benchmarks

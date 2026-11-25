@@ -159,7 +159,7 @@ export const server = http.createServer((req, res) => {
 Два фрагмента выше — это [`examples/rum/client.js`](examples/rum/client.js) и [`examples/rum/server.ts`](examples/rum/server.ts), их копирует в README `npm run examples:sync` (CI падает, если они разошлись). Запуск целиком:
 
 ```bash
-npm run demo:rum   # http://localhost:3000/ → поработайте со страницей → http://localhost:3000/metrics
+npm run demo:rum   # выведет адрес (3000 или следующий свободный порт; PORT=… чтобы задать)
 ```
 
 ## Программный API и бенчмарки
