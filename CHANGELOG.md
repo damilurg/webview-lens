@@ -2,7 +2,7 @@
 
 All notable changes to `webview-lens` are documented in this file.
 
-## [Unreleased]
+## [0.3.0] - 2026-11-25
 
 ### Added
 
