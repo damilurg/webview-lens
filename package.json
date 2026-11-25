@@ -1,6 +1,6 @@
 {
     "name": "webview-lens",
-    "version": "0.2.0",
+    "version": "0.2.1",
     "description": "Inspect, override and measure any web app inside Android WebView & iOS WKWebView (macOS & Windows): fixed DevTools URL, local dev server behind production HTTPS, live logs, lab Web Vitals with CI budgets, and a zero-dep RUM + Prometheus toolkit.",
     "keywords": [
         "webview",

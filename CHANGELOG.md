@@ -2,6 +2,13 @@
 
 All notable changes to `webview-lens` are documented in this file.
 
+## [0.2.1] - 2026-11-25
+
+### Changed
+
+- README: npm, CI, release, provenance, Node, types, dependencies, platform and license badges, plus quick links to the docs, npm, changelog and issue tracker.
+- CI: `actions/checkout` and `actions/setup-node` updated to v7 (Node 24 runtime); the release workflow publishes without a dependency cache and without persisted git credentials.
+
 ## [0.2.0] - 2026-11-25
 
 ### Added
