@@ -2,12 +2,13 @@
 
 All notable changes to `webview-lens` are documented in this file.
 
-## [Unreleased]
+## [0.3.4] - 2026-11-25
 
 ### Added
 
 - Documentation website on GitHub Pages: <https://damilurg.github.io/webview-lens/> (English and Russian, search, Mermaid diagrams, sitemap, per-page canonical and Open Graph tags). Built with VitePress from `README.md`, `docs/` and this changelog by `site/build-content.ts`, deployed by `.github/workflows/pages.yml`.
 - `homepage` points to the website.
+- Website SEO: `hreflang` links between English and Russian pages, Open Graph image (1200×630, `summary_large_image`), `og:locale`, schema.org `SoftwareApplication` JSON-LD on the home pages, and "Last updated" dates from git history that also feed `lastmod` in `sitemap.xml`.
 
 ## [0.3.3] - 2026-11-25
 

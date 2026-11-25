@@ -6,6 +6,7 @@
 //   source files) become GitHub URLs.
 // - The README's centered badge header is replaced by the VitePress home hero.
 
+import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -202,10 +203,27 @@ for (const page of PAGES) {
 
 const yamlString = (value: string): string => JSON.stringify(value);
 
+/** Last commit date of a source file (ISO 8601), for "Last updated" and sitemap `lastmod`. */
+const lastCommitDate = (source: string): string | undefined => {
+    try {
+        const date = execFileSync('git', ['log', '-1', '--format=%cI', '--', source], {
+            cwd: root,
+            encoding: 'utf8',
+        }).trim();
+
+        return date || undefined;
+    } catch {
+        return undefined;
+    }
+};
+
 const frontMatter = (page: Page): string => {
+    const updated = lastCommitDate(page.source);
     const lines = [
         `title: ${yamlString(page.title)}`,
         `description: ${yamlString(page.description)}`,
+        // Unquoted, so YAML parses it as a date.
+        ...(updated ? [`lastUpdated: ${updated}`] : []),
     ];
 
     if (page.home) {

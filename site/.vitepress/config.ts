@@ -1,3 +1,5 @@
+import fs from 'node:fs';
+
 import { defineConfig, type HeadConfig } from 'vitepress';
 import { withMermaid } from 'vitepress-plugin-mermaid';
 
@@ -6,6 +8,48 @@ import { PAGES } from '../build-content.ts';
 const SITE = 'https://damilurg.github.io/webview-lens';
 const REPO = 'https://github.com/damilurg/webview-lens';
 const NPM = 'https://www.npmjs.com/package/webview-lens';
+const OG_IMAGE = `${SITE}/og-image.png`;
+const pkg = JSON.parse(fs.readFileSync(new URL('../../package.json', import.meta.url), 'utf8')) as {
+    version: string;
+    description: string;
+};
+
+/** Site routes without the base, e.g. '', 'ios', 'ru/', 'ru/ios'. */
+const ROUTES = new Set(PAGES.map((page) => page.route.slice(1)));
+
+/** EN ↔ RU counterpart of a route, when the other language has that page. */
+const counterpart = (route: string): { en: string; ru: string } | undefined => {
+    const en = route.startsWith('ru/') ? route.slice(3) : route;
+    const ru = `ru/${en}`;
+
+    return ROUTES.has(en) && ROUTES.has(ru) ? { en, ru } : undefined;
+};
+
+/** schema.org description of the package, for search engines and AI assistants. */
+const softwareJsonLd = (description: string, lang: string) =>
+    JSON.stringify({
+        '@context': 'https://schema.org',
+        '@type': 'SoftwareApplication',
+        name: 'webview-lens',
+        description,
+        inLanguage: lang,
+        applicationCategory: 'DeveloperApplication',
+        applicationSubCategory:
+            'Debugging and performance tools for Android WebView and iOS WKWebView',
+        operatingSystem: 'macOS, Windows, Linux',
+        softwareVersion: pkg.version,
+        url: `${SITE}/`,
+        downloadUrl: NPM,
+        installUrl: NPM,
+        codeRepository: REPO,
+        license: 'https://opensource.org/licenses/MIT',
+        isAccessibleForFree: true,
+        offers: { '@type': 'Offer', price: '0', priceCurrency: 'USD' },
+        author: { '@type': 'Person', name: 'damilurg', url: 'https://github.com/damilurg' },
+        image: OG_IMAGE,
+        keywords:
+            'Android WebView debugging, WKWebView debugging, Chrome DevTools, chrome://inspect alternative, iOS debugging on Windows, localhost in WebView, Web Vitals, RUM, Prometheus',
+    });
 
 // Generated page file (relative to srcDir) → the repository file it was built from.
 const sourceByFile = new Map(
@@ -76,7 +120,8 @@ export default withMermaid(
         srcDir: 'content',
         base: '/webview-lens/',
         cleanUrls: true,
-        lastUpdated: false,
+        // Dates come from the git history of each page's source file (see build-content.ts).
+        lastUpdated: true,
         title: 'webview-lens',
         titleTemplate: ':title · webview-lens',
         description:
@@ -86,7 +131,19 @@ export default withMermaid(
             ['meta', { name: 'theme-color', content: '#6f42c1' }],
             ['meta', { property: 'og:type', content: 'website' }],
             ['meta', { property: 'og:site_name', content: 'webview-lens' }],
-            ['meta', { name: 'twitter:card', content: 'summary' }],
+            ['meta', { name: 'twitter:card', content: 'summary_large_image' }],
+            ['meta', { property: 'og:image', content: OG_IMAGE }],
+            ['meta', { property: 'og:image:width', content: '1200' }],
+            ['meta', { property: 'og:image:height', content: '630' }],
+            [
+                'meta',
+                {
+                    property: 'og:image:alt',
+                    content:
+                        'webview-lens: debug Android WebView and iOS WKWebView in Chrome DevTools',
+                },
+            ],
+            ['meta', { name: 'twitter:image', content: OG_IMAGE }],
             [
                 'meta',
                 {
@@ -109,7 +166,31 @@ export default withMermaid(
                 ['meta', { property: 'og:description', content: description }],
                 ['meta', { name: 'twitter:title', content: title }],
                 ['meta', { name: 'twitter:description', content: description }],
+                [
+                    'meta',
+                    { property: 'og:locale', content: route.startsWith('ru/') ? 'ru_RU' : 'en_US' },
+                ],
             ];
+            const pair = counterpart(route);
+
+            // hreflang: tells search engines the EN and RU pages are translations of each other.
+            if (pair) {
+                tags.push(
+                    ['link', { rel: 'alternate', hreflang: 'en', href: `${SITE}/${pair.en}` }],
+                    ['link', { rel: 'alternate', hreflang: 'ru', href: `${SITE}/${pair.ru}` }],
+                    [
+                        'link',
+                        { rel: 'alternate', hreflang: 'x-default', href: `${SITE}/${pair.en}` },
+                    ],
+                );
+            }
+            if (route === '' || route === 'ru/') {
+                tags.push([
+                    'script',
+                    { type: 'application/ld+json' },
+                    softwareJsonLd(description, route ? 'ru' : 'en'),
+                ]);
+            }
 
             return tags;
         },
