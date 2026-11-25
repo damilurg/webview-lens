@@ -52,3 +52,33 @@ npx webview-lens dev http://localhost:5173 --platform ios --remote https://stand
 On the iPhone, set **Settings → Wi-Fi → (i) → Configure Proxy → Manual** to the printed LAN IP and port (`8888`). Open your WebView screen in the app — it now loads directly from your local dev server with full HMR.
 
 The proxy listens on all interfaces but only serves clients from loopback, private (`10/8`, `172.16/12`, `192.168/16`, `fc00::/7`), link-local and CGNAT (`100.64/10`) addresses, so it is not an open proxy on a public interface. Pass `allowClient` to `startIosMitmProxy` to change that rule. An `https://` local dev server (Vite/Angular `--https`) works for WebSocket HMR too; its self-signed certificate is trusted on `localhost` only.
+
+### How the proxy flow works, step by step
+
+`webview-lens dev --platform ios` starts one HTTP proxy on your Mac (port `8888`). The iPhone sends
+**all** its Wi-Fi traffic there; the proxy decrypts only the `--remote` host with its own CA and serves
+it from your local dev server, and tunnels every other host untouched.
+
+| Step | On the iPhone                                                                         | You should see                                                     |
+| ---- | ------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
+| 1    | Safari: **`http://<mac-ip>:8888/`** (http, not https)                                 | "webview-lens iOS setup" with a profile button                     |
+| 2    | Download the profile, then Settings → General → VPN & Device Management → install     | "webview-lens Local CA" installed                                  |
+| 3    | Settings → General → About → Certificate Trust Settings → enable full trust           | the switch for "webview-lens Local CA" is on                       |
+| 4    | Settings → Wi-Fi → (i) → Configure Proxy → **Manual**: Server `<mac-ip>`, Port `8888` | —                                                                  |
+| 5    | Safari: **`http://webview-lens.check/`**                                              | **Proxy: OK** (and `proxy check OK` in the terminal)               |
+| 6    | Safari: **`https://<remote-host>/__webview-lens/ok`**                                 | **Interception: OK** (and `interception check OK` in the terminal) |
+| 7    | Open the app (or the stand in Safari)                                                 | your local build, with request lines (`200 GET /`) in the terminal |
+| 8    | When done: Configure Proxy → **Off**                                                  | normal internet without the Mac                                    |
+
+### When it does not work
+
+| Symptom                                                              | Cause                                                                 | Fix                                                                                                                          |
+| -------------------------------------------------------------------- | --------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| Safari cannot open `https://<mac-ip>:8888/` (TLS error)              | the proxy port speaks plain HTTP                                      | open `http://<mac-ip>:8888/`                                                                                                 |
+| `http://webview-lens.check/` does not open                           | the iPhone does not use the proxy                                     | Configure Proxy → Manual on the Wi-Fi network you are on; Server = the IP the terminal prints (check for typos), Port `8888` |
+| The check opens but `…/__webview-lens/ok` shows "Not Private"        | the CA is installed but not trusted                                   | step 3: Certificate Trust Settings → enable full trust                                                                       |
+| Both checks pass, the app still shows the stand                      | the app pins its certificates, or the page came from a cache          | test build without SSL pinning; reload the screen (or press Enter in the terminal)                                           |
+| No `200 GET …` lines, only `[console…]` lines                        | `--logs` runs over USB, the page itself does not go through the proxy | step 5 first                                                                                                                 |
+| `MITM FAIL … (UNABLE_TO_VERIFY_LEAF_SIGNATURE)` for `--bypass` paths | the stand uses a private CA that Node does not trust                  | start with `NODE_EXTRA_CA_CERTS=/path/to/stand-ca.pem`                                                                       |
+| `Proxy refused client … (not a private network)`                     | the client is not on a private network                                | use the Mac's LAN IP on the same Wi-Fi                                                                                       |
+| No internet on the iPhone after you stopped `dev`                    | the Wi-Fi proxy still points at the Mac                               | Configure Proxy → Off                                                                                                        |

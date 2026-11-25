@@ -8,7 +8,11 @@ import { describeIosDevices } from '../src/node/drivers/ios/usbmux.ts';
 import { translateCdpToWip } from '../src/node/drivers/ios/wip-cdp-bridge.ts';
 import { COLLECTOR, measureVitals } from '../src/node/vitals-lab.ts';
 import { createIosDevtoolsTranslator } from '../src/node/drivers/ios/devtools-bridge.ts';
-import { isPrivateNetworkAddress, startIosMitmProxy } from '../src/node/drivers/ios/mitm-proxy.ts';
+import {
+    describeFetchError,
+    isPrivateNetworkAddress,
+    startIosMitmProxy,
+} from '../src/node/drivers/ios/mitm-proxy.ts';
 import { bridgeShim, startOverride } from '../src/node/override.ts';
 import { buildWebSocketAcceptResponse } from '../src/node/ws-server.ts';
 import {
@@ -378,5 +382,59 @@ describe('iOS fixes found on a real iPhone (iOS 26.6)', () => {
 
         await measureVitals({ driver, paths: ['/'], runs: 1, settleMs: 0, log: () => undefined });
         assert.equal(seenPort, undefined);
+    });
+});
+
+describe('iOS proxy self-checks', () => {
+    it('answers http://webview-lens.check/ itself, so the iPhone can see that it uses the proxy', async () => {
+        const proxy = await startIosMitmProxy({
+            remote: 'https://stand.example.test',
+            local: 'http://127.0.0.1:1',
+            port: 0,
+            host: '127.0.0.1',
+            ca: generateRootCa(),
+            logger: { request: () => undefined, error: () => undefined },
+        });
+
+        try {
+            const body = await new Promise<string>((resolve, reject) => {
+                http.get(
+                    { host: '127.0.0.1', port: proxy.port, path: 'http://webview-lens.check/' },
+                    (res) => {
+                        let text = '';
+
+                        res.setEncoding('utf8');
+                        res.on('data', (chunk: string) => (text += chunk));
+                        res.on('end', () => resolve(text));
+                    },
+                ).on('error', reject);
+            });
+
+            assert.match(body, /Proxy: OK/);
+            assert.match(body, /https:\/\/stand\.example\.test\/__webview-lens\/ok/);
+        } finally {
+            await proxy.close();
+        }
+    });
+
+    it('explains certificate failures of bypassed requests', () => {
+        const error = new TypeError('fetch failed', {
+            cause: Object.assign(new Error('unable to verify'), {
+                code: 'UNABLE_TO_VERIFY_LEAF_SIGNATURE',
+            }),
+        });
+
+        assert.match(
+            describeFetchError(error),
+            /UNABLE_TO_VERIFY_LEAF_SIGNATURE.*NODE_EXTRA_CA_CERTS/,
+        );
+        assert.equal(
+            describeFetchError(
+                new TypeError('fetch failed', {
+                    cause: Object.assign(new Error('x'), { code: 'ECONNREFUSED' }),
+                }),
+            ),
+            'fetch failed (ECONNREFUSED)',
+        );
     });
 });

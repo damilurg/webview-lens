@@ -115,6 +115,23 @@ export const classifyTlsError = (error: Error): string => {
     return `TLS handshake error: ${msg}`;
 };
 
+/**
+ * "fetch failed" with its cause (ECONNREFUSED, CERT_HAS_EXPIRED, …) and, for certificate errors on
+ * bypassed requests to a stand with a private CA, the fix: Node does not use the system keychain.
+ */
+export const describeFetchError = (error: unknown): string => {
+    const cause = error instanceof Error ? error.cause : undefined;
+    const code =
+        typeof cause === 'object' && cause !== null && 'code' in cause ? String(cause.code) : '';
+    const message = code ? `${errorMessage(error)} (${code})` : errorMessage(error);
+
+    if (/CERT|SELF_SIGNED|UNABLE_TO_VERIFY|ERR_TLS/i.test(code)) {
+        return `${message}: the stand's certificate is not trusted by Node; start webview-lens with NODE_EXTRA_CA_CERTS=/path/to/stand-ca.pem`;
+    }
+
+    return message;
+};
+
 export interface DecryptedRequestInput {
     method: string;
     url: string;
@@ -251,20 +268,35 @@ export const detectLanAddresses = (): string[] => {
     return result;
 };
 
-const certLandingPage = (hostHint: string, proxyPort: number): string => `<!doctype html>
+/** Host answered by the proxy itself: it only opens when the iPhone really uses the proxy. */
+export const PROXY_CHECK_HOST = 'webview-lens.check';
+
+/** Path answered inside the intercepted TLS session: it only opens when the CA is trusted. */
+export const INTERCEPT_CHECK_PATH = '/__webview-lens/ok';
+
+const page = (title: string, body: string): string => `<!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>webview-lens · iOS Certificate Setup</title>
-<body style="font:16px/1.5 system-ui;max-width:560px;margin:32px auto;padding:0 16px">
-<h1>webview-lens iOS CA</h1>
+<title>webview-lens · ${title}</title>
+<body style="font:16px/1.5 system-ui;max-width:560px;margin:32px auto;padding:0 16px">${body}`;
+
+const certLandingPage = (hostHint: string, proxyPort: number, targetOrigin: string): string =>
+    page(
+        'iOS setup',
+        `<h1>webview-lens iOS setup</h1>
+<p>Open this page as <b>http://</b>${hostHint}:${proxyPort}/ (not https: the proxy port speaks plain HTTP).</p>
 <p><a href="/webview-lens.mobileconfig" style="display:inline-block;padding:12px 20px;background:#111;color:#fff;text-decoration:none;border-radius:8px">Download iOS Profile (.mobileconfig)</a></p>
 <ol>
   <li>Tap <b>Download iOS Profile</b> in Safari and allow it.</li>
   <li>Open <b>Settings → General → VPN &amp; Device Management</b> and install <i>webview-lens Local CA</i>.</li>
   <li>Open <b>Settings → General → About → Certificate Trust Settings</b> and enable full trust for <i>webview-lens Local CA</i>.</li>
   <li>In <b>Settings → Wi-Fi → (i) → Configure Proxy → Manual</b>, set Server <code>${hostHint}</code> and Port <code>${proxyPort}</code>.</li>
+  <li>Check the proxy: <a href="http://${PROXY_CHECK_HOST}/">http://${PROXY_CHECK_HOST}/</a> must say <b>Proxy: OK</b>.</li>
+  <li>Check the CA and interception: <a href="${targetOrigin}${INTERCEPT_CHECK_PATH}">${targetOrigin}${INTERCEPT_CHECK_PATH}</a> must say <b>Interception: OK</b>.</li>
 </ol>
-<p><small>Raw PEM certificate: <a href="/ca.cer">/ca.cer</a></small></p>`;
+<p>When you are done, set the Wi-Fi proxy back to <b>Off</b>: without this Mac running, the iPhone has no internet through it.</p>
+<p><small>Raw PEM certificate: <a href="/ca.cer">/ca.cer</a></small></p>`,
+    );
 
 export interface IosMitmProxyOptions {
     /** Stand origin to intercept, e.g. `https://stand.example.com`. */
@@ -375,6 +407,21 @@ export const startIosMitmProxy = async ({
 
     // Internal HTTP server receiving decrypted TLS sockets for `targetHost`.
     const decryptedServer = http.createServer(async (req, res) => {
+        if (req.url === INTERCEPT_CHECK_PATH) {
+            logger.request(`interception check OK for ${targetHost}`);
+            res.writeHead(200, {
+                'content-type': 'text/html; charset=utf-8',
+                'cache-control': 'no-store',
+            });
+            res.end(
+                page(
+                    'interception check',
+                    `<h1>Interception: OK</h1><p>The webview-lens CA is trusted and requests to <b>${targetHost}</b> are served from <code>${mapper.localOrigin}</code>. Open <a href="${mapper.entryUrl}">${mapper.entryUrl}</a>.</p>`,
+                ),
+            );
+
+            return;
+        }
         try {
             const body = await readBody(req);
             const result = await handleDecryptedRequest({
@@ -406,7 +453,7 @@ export const startIosMitmProxy = async ({
             }
         } catch (error) {
             logger.error(
-                `MITM FAIL ${req.method ?? 'GET'} ${req.url ?? '/'}: ${errorMessage(error)}`,
+                `MITM FAIL ${req.method ?? 'GET'} ${req.url ?? '/'}: ${describeFetchError(error)}`,
             );
             res.statusCode = 502;
             res.end('webview-lens local proxy error');
@@ -444,6 +491,18 @@ export const startIosMitmProxy = async ({
         // With the iPhone's Wi-Fi proxy set, plain http:// traffic arrives in absolute form
         // (`GET http://host/path`): forward it instead of answering with the landing page.
         if (/^http:\/\//i.test(req.url ?? '')) {
+            if (new URL(req.url ?? '').hostname === PROXY_CHECK_HOST) {
+                logger.request(`proxy check OK from ${req.socket.remoteAddress ?? 'unknown'}`);
+                res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+                res.end(
+                    page(
+                        'proxy check',
+                        `<h1>Proxy: OK</h1><p>This iPhone sends its traffic through webview-lens. Next: <a href="${mapper.remoteOrigin}${INTERCEPT_CHECK_PATH}">check the CA and interception</a>.</p>`,
+                    ),
+                );
+
+                return;
+            }
             forwardPlainHttp(req, res);
 
             return;
@@ -474,7 +533,7 @@ export const startIosMitmProxy = async ({
         const hostHint = detectLanAddresses()[0] ?? 'localhost';
 
         res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
-        res.end(certLandingPage(hostHint, port));
+        res.end(certLandingPage(hostHint, port, mapper.remoteOrigin));
     });
 
     proxyServer.on('connection', (socket: net.Socket) => {

@@ -17,6 +17,8 @@ Found by end-to-end runs on real phones: Redmi Note 8 Pro (Android 11, WebView 1
 - **iOS `vitals` hung:** WebKit has no `Page.navigate`; navigation is now done in the page (`location.assign`). The CLI also passed the Android forward port (9223) to the iOS driver, which then looked for pages on the wrong port; `vitals` and `dev --logs` now start `ios_webkit_debug_proxy` like `devtools` does.
 - **iOS CLS reported 🟢 0.000:** WebKit has no layout-shift entries, so CLS stayed at its initial 0. It is now `n/a` where layout shifts cannot be observed. The docs now say what iOS 26.6 measures: LCP and Event Timing yes, CLS no.
 - An iPhone connected over USB and Wi-Fi at once is listed once.
+- **iOS `dev` proxy setup is checkable:** the setup page (`http://<mac-ip>:8888/`) links two self-checks: `http://webview-lens.check/` answers **Proxy: OK** only through the proxy, and `https://<remote>/__webview-lens/ok` answers **Interception: OK** only when the CA is trusted. Both also log a line in the terminal. `docs/ios.md` has the flow step by step and a symptom → cause → fix table.
+- Bypassed requests that fail show the cause (`fetch failed (UNABLE_TO_VERIFY_LEAF_SIGNATURE)`) and, for a stand with a private CA, the fix: `NODE_EXTRA_CA_CERTS`.
 - Chromium-only DevTools calls WebKit lacks (`Page.startScreencast`, `CSS.getEnvironmentVariables`, `CSS.getLonghandProperties`, computed-style tracking) are answered with empty results instead of errors.
 
 ## [0.3.4] - 2026-11-25
