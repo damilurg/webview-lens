@@ -5,6 +5,7 @@
 // so the CDP translator and the Chrome DevTools UI keep speaking plain protocol messages.
 
 import { isRecord } from '../../../shared/utils.ts';
+import { type Cdp, connectCdp } from '../../cdp.ts';
 
 export interface WebKitTargetRouterOptions {
     /** Writes a raw frame to the WebKit socket. */
@@ -145,3 +146,7 @@ export const createWebKitTargetRouter = ({
         },
     };
 };
+
+/** A WebKit Inspector page socket (iOS) as a CDP-shaped transport, with target routing. */
+export const connectWebKitInspector = (webSocketDebuggerUrl: string): Promise<Cdp> =>
+    connectCdp(webSocketDebuggerUrl, { adapter: (io) => createWebKitTargetRouter(io) });

@@ -1,7 +1,7 @@
 // iOS implementation of DeviceDriver and InspectorSession over usbmuxd + IWDP + WIP↔CDP bridge.
 
 import { sleep } from '../../../shared/utils.ts';
-import { type Cdp, connectCdp, connectWebKitInspector } from '../../cdp.ts';
+import { type Cdp, type connectCdp } from '../../cdp.ts';
 import { createProtocolInspectorSession } from '../base-session.ts';
 import type {
     ConnectedDevice,
@@ -22,6 +22,7 @@ import {
     listIwdpPages,
 } from './iwdp.ts';
 import { describeIosDevices, listIosDevices } from './usbmux.ts';
+import { connectWebKitInspector } from './webkit-targets.ts';
 import { createWipCdpBridge } from './wip-cdp-bridge.ts';
 
 /** Honest capabilities of iOS WKWebView (WebKit lacks CDP Fetch and several Web Vitals). */

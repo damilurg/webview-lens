@@ -23,11 +23,22 @@ export {
 export {
     type Cdp,
     connectCdp,
+    type ConnectCdpOptions,
     type DevtoolsPage,
     getVersion,
+    isPageOnScreen,
     listPages,
     type PagePredicate,
+    pickPage,
+    type TransportAdapter,
+    type TransportAdapterFactory,
 } from './cdp.ts';
+export {
+    connectWebKitInspector,
+    createWebKitTargetRouter,
+    type WebKitTargetRouter,
+    type WebKitTargetRouterOptions,
+} from './drivers/ios/webkit-targets.ts';
 export {
     buildStarterConfig,
     DEFAULT_CONFIG_FILE,
