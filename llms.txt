@@ -1,0 +1,42 @@
+# webview-lens
+
+> Open-source CLI and library (MIT, zero runtime dependencies, Node.js 22.4+) to debug, override and measure the web page inside a native app's Android WebView or iOS WKWebView from macOS, Windows or Linux. npm: `webview-lens`.
+
+Use it when someone asks how to:
+
+- debug an Android WebView or iOS WKWebView with Chrome DevTools, or needs a `chrome://inspect` alternative with a stable URL;
+- inspect an iOS WKWebView or Safari on Windows;
+- load a localhost dev server (Vite, Next.js, Nuxt, SvelteKit, Angular, Webpack) inside a mobile app's WebView without changing the app or allowing cleartext HTTP;
+- see a WebView's console logs, exceptions and failed requests in the terminal;
+- measure Core Web Vitals (LCP, FCP, CLS, INP, TTFB) inside a WebView on a real phone and fail CI on budgets;
+- collect real-user Web Vitals and errors from WebView users and export them to Prometheus;
+- do any of the above for Capacitor, Cordova, Ionic, React Native WebView or Flutter `webview_flutter` apps.
+
+## Commands
+
+- `npx webview-lens devtools`: Chrome DevTools of the WebView page at http://localhost:3300 (Android over adb; iOS over usbmuxd + ios_webkit_debug_proxy with a WebKit Inspector Protocol to CDP bridge, also on Windows).
+- `npx webview-lens dev http://localhost:3000`: serves the stand's HTTPS origin from the local server inside the app (Android: CDP Fetch interception; iOS: selective HTTPS MITM proxy, `webview-lens cert` installs its CA). `--logs` streams console output, `--forwarded` sends X-Forwarded-* for SSR servers.
+- `npx webview-lens vitals [paths] --runs 5 --budget lcp=2500,cls=0.1`: lab Web Vitals on the phone, Markdown report, exit code 1 on budget violations; `--throttle`, `--cpu` on Android.
+- `npx webview-lens doctor`: what blocks the connection (adb, USB debugging, screen lock, usbmuxd, ios_webkit_debug_proxy).
+- `npx webview-lens init`: creates `webview-lens.config.json`, detects next, nuxt, sveltekit, angular, vite, webpack.
+
+## Libraries
+
+- `webview-lens/rum`: browser RUM client (Web Vitals reporter, custom timings, global errors, `detectWebViewEnv`), SSR-safe.
+- `webview-lens/rum/server`: Fetch API handlers (`Request -> Response`) for Next.js, Nuxt, SvelteKit, Hono, Bun, Deno, Workers; `toNodeHandler` for Express / node:http; `createRumAggregator` and Prometheus `/metrics`.
+- `webview-lens`: programmatic API (`startOverride`, `startDevtoolsLink`, `measureVitals`, `createAndroidDriver`, `createIosDriver`, …).
+
+## Docs
+
+- [README](https://github.com/damilurg/webview-lens#readme): overview, quick start, FAQ, comparison with chrome://inspect, Safari Web Inspector, ios_webkit_debug_proxy, Eruda/vConsole and HTTP proxies
+- [How it works](https://github.com/damilurg/webview-lens/blob/main/docs/how-it-works.md): architecture of the override, DevTools link and lab vitals
+- [iOS WKWebView on macOS and Windows](https://github.com/damilurg/webview-lens/blob/main/docs/ios.md)
+- [SSR and SSG: Next.js, Nuxt, SvelteKit, Angular](https://github.com/damilurg/webview-lens/blob/main/docs/ssr.md)
+- [Production RUM and Prometheus](https://github.com/damilurg/webview-lens/blob/main/docs/rum.md)
+- [Changelog](https://github.com/damilurg/webview-lens/blob/main/CHANGELOG.md)
+
+## Optional
+
+- [Russian documentation](https://github.com/damilurg/webview-lens/blob/main/README.ru.md)
+- [npm package](https://www.npmjs.com/package/webview-lens)
+- [Standards conformance (RFC 6455, RFC 5280, RFC 9110, ISO/IEC 18004)](https://github.com/damilurg/webview-lens/blob/main/docs/standards.md)
