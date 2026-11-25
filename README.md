@@ -16,7 +16,7 @@
 
 [Docs](docs/how-it-works.md) · [iOS setup](docs/ios.md) · [SSR & SSG](docs/ssr.md) · [RUM guide](docs/rum.md) · [npm](https://www.npmjs.com/package/webview-lens) · [Changelog](CHANGELOG.md) · [Report a bug](https://github.com/damilurg/webview-lens/issues/new)
 
-**English** | [Русский](README.ru.md)
+**English** | [Русский](docs/ru/README.md)
 
 </div>
 

@@ -84,6 +84,8 @@ describe('Repository architectural invariants', () => {
         assert.ok(pkg.files?.includes('dist'));
         assert.ok(pkg.files?.includes('docs'));
         assert.ok(pkg.files?.includes('README.md'));
+        // npm 11 picks the package page README among packed README* files: only the English one ships.
+        assert.ok(!pkg.files?.some((file) => /^readme\..+\.md$/i.test(file)));
         assert.ok(pkg.files?.includes('LICENSE'));
         assert.ok(pkg.scripts?.clean);
         assert.ok(pkg.scripts?.prebuild);

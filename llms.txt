@@ -43,6 +43,6 @@ Use it when someone asks how to:
 
 ## Optional
 
-- [Russian documentation](https://github.com/damilurg/webview-lens/blob/main/README.ru.md)
+- [Russian documentation](https://github.com/damilurg/webview-lens/blob/main/docs/ru/README.md)
 - [npm package](https://www.npmjs.com/package/webview-lens)
 - [Standards conformance (RFC 6455, RFC 5280, RFC 9110, ISO/IEC 18004)](https://github.com/damilurg/webview-lens/blob/main/docs/standards.md)

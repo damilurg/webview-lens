@@ -19,7 +19,7 @@ import * as prettier from 'prettier';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
-export const MARKDOWN_FILES = ['README.md', 'README.ru.md', 'docs/rum.md', 'docs/ru/rum.md'];
+export const MARKDOWN_FILES = ['README.md', 'docs/ru/README.md', 'docs/rum.md', 'docs/ru/rum.md'];
 
 const PACKAGE_SPECIFIERS: Readonly<Record<string, string>> = {
     'src/node/index.ts': 'webview-lens',

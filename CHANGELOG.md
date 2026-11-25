@@ -2,6 +2,12 @@
 
 All notable changes to `webview-lens` are documented in this file.
 
+## [0.3.3] - 2026-11-25
+
+### Fixed
+
+- The npm package page shows the English README again. npm 11 (used since releases moved to Node.js 26) picked `README.ru.md` from the package root, so the Russian README moved to [`docs/ru/README.md`](docs/ru/README.md).
+
 ## [0.3.2] - 2026-11-25
 
 ### Added

@@ -14,9 +14,9 @@
 [![platforms](https://img.shields.io/badge/WebView-Android%20%7C%20iOS-6f42c1)](https://github.com/damilurg/webview-lens/blob/main/docs/ios.md)
 [![license](https://img.shields.io/npm/l/webview-lens)](https://github.com/damilurg/webview-lens/blob/main/LICENSE)
 
-[Документация](docs/ru/how-it-works.md) · [Настройка iOS](docs/ru/ios.md) · [SSR и SSG](docs/ru/ssr.md) · [RUM](docs/ru/rum.md) · [npm](https://www.npmjs.com/package/webview-lens) · [Changelog](CHANGELOG.md) · [Сообщить об ошибке](https://github.com/damilurg/webview-lens/issues/new)
+[Документация](how-it-works.md) · [Настройка iOS](ios.md) · [SSR и SSG](ssr.md) · [RUM](rum.md) · [npm](https://www.npmjs.com/package/webview-lens) · [Changelog](../../CHANGELOG.md) · [Сообщить об ошибке](https://github.com/damilurg/webview-lens/issues/new)
 
-[English](README.md) | **Русский**
+[English](../../README.md) | **Русский**
 
 </div>
 
@@ -68,7 +68,7 @@ CI и даёт **RUM + Prometheus** для продакшена. **Ноль runt
 **Настройка телефона:**
 
 - **Android:** включена отладка по USB, тестовая сборка вызывает `WebView.setWebContentsDebuggingEnabled(true)`.
-- **iOS (macOS и Windows):** в тестовой сборке выставлено `webView.isInspectable = true`, на iPhone включён _Настройки → Safari → Дополнительно → Веб-инспектор_. Для `devtools`/`vitals`/`--logs` нужен `ios_webkit_debug_proxy` (запускается автоматически) и Apple Devices / iTunes на Windows. Подробнее: [docs/ru/ios.md](docs/ru/ios.md).
+- **iOS (macOS и Windows):** в тестовой сборке выставлено `webView.isInspectable = true`, на iPhone включён _Настройки → Safari → Дополнительно → Веб-инспектор_. Для `devtools`/`vitals`/`--logs` нужен `ios_webkit_debug_proxy` (запускается автоматически) и Apple Devices / iTunes на Windows. Подробнее: [docs/ru/ios.md](ios.md).
 
 ## Быстрый старт
 
@@ -95,7 +95,7 @@ npx webview-lens dev http://localhost:5173 --platform ios --remote https://stand
 
 - `--platform auto|android|ios` — выбор платформы (`auto` сам подхватит подключённый телефон).
 - `--preset auto|next|nuxt|sveltekit|angular|vite|webpack|generic` — пресеты HMR WebSocket и фильтрации шума статики.
-- `--forwarded` — отправляет SSR-серверу `X-Forwarded-Host/Proto` стенда, чтобы абсолютные URL, canonical и OAuth-колбэки указывали на стенд. Работает с SSR dev-серверами, production-сборками и статикой (SSG): см. [docs/ru/ssr.md](docs/ru/ssr.md).
+- `--forwarded` — отправляет SSR-серверу `X-Forwarded-Host/Proto` стенда, чтобы абсолютные URL, canonical и OAuth-колбэки указывали на стенд. Работает с SSR dev-серверами, production-сборками и статикой (SSG): см. [docs/ru/ssr.md](ssr.md).
 - `--remote <url>` — origin стенда для подмены (на Android определяется автоматически по открытому WebView; на iOS обязателен).
 - `--remote-base /shop` и `--local-base /` — маппинг subpath стенда на корень локального сервера (с перезаписью URL, `Referer` и `Location`).
 - `--ws <prefix>` — префиксы WebSocket для моста через CDP на Android (повторяемый флаг).
@@ -199,7 +199,7 @@ export const server = http.createServer((req, res) => {
 
 ### Демо
 
-Два фрагмента выше — это [`examples/rum/client.js`](examples/rum/client.js) и [`examples/rum/server.ts`](examples/rum/server.ts), их копирует в README `npm run examples:sync` (CI падает, если они разошлись). Запуск целиком:
+Два фрагмента выше — это [`examples/rum/client.js`](../../examples/rum/client.js) и [`examples/rum/server.ts`](../../examples/rum/server.ts), их копирует в README `npm run examples:sync` (CI падает, если они разошлись). Запуск целиком:
 
 ```bash
 npm run demo:rum   # выведет адрес (3000 или следующий свободный порт; PORT=… чтобы задать)
@@ -230,7 +230,7 @@ DevTools, но на адресе, который не меняется при п
 `webview-lens devtools --platform ios` работает на Windows и macOS: находит iPhone по USB
 (`usbmuxd` из Apple Devices / iTunes), запускает `ios_webkit_debug_proxy` и переводит WebKit
 Inspector Protocol в Chrome DevTools, так что отладка идёт в Chrome на `http://localhost:3300`.
-Приложение должно выставлять `webView.isInspectable = true` (iOS 16.4+). См. [docs/ru/ios.md](docs/ru/ios.md).
+Приложение должно выставлять `webView.isInspectable = true` (iOS 16.4+). См. [docs/ru/ios.md](ios.md).
 
 ### Как открыть локальный dev-сервер (localhost) внутри WebView мобильного приложения?
 
@@ -254,7 +254,7 @@ TTFB, Long Tasks и JS heap на реальном телефоне, пишет �
 
 Подключите `webview-lens/rum` на странице и `webview-lens/rum/server` на сервере: Web Vitals,
 кастомные тайминги и JS-ошибки с разбивкой на `android-webview` / `ios-wkwebview` / `browser`,
-перцентили p50/p75/p95 и экспорт в Prometheus. См. [docs/ru/rum.md](docs/ru/rum.md).
+перцентили p50/p75/p95 и экспорт в Prometheus. См. [docs/ru/rum.md](rum.md).
 
 ### Работает ли с Capacitor, Cordova, Ionic, React Native и Flutter?
 
@@ -266,7 +266,7 @@ TTFB, Long Tasks и JS heap на реальном телефоне, пишет �
 ### Работает ли с SSR и SSG (Next.js, Nuxt, SvelteKit, Angular)?
 
 Да: с dev-серверами, production-сборками и статикой; `--forwarded` заставляет SSR-сервер собирать
-абсолютные URL для стенда. См. [docs/ru/ssr.md](docs/ru/ssr.md).
+абсолютные URL для стенда. См. [docs/ru/ssr.md](ssr.md).
 
 ## Альтернативы
 
@@ -286,12 +286,12 @@ TTFB, Long Tasks и JS heap на реальном телефоне, пишет �
 
 ## Документация
 
-- Как это работает (архитектура): [docs/ru/how-it-works.md](docs/ru/how-it-works.md) ([EN](docs/how-it-works.md))
-- Настройка iOS WKWebView (macOS и Windows): [docs/ru/ios.md](docs/ru/ios.md) ([EN](docs/ios.md))
-- SSR и SSG (Next.js, Nuxt, SvelteKit, Angular): [docs/ru/ssr.md](docs/ru/ssr.md) ([EN](docs/ssr.md))
-- Продакшен-RUM и Prometheus: [docs/ru/rum.md](docs/ru/rum.md) ([EN](docs/rum.md))
-- Соответствие стандартам ISO / RFC: [docs/ru/standards.md](docs/ru/standards.md) ([EN](docs/standards.md))
-- История релизов: [CHANGELOG.md](CHANGELOG.md)
+- Как это работает (архитектура): [docs/ru/how-it-works.md](how-it-works.md) ([EN](../how-it-works.md))
+- Настройка iOS WKWebView (macOS и Windows): [docs/ru/ios.md](ios.md) ([EN](../ios.md))
+- SSR и SSG (Next.js, Nuxt, SvelteKit, Angular): [docs/ru/ssr.md](ssr.md) ([EN](../ssr.md))
+- Продакшен-RUM и Prometheus: [docs/ru/rum.md](rum.md) ([EN](../rum.md))
+- Соответствие стандартам ISO / RFC: [docs/ru/standards.md](standards.md) ([EN](../standards.md))
+- История релизов: [CHANGELOG.md](../../CHANGELOG.md)
 
 ## Ограничения
 
@@ -302,4 +302,4 @@ TTFB, Long Tasks и JS heap на реальном телефоне, пишет �
 
 ## Лицензия
 
-Copyright © 2026 [damilurg](https://github.com/damilurg) (`rootdamilurg@gmail.com`). Распространяется под лицензией [MIT](LICENSE).
+Copyright © 2026 [damilurg](https://github.com/damilurg) (`rootdamilurg@gmail.com`). Распространяется под лицензией [MIT](../../LICENSE).
