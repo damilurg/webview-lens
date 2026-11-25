@@ -1,6 +1,7 @@
 // A minimal Chrome DevTools Protocol client over the global WebSocket (Node 22.4+).
 
 import { isRecord } from '../shared/utils.ts';
+import { createWebKitTargetRouter, type WebKitTargetRouter } from './drivers/ios/webkit-targets.ts';
 
 export interface DevtoolsPage {
     id: string;
@@ -73,7 +74,18 @@ interface Message {
     error?: { message: string };
 }
 
-export const connectCdp = async (webSocketDebuggerUrl: string): Promise<Cdp> => {
+export interface ConnectCdpOptions {
+    /**
+     * WebKit page sockets (iOS 12.2+): route commands through `Target.sendMessageToTarget` and
+     * unwrap `Target.dispatchMessageFromTarget`. Falls back to direct messages on older iOS.
+     */
+    webkitTargets?: boolean;
+}
+
+export const connectCdp = async (
+    webSocketDebuggerUrl: string,
+    { webkitTargets = false }: ConnectCdpOptions = {},
+): Promise<Cdp> => {
     const ws = new WebSocket(webSocketDebuggerUrl);
     const pending = new Map<
         number,
@@ -92,8 +104,11 @@ export const connectCdp = async (webSocketDebuggerUrl: string): Promise<Cdp> => 
             );
     });
 
+    let router: WebKitTargetRouter | undefined;
+
     const closed = new Promise<void>((resolve) => {
         ws.onclose = () => {
+            router?.dispose();
             for (const { reject } of pending.values())
                 reject(new Error('DevTools connection closed'));
             pending.clear();
@@ -101,11 +116,11 @@ export const connectCdp = async (webSocketDebuggerUrl: string): Promise<Cdp> => 
         };
     });
 
-    ws.onmessage = ({ data }) => {
+    const handleMessage = (raw: string) => {
         let message: Message;
 
         try {
-            message = JSON.parse(String(data)) as Message;
+            message = JSON.parse(raw) as Message;
         } catch {
             // A malformed frame must not crash the process (listener errors surface as uncaught).
             return;
@@ -134,6 +149,18 @@ export const connectCdp = async (webSocketDebuggerUrl: string): Promise<Cdp> => 
         }
     };
 
+    router = webkitTargets
+        ? createWebKitTargetRouter({ sendUpstream: (raw) => ws.send(raw), deliver: handleMessage })
+        : undefined;
+    ws.onmessage = ({ data }) => {
+        if (router) {
+            router.onUpstream(String(data));
+
+            return;
+        }
+        handleMessage(String(data));
+    };
+
     const on = <T>(method: string, listener: (params: T) => void) => {
         const set = listeners.get(method) ?? new Set();
         // Events carry whatever the protocol defines for `method`; the caller names the type.
@@ -155,7 +182,14 @@ export const connectCdp = async (webSocketDebuggerUrl: string): Promise<Cdp> => 
                 }
                 nextId += 1;
                 pending.set(nextId, { resolve: resolve as (v: unknown) => void, reject });
-                ws.send(JSON.stringify({ id: nextId, method, params }));
+                const raw = JSON.stringify({ id: nextId, method, params });
+
+                if (router) {
+                    router.send(raw);
+
+                    return;
+                }
+                ws.send(raw);
             }),
         on,
         once: <T>(method: string) =>
@@ -165,7 +199,14 @@ export const connectCdp = async (webSocketDebuggerUrl: string): Promise<Cdp> => 
                     resolve(params);
                 });
             }),
-        close: () => ws.close(),
+        close: () => {
+            router?.dispose();
+            ws.close();
+        },
         closed,
     };
 };
+
+/** A WebKit Inspector page socket (iOS) as a CDP-shaped transport, with target routing. */
+export const connectWebKitInspector = (webSocketDebuggerUrl: string): Promise<Cdp> =>
+    connectCdp(webSocketDebuggerUrl, { webkitTargets: true });

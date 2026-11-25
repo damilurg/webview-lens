@@ -22,9 +22,18 @@ import {
     translateWipEventToCdp,
     translateWipResultToCdp,
 } from './wip-cdp-bridge.ts';
+import { createWebKitTargetRouter } from './webkit-targets.ts';
 
-/** Known stable Chromium DevTools frontend revision compatible with core CDP domains. */
-const DEFAULT_FRONTEND_REVISION = 'e6a1d0b34c3a4475a6f595284e83a6c8e0f10d5e';
+/**
+ * Chrome DevTools frontend revision served for iOS (WebKit has no Chromium revision of its own).
+ * Verified to exist on chrome-devtools-frontend.appspot.com (Chromium 157 era). Override with
+ * `WEBVIEW_LENS_DEVTOOLS_REVISION` when a mirror or a newer frontend is needed.
+ */
+export const DEFAULT_IOS_FRONTEND_REVISION = '0985600c06a688b9c669e74afde7dacd5aaed047';
+
+const defaultRevision = (): string =>
+    process.env.WEBVIEW_LENS_DEVTOOLS_REVISION?.match(/^[0-9a-f]{40}$/)?.[0] ??
+    DEFAULT_IOS_FRONTEND_REVISION;
 
 /** Chromium-only CDP domains/methods that WebKit does not implement; auto-acked to keep UI clean. */
 const AUTO_ACK_PREFIXES = [
@@ -40,8 +49,23 @@ const AUTO_ACK_PREFIXES = [
     'Target.',
 ];
 
+/**
+ * Single Chromium-only methods of shared domains (seen against iOS 26 WebKit), answered with the
+ * empty result the DevTools UI expects instead of a "'…' was not found" error.
+ */
+const AUTO_ACK_RESULTS: Readonly<Record<string, object>> = {
+    'Page.startScreencast': {},
+    'Page.stopScreencast': {},
+    'Page.screencastFrameAck': {},
+    'CSS.getEnvironmentVariables': { environmentVariables: {} },
+    'CSS.getLonghandProperties': { longhandProperties: [] },
+    'CSS.trackComputedStyleUpdates': {},
+    'CSS.trackComputedStyleUpdatesForNode': {},
+    'CSS.takeComputedStyleUpdates': { nodeIds: [] },
+};
+
 const isAutoAckMethod = (method: string): boolean =>
-    AUTO_ACK_PREFIXES.some((prefix) => method.startsWith(prefix));
+    method in AUTO_ACK_RESULTS || AUTO_ACK_PREFIXES.some((prefix) => method.startsWith(prefix));
 
 export interface ClientFrameResult {
     immediateResponse?: string;
@@ -95,7 +119,12 @@ export const createIosDevtoolsTranslator = (): IosDevtoolsTranslator => {
             if (typeof msg.method !== 'string') return { forward: rawJson };
 
             if (isAutoAckMethod(msg.method) && msg.id !== undefined) {
-                return { immediateResponse: JSON.stringify({ id: msg.id, result: {} }) };
+                return {
+                    immediateResponse: JSON.stringify({
+                        id: msg.id,
+                        result: AUTO_ACK_RESULTS[msg.method] ?? {},
+                    }),
+                };
             }
 
             if (msg.id !== undefined) pendingMethods.set(msg.id, msg.method);
@@ -171,7 +200,7 @@ export interface IosDevtoolsLinkOptions {
 export const startIosDevtoolsLink = ({
     port,
     resolveTarget,
-    revision = DEFAULT_FRONTEND_REVISION,
+    revision = defaultRevision(),
     log = console.error,
 }: IosDevtoolsLinkOptions): DevtoolsLink => {
     const activeTargets = new Map<string, InspectableTarget>();
@@ -202,11 +231,23 @@ export const startIosDevtoolsLink = ({
 
             const upstream = new WebSocket(target.debuggerUrl);
             const translator = createIosDevtoolsTranslator();
+            // iOS 12.2+: commands go through WebKit targets (Target.sendMessageToTarget).
+            const router = createWebKitTargetRouter({
+                sendUpstream: (raw) => {
+                    if (upstream.readyState === WebSocket.OPEN) upstream.send(raw);
+                },
+                deliver: (raw) => {
+                    const translated = translator.fromUpstream(raw);
+
+                    if (translated && !socket.destroyed) socket.write(encodeWsFrame(translated));
+                },
+            });
             const assembler = createWsFrameAssembler();
             let buffer: Buffer = Buffer.from(head);
             let clientAccepted = false;
 
             const closeAll = () => {
+                router.dispose();
                 if (
                     upstream.readyState === WebSocket.OPEN ||
                     upstream.readyState === WebSocket.CONNECTING
@@ -248,9 +289,7 @@ export const startIosDevtoolsLink = ({
                         );
 
                         if (immediateResponse) socket.write(encodeWsFrame(immediateResponse));
-                        if (forward && upstream.readyState === WebSocket.OPEN) {
-                            upstream.send(forward);
-                        }
+                        if (forward && upstream.readyState === WebSocket.OPEN) router.send(forward);
                     }
                 }
             };
@@ -259,15 +298,11 @@ export const startIosDevtoolsLink = ({
                 socket.write(buildWebSocketAcceptResponse(key));
                 clientAccepted = true;
                 // Enable WebKit Console domain proactively so console.log appears in Chrome DevTools.
-                upstream.send(translator.internalCommand('Console.enable'));
+                router.send(translator.internalCommand('Console.enable'));
                 if (buffer.length > 0) flushClientBuffer();
             };
 
-            upstream.onmessage = ({ data }) => {
-                const translated = translator.fromUpstream(String(data));
-
-                if (translated && !socket.destroyed) socket.write(encodeWsFrame(translated));
-            };
+            upstream.onmessage = ({ data }) => router.onUpstream(String(data));
 
             upstream.onclose = closeAll;
             upstream.onerror = closeAll;

@@ -4,13 +4,17 @@ All notable changes to `webview-lens` are documented in this file.
 
 ## [Unreleased]
 
-Found by an end-to-end run on a real phone (Redmi Note 8 Pro, Android 11, WebView 157) with a Kotlin and a Flutter app.
+Found by end-to-end runs on real phones: Redmi Note 8 Pro (Android 11, WebView 157) with a Kotlin and a Flutter app, and iPhone 17 Pro (iOS 26.6.1).
 
 ### Fixed
 
 - **`dev` HMR for Vite-based stacks (Vite, Nuxt, SvelteKit, Angular):** the WebSocket bridge dropped the subprotocol the page asked for, and Vite only upgrades `vite-hmr` / `vite-ping` sockets, so HMR never connected. The subprotocols are now forwarded and the negotiated one is reported back to the page.
 - `--logs`: an uncaught exception prints as `Error: message` with its stack instead of the object preview `{stack: …, message: …}`.
 - `devtools` / `dev` / `vitals` print the `adb` path again (it was skipped when driver detection had already found adb).
+- **iOS DevTools, `--logs` and `vitals` on iOS 12.2+ (every supported iOS):** WebKit page sockets only accept commands routed through its targets, so every command failed with "'Runtime' domain was not found". Commands now go through `Target.sendMessageToTarget` (the page target, followed across navigations) and replies are unwrapped from `Target.dispatchMessageFromTarget`, with a fallback to direct messages on older iOS.
+- **iOS DevTools UI did not load:** the pinned Chrome DevTools frontend revision did not exist on appspot (404). It is now a verified revision and can be overridden with `WEBVIEW_LENS_DEVTOOLS_REVISION`.
+- **`ios_webkit_debug_proxy` auto-start:** it was started with `-f`, which is `--frontend URL` and needs an argument, so the proxy exited at once. It now starts with its default ports; the hints in `doctor` say the same.
+- Chromium-only DevTools calls WebKit lacks (`Page.startScreencast`, `CSS.getEnvironmentVariables`, `CSS.getLonghandProperties`, computed-style tracking) are answered with empty results instead of errors.
 
 ## [0.3.4] - 2026-11-25
 

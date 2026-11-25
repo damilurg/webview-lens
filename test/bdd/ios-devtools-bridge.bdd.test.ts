@@ -130,7 +130,7 @@ describe('Feature: Cross-platform Chrome DevTools bridge for iOS WKWebView', () 
                     return calls >= 2 ? [] : null;
                 },
                 spawnIwdp: (bin, args) => {
-                    spawned.push(`${bin} ${args.join(' ')}`);
+                    spawned.push([bin, ...args].join(' '));
 
                     return {
                         exitCode: null,
@@ -143,7 +143,7 @@ describe('Feature: Cross-platform Chrome DevTools bridge for iOS WKWebView', () 
             });
 
             assert.ok(proc);
-            assert.deepEqual(spawned, ['/opt/homebrew/bin/ios_webkit_debug_proxy -f']);
+            assert.deepEqual(spawned, ['/opt/homebrew/bin/ios_webkit_debug_proxy']);
             proc.stop();
             assert.equal(stopped, true);
         });

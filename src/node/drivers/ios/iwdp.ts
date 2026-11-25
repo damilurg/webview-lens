@@ -173,7 +173,7 @@ const defaultSpawnIwdp = (bin: string, args: string[]): StartedIwdp => {
 
 /**
  * Ensures `ios_webkit_debug_proxy` is listening on `controlPort`. If it is down and the binary is
- * found, starts it with `-f` and returns a handle to stop it on exit; returns undefined when it
+ * found, starts it with its default ports (devices on 9221, pages from 9222) and returns a handle to stop it on exit; returns undefined when it
  * was already running or when the binary is not installed.
  */
 export const ensureIwdp = async ({
@@ -191,8 +191,10 @@ export const ensureIwdp = async ({
 
     if (!iwdp) return undefined;
 
-    log(`Starting ios_webkit_debug_proxy: ${iwdp} -f`);
-    const proc = spawnIwdp(iwdp, ['-f']);
+    // No flags: the defaults (`-c null:9221,:9222-9322`) are the ports this driver reads.
+    // (`-f` is `--frontend URL` and needs an argument: with it the proxy exits at once.)
+    log(`Starting ios_webkit_debug_proxy: ${iwdp}`);
+    const proc = spawnIwdp(iwdp, []);
     const deadline = Date.now() + timeoutMs;
 
     while (Date.now() < deadline) {

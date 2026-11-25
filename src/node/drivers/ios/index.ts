@@ -1,7 +1,7 @@
 // iOS implementation of DeviceDriver and InspectorSession over usbmuxd + IWDP + WIP↔CDP bridge.
 
 import { sleep } from '../../../shared/utils.ts';
-import { type Cdp, connectCdp } from '../../cdp.ts';
+import { type Cdp, connectCdp, connectWebKitInspector } from '../../cdp.ts';
 import { createProtocolInspectorSession } from '../base-session.ts';
 import type {
     ConnectedDevice,
@@ -80,7 +80,7 @@ export const createIosDriver = (deps: IosDriverDeps = {}): DeviceDriver => {
     const findIwdpFn = deps.findIwdp ?? findIwdp;
     const listIwdpDevicesFn = deps.listIwdpDevices ?? listIwdpDevices;
     const listIwdpPagesFn = deps.listIwdpPages ?? listIwdpPages;
-    const connectWipFn = deps.connectWip ?? connectCdp;
+    const connectWipFn = deps.connectWip ?? connectWebKitInspector;
 
     const resolveIwdpDevice = async (
         serial?: string,
@@ -139,7 +139,7 @@ export const createIosDriver = (deps: IosDriverDeps = {}): DeviceDriver => {
 
         if (targets === null) {
             return iwdp
-                ? `ios_webkit_debug_proxy is not running on :${controlPort}: start "${iwdp} -f"`
+                ? `ios_webkit_debug_proxy is not running on :${controlPort}: start "${iwdp}"`
                 : 'ios_webkit_debug_proxy not found: install it (brew install ios-webkit-debug-proxy on macOS, scoop install ios-webkit-debug-proxy on Windows) and run it';
         }
         if (targets.length === 0) {
@@ -182,7 +182,7 @@ export const createIosDriver = (deps: IosDriverDeps = {}): DeviceDriver => {
                 ok: Boolean(targets && targets.length > 0),
                 message:
                     targets === null
-                        ? `ios_webkit_debug_proxy does not answer on :${controlPort} (start it with "ios_webkit_debug_proxy -f")`
+                        ? `ios_webkit_debug_proxy does not answer on :${controlPort} (start it with "ios_webkit_debug_proxy")`
                         : targets.length > 0
                           ? `inspectable WKWebView pages: ${targets.length}`
                           : 'no inspectable WKWebView pages (enable Web Inspector on iPhone and webView.isInspectable = true)',
