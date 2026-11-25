@@ -53,10 +53,10 @@ describe('Repository architectural invariants', () => {
         assert.deepEqual(violations, []);
     });
 
-    it('keeps src/rum/ and src/shared/ Edge/Browser safe (no node:* imports)', () => {
+    it('keeps src/rum/, src/shared/ and src/viewport/ Edge/Browser safe (no node:* imports)', () => {
         const violations: string[] = [];
 
-        for (const sub of ['src/rum', 'src/shared']) {
+        for (const sub of ['src/rum', 'src/shared', 'src/viewport']) {
             for (const file of listTsFiles(path.join(ROOT, sub))) {
                 const content = fs.readFileSync(file, 'utf8');
 
