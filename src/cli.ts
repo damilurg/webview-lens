@@ -222,7 +222,11 @@ const cfg = orExit(() => {
     );
 });
 
-const port = String(cfg.port ?? process.env.DEVTOOLS_PORT ?? '9223');
+const explicitPort = cfg.port ?? process.env.DEVTOOLS_PORT;
+const port = String(explicitPort ?? '9223');
+/** The Android forward port, or an explicit --port; iOS takes its ports from ios_webkit_debug_proxy. */
+const portFor = (platform: string) =>
+    platform === 'android' ? port : explicitPort === undefined ? undefined : String(explicitPort);
 const linkPort = String(cfg.linkPort ?? process.env.DEVTOOLS_LINK_PORT ?? '3300');
 const proxyPort = Number(cfg.proxyPort ?? 8888);
 const serial = cfg.serial ?? process.env.ANDROID_SERIAL;
@@ -324,6 +328,13 @@ const logAdbPath = () => {
 
 const selectDriver = async () => resolveDriver(cfg.platform ?? 'auto');
 
+/** iOS: every command that talks to the page needs ios_webkit_debug_proxy; start it if it is down. */
+const ensureIosProxy = async () => {
+    const iwdpProc = await ensureIwdp();
+
+    if (iwdpProc) registerCleanup(iwdpProc.stop);
+};
+
 async function dev() {
     const driver = await selectDriver();
     const preset = resolvePreset(cfg.preset ?? 'auto');
@@ -376,6 +387,7 @@ async function dev() {
         );
 
         if (logsEnabled) {
+            await ensureIosProxy();
             await runTelemetryLoop({
                 streamLogs: true,
                 waitTarget: () =>
@@ -476,9 +488,7 @@ async function devtools() {
     const driver = await selectDriver();
 
     if (driver.platform === 'ios') {
-        const iwdpProc = await ensureIwdp();
-
-        if (iwdpProc) registerCleanup(iwdpProc.stop);
+        await ensureIosProxy();
 
         const matchesIosTarget = (t: { type: string; url: string }) =>
             t.type === 'page' &&
@@ -543,10 +553,11 @@ async function vitals() {
     const paths = args.length > 0 ? args.map(fromGitBashPath) : ['/'];
 
     if (driver.platform === 'android') logAdbPath();
+    if (driver.platform === 'ios') await ensureIosProxy();
 
     const result = await measureVitals({
         driver,
-        devtoolsPort: port,
+        ...(portFor(driver.platform) ? { devtoolsPort: portFor(driver.platform) } : {}),
         paths,
         runs: Number(values.runs),
         cold: values.cold,
@@ -594,7 +605,11 @@ async function vitals() {
 
 async function doctor() {
     const driver = await selectDriver();
-    const report = await driver.doctor({ port, ...targetOptions });
+    const doctorPort = portFor(driver.platform);
+    const report = await driver.doctor({
+        ...(doctorPort ? { port: doctorPort } : {}),
+        ...targetOptions,
+    });
 
     for (const check of report.checks) {
         console.log(`${check.ok ? '✓' : '✗'} ${check.message}`);

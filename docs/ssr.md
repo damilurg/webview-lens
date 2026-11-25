@@ -283,7 +283,7 @@ pages stay a handful of series.
   server), not the dev server.
 - For SSR, TTFB includes your server's render and data fetching: compare it against the stand.
 - For SSG behind a CDN, `--cold` approximates a first visit; without it you measure a warm cache.
-- On iOS, WebKit does not report LCP, CLS and INP: they show as `n/a`.
+- On iOS, `CLS` is `n/a` (WebKit has no layout-shift entries); `LCP` and `INP` need a recent iOS (LCP measured on iOS 26.6).
 
 ## Limitations
 

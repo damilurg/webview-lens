@@ -86,4 +86,4 @@ export const server = http.createServer((req, res) => {
 
 ## Нюанс по iOS WKWebView
 
-Safari/WKWebView поддерживает `TTFB`, `FCP`, Navigation/Resource Timing, кастомные тайминги (`createTimingReporter`) и сбор ошибок (`captureGlobalErrors`), но не отдаёт `CLS` и `INP` (а на старых версиях iOS — и `LCP`). Всегда сегментируйте дашборды по тегу `context.env` (`android-webview` vs `ios-wkwebview`).
+Safari/WKWebView поддерживает `TTFB`, `FCP`, Navigation/Resource Timing, кастомные тайминги (`createTimingReporter`) и сбор ошибок (`captureGlobalErrors`), но никогда не отдаёт `CLS` (в WebKit нет событий layout-shift), а `LCP` и `INP` есть только в свежих iOS (на iOS 26.6 доступны LCP и Event Timing, на старых версиях — нет). Всегда сегментируйте дашборды по тегу `context.env` (`android-webview` vs `ios-wkwebview`).

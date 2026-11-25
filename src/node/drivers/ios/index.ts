@@ -163,7 +163,7 @@ export const createIosDriver = (deps: IosDriverDeps = {}): DeviceDriver => {
                 ok: !usbProblem,
                 message:
                     usbProblem ??
-                    `iPhone connected over usbmuxd (${status.devices.map((d) => d.udid).join(', ')})`,
+                    `iPhone connected over usbmuxd (${[...new Set(status.devices.map((d) => d.udid))].join(', ')})`,
             });
             if (usbProblem) return { platform: 'ios', checks, targets: [] };
 

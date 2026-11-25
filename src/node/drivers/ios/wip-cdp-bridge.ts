@@ -27,6 +27,16 @@ export const translateCdpToWip = (
             params: { source: String(params.source ?? '') },
         };
     }
+    // WebKit has no Page.navigate (verified on iOS 26): navigate from the page itself.
+    if (method === 'Page.navigate') {
+        return {
+            method: 'Runtime.evaluate',
+            params: {
+                expression: `location.assign(${JSON.stringify(String(params.url ?? ''))})`,
+                returnByValue: true,
+            },
+        };
+    }
     if (method === 'Runtime.evaluate') {
         return {
             method: 'Runtime.evaluate',

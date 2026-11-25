@@ -25,7 +25,9 @@ import { sleep } from '../shared/utils.ts';
 
 /** In-page collector, installed before the app's scripts on every load. */
 export const COLLECTOR = `(() => {
-    const v = (window.__webviewLensVitals = { lcp: null, fcp: null, cls: 0, inp: null, ttfb: null, shifts: [], longTasksCount: 0, longTasksTotalMs: 0, marks: {} });
+    // CLS starts at 0 only where layout shifts are observable (not in WebKit): otherwise it stays n/a.
+    const clsSupported = (PerformanceObserver.supportedEntryTypes || []).includes('layout-shift');
+    const v = (window.__webviewLensVitals = { lcp: null, fcp: null, cls: clsSupported ? 0 : null, inp: null, ttfb: null, shifts: [], longTasksCount: 0, longTasksTotalMs: 0, marks: {} });
     const observe = (type, cb, opts = {}) => {
         try { new PerformanceObserver((l) => l.getEntries().forEach(cb)).observe({ type, buffered: true, ...opts }); } catch {}
     };
@@ -186,7 +188,7 @@ export const rateOrNone = (name: MetricName, value: number | null): Rating | nul
     value === null ? null : rate(name, value);
 
 export const measureVitals = async ({
-    devtoolsPort = '9223',
+    devtoolsPort,
     driver,
     paths,
     runs = 3,
@@ -203,10 +205,13 @@ export const measureVitals = async ({
         driver ??
         createAndroidDriver({
             ...(wait?.run ? { runAdb: wait.run } : {}),
-            defaultPort: devtoolsPort,
+            defaultPort: devtoolsPort ?? '9223',
         });
+    // The Android forward port means nothing to the iOS driver (its ports come from the proxy):
+    // pass it only when one was given, or when the driver is Android.
+    const port = devtoolsPort ?? (activeDriver.platform === 'android' ? '9223' : undefined);
     const targetOptions: DriverTargetOptions = {
-        port: devtoolsPort,
+        ...(port !== undefined ? { port } : {}),
         log,
         ...(wait?.serial ? { serial: wait.serial } : {}),
         ...(wait?.app ? { app: wait.app } : {}),

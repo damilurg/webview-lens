@@ -296,7 +296,7 @@ Android, and `ios_webkit_debug_proxy` on iOS.
 ## Limitations
 
 - Test builds must enable WebView debugging (`WebView.setWebContentsDebuggingEnabled(true)` on Android; `webView.isInspectable = true` on iOS 16.4+) and disable SSL Pinning for iOS MITM override.
-- iOS `WKWebView` does not expose all Core Web Vitals (`CLS`, `INP`, and older iOS `LCP` appear as `n/a`); `--throttle`, `--cpu`, and `JS Heap` are Android CDP-only.
+- iOS `WKWebView`: WebKit has no layout-shift entries, so `CLS` is `n/a`. `LCP` and Event Timing (for `INP`) need a recent iOS: LCP measured on iOS 26.6, older versions show `n/a`. `--throttle`, `--cpu`, and `JS Heap` are Android CDP-only.
 - Lab INP counts only taps made during `--interact`.
 - Production numbers come from RUM; lab numbers against a dev server are inflated.
 

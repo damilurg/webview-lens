@@ -4,6 +4,9 @@ import type { AddressInfo } from 'node:net';
 import { describe, it } from 'node:test';
 
 import { generateRootCa } from '../src/node/drivers/ios/certs.ts';
+import { describeIosDevices } from '../src/node/drivers/ios/usbmux.ts';
+import { translateCdpToWip } from '../src/node/drivers/ios/wip-cdp-bridge.ts';
+import { COLLECTOR, measureVitals } from '../src/node/vitals-lab.ts';
 import { createIosDevtoolsTranslator } from '../src/node/drivers/ios/devtools-bridge.ts';
 import { isPrivateNetworkAddress, startIosMitmProxy } from '../src/node/drivers/ios/mitm-proxy.ts';
 import { bridgeShim, startOverride } from '../src/node/override.ts';
@@ -292,5 +295,88 @@ describe('dev WebSocket bridge subprotocols (Vite HMR)', () => {
             for (const socket of upgraded) socket.destroy();
             server.close();
         }
+    });
+});
+
+describe('iOS fixes found on a real iPhone (iOS 26.6)', () => {
+    it('translates Page.navigate, which WebKit lacks, into an in-page navigation', () => {
+        assert.deepEqual(translateCdpToWip('Page.navigate', { url: 'https://stand.test/orders' }), {
+            method: 'Runtime.evaluate',
+            params: {
+                expression: 'location.assign("https://stand.test/orders")',
+                returnByValue: true,
+            },
+        });
+    });
+
+    it('keeps CLS n/a (null) where layout-shift entries do not exist', () => {
+        assert.match(COLLECTOR, /cls: clsSupported \? 0 : null/);
+    });
+
+    it('counts an iPhone seen over USB and Wi-Fi once', () => {
+        const udid = '00008150-00086C513621401C';
+
+        assert.equal(
+            describeIosDevices(
+                {
+                    available: true,
+                    devices: [
+                        { deviceId: 1, udid, connectionType: 'USB' },
+                        { deviceId: 2, udid, connectionType: 'USB' },
+                        { deviceId: 3, udid, connectionType: 'Network' },
+                    ],
+                },
+                undefined,
+                'darwin',
+            ),
+            null,
+        );
+    });
+
+    it('does not hand the Android forward port to the iOS driver', async () => {
+        let seenPort: unknown = 'not called';
+        const target = {
+            id: 'p1',
+            platform: 'ios' as const,
+            type: 'page',
+            url: 'https://stand.test/',
+            title: '',
+            debuggerUrl: 'ws://x',
+        };
+        const driver = {
+            platform: 'ios' as const,
+            listDevices: () => [],
+            isAvailable: () => true,
+            diagnose: async () => '',
+            doctor: async () => ({ platform: 'ios' as const, checks: [], targets: [] }),
+            listTargets: async () => [target],
+            getDeviceDescription: async () => 'iPhone',
+            waitForTarget: async (_predicate: unknown, options: { port?: unknown } = {}) => {
+                seenPort = options.port;
+
+                return target;
+            },
+            connectInspector: async () => {
+                let resolveClosed!: () => void;
+
+                return {
+                    platform: 'ios' as const,
+                    capabilities: { lcp: true, cls: false, inp: false, cdpFetchOverride: false },
+                    evaluate: async <T>() =>
+                        JSON.stringify({ lcp: 80, fcp: 30, cls: null, inp: null, ttfb: 20 }) as T,
+                    addInitScript: async () => undefined,
+                    navigate: async () => undefined,
+                    reload: async () => undefined,
+                    setCacheDisabled: async () => undefined,
+                    close: () => resolveClosed(),
+                    closed: new Promise<void>((resolve) => {
+                        resolveClosed = resolve;
+                    }),
+                };
+            },
+        };
+
+        await measureVitals({ driver, paths: ['/'], runs: 1, settleMs: 0, log: () => undefined });
+        assert.equal(seenPort, undefined);
     });
 });

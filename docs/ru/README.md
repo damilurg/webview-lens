@@ -296,7 +296,7 @@ TTFB, Long Tasks и JS heap на реальном телефоне, пишет �
 ## Ограничения
 
 - В тестовых сборках должна быть включена отладка WebView (`WebView.setWebContentsDebuggingEnabled(true)` на Android; `webView.isInspectable = true` на iOS 16.4+) и отключён SSL Pinning для iOS MITM-подмены.
-- iOS `WKWebView` не отдаёт часть Core Web Vitals (`CLS`, `INP` и на старых iOS `LCP` помечаются как `n/a`); `--throttle`, `--cpu` и `JS Heap` работают только на Android (CDP).
+- iOS `WKWebView`: в WebKit нет событий layout-shift, поэтому `CLS` — `n/a`. `LCP` и Event Timing (для `INP`) есть только в свежих iOS: LCP измерен на iOS 26.6, на старых версиях — `n/a`. `--throttle`, `--cpu` и `JS Heap` работают только на Android (CDP).
 - Лабораторный INP учитывает только нажатия, сделанные во время `--interact`.
 - Продакшен-метрики собираются через RUM; лабораторные цифры с dev-сервера завышены.
 

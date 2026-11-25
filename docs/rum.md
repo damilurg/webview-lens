@@ -106,4 +106,4 @@ Exported series (default prefix `webview_lens`): `webview_lens_vital_samples_tot
 
 ## Note on iOS WKWebView Metrics
 
-Safari/WKWebView supports `TTFB`, `FCP`, Navigation/Resource Timing, custom timings (`createTimingReporter`), and global error capture (`captureGlobalErrors`), while `CLS` and `INP` (and `LCP` on older iOS versions) are not emitted by WebKit. Always segment dashboards by `context.env` (`android-webview` vs `ios-wkwebview`).
+Safari/WKWebView supports `TTFB`, `FCP`, Navigation/Resource Timing, custom timings (`createTimingReporter`), and global error capture (`captureGlobalErrors`), while `CLS` is never emitted (WebKit has no layout-shift entries) and `LCP` and `INP` need a recent iOS (LCP and Event Timing are exposed on iOS 26.6; older versions report neither). Always segment dashboards by `context.env` (`android-webview` vs `ios-wkwebview`).

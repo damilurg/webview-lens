@@ -204,7 +204,12 @@ export const describeIosDevices = (
     }
 
     const usbDevices = status.devices.filter((d) => d.connectionType === 'USB');
-    const devices = usbDevices.length > 0 ? usbDevices : status.devices;
+    // One iPhone over USB and Wi-Fi at once is listed twice by usbmuxd: count it once.
+    const devices = [
+        ...new Map(
+            (usbDevices.length > 0 ? usbDevices : status.devices).map((d) => [d.udid, d]),
+        ).values(),
+    ];
 
     if (devices.length === 0) {
         return 'No iPhone found: connect it over USB, unlock it and tap "Trust This Computer"';

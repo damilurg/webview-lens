@@ -14,6 +14,9 @@ Found by end-to-end runs on real phones: Redmi Note 8 Pro (Android 11, WebView 1
 - **iOS DevTools, `--logs` and `vitals` on iOS 12.2+ (every supported iOS):** WebKit page sockets only accept commands routed through its targets, so every command failed with "'Runtime' domain was not found". Commands now go through `Target.sendMessageToTarget` (the page target, followed across navigations) and replies are unwrapped from `Target.dispatchMessageFromTarget`, with a fallback to direct messages on older iOS.
 - **iOS DevTools UI did not load:** the pinned Chrome DevTools frontend revision did not exist on appspot (404). It is now a verified revision and can be overridden with `WEBVIEW_LENS_DEVTOOLS_REVISION`.
 - **`ios_webkit_debug_proxy` auto-start:** it was started with `-f`, which is `--frontend URL` and needs an argument, so the proxy exited at once. It now starts with its default ports; the hints in `doctor` say the same.
+- **iOS `vitals` hung:** WebKit has no `Page.navigate`; navigation is now done in the page (`location.assign`). The CLI also passed the Android forward port (9223) to the iOS driver, which then looked for pages on the wrong port; `vitals` and `dev --logs` now start `ios_webkit_debug_proxy` like `devtools` does.
+- **iOS CLS reported 🟢 0.000:** WebKit has no layout-shift entries, so CLS stayed at its initial 0. It is now `n/a` where layout shifts cannot be observed. The docs now say what iOS 26.6 measures: LCP and Event Timing yes, CLS no.
+- An iPhone connected over USB and Wi-Fi at once is listed once.
 - Chromium-only DevTools calls WebKit lacks (`Page.startScreencast`, `CSS.getEnvironmentVariables`, `CSS.getLonghandProperties`, computed-style tracking) are answered with empty results instead of errors.
 
 ## [0.3.4] - 2026-11-25
