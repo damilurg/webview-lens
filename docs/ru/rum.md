@@ -4,7 +4,9 @@
 
 ## Подключение на клиенте (любой фронтенд-фреймворк)
 
-```ts
+<!-- example: examples/rum/client.js -->
+
+```js
 import {
     captureGlobalErrors,
     createErrorReporter,
@@ -14,26 +16,20 @@ import {
 } from 'webview-lens/rum';
 import { onCLS, onFCP, onINP, onLCP, onTTFB } from 'web-vitals';
 
-const context = () => ({
-    env: detectWebViewEnv(), // 'android-webview' | 'ios-wkwebview' | 'browser'
-    release: import.meta.env.VITE_RELEASE ?? 'dev',
-});
-
-const reportVital = createVitalsReporter({
+const context = () => ({ env: detectWebViewEnv(), release: '1.4.0' });
+const report = createVitalsReporter({
     endpoint: '/api/vitals',
-    path: () => '/event/:id', // поддерживаются шаблоны :param и [param]
-    sampleRate: 0.5,
+    path: () => '/event/:id', // supports both :param and [param]
+    sampleRate: 1, // lower it in production, e.g. 0.5
     context,
 });
-[onCLS, onINP, onLCP, onFCP, onTTFB].forEach((on) => on(reportVital));
+[onCLS, onINP, onLCP, onFCP, onTTFB].forEach((on) => on(report));
 
-export const reportTiming = createTimingReporter({
-    endpoint: '/api/timings',
-    context,
-});
-
+export const reportTiming = createTimingReporter({ endpoint: '/api/timings', context });
 captureGlobalErrors(createErrorReporter({ endpoint: '/api/client-log', context }));
 ```
+
+<!-- /example -->
 
 ## Подключение на сервере
 
@@ -49,10 +45,15 @@ export const POST = createVitalsHandler({
 });
 ```
 
-### Express / NestJS / `node:http` + встроенный агрегатор и Prometheus `/metrics`
+### `node:http` + встроенный агрегатор и Prometheus `/metrics`
+
+В Express и NestJS те же обработчики подключаются как есть: `app.post('/api/vitals', toNodeHandler(createVitalsHandler({ ... })))`.
+
+<!-- example: examples/rum/server.ts -->
 
 ```ts
-import express from 'express';
+import http from 'node:http';
+
 import {
     createClientLogHandler,
     createMetricsHandler,
@@ -62,23 +63,24 @@ import {
     toNodeHandler,
 } from 'webview-lens/rum/server';
 
-const app = express();
 const rum = createRumAggregator({ maxSamplesPerSeries: 1000, maxSeries: 200 });
 
-app.post(
-    '/api/vitals',
-    toNodeHandler(createVitalsHandler({ onMetric: (m) => rum.recordVital(m) })),
-);
-app.post(
-    '/api/timings',
-    toNodeHandler(createTimingsHandler({ onTiming: (t) => rum.recordTiming(t) })),
-);
-app.post(
-    '/api/client-log',
-    toNodeHandler(createClientLogHandler({ onLog: (e) => rum.recordError(e) })),
-);
-app.get('/metrics', toNodeHandler(createMetricsHandler(rum)));
+const routes: Record<string, ReturnType<typeof toNodeHandler>> = {
+    '/api/vitals': toNodeHandler(createVitalsHandler({ onMetric: (m) => rum.recordVital(m) })),
+    '/api/timings': toNodeHandler(createTimingsHandler({ onTiming: (t) => rum.recordTiming(t) })),
+    '/api/client-log': toNodeHandler(createClientLogHandler({ onLog: (e) => rum.recordError(e) })),
+    '/metrics': toNodeHandler(createMetricsHandler(rum)), // Prometheus 0.0.4
+};
+
+export const server = http.createServer((req, res) => {
+    const route = routes[new URL(req.url ?? '/', 'http://localhost').pathname];
+
+    if (route) return void route(req, res);
+    res.writeHead(404).end();
+});
 ```
+
+<!-- /example -->
 
 Экспортируемые ряды (префикс по умолчанию `webview_lens`): `webview_lens_vital_samples_total` (counter), `webview_lens_vital_good_rate`, `webview_lens_vital_quantile` и `webview_lens_timing_quantile` (gauge с меткой `quantile`), `webview_lens_client_errors_total` (counter).
 

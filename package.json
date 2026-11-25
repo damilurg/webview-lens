@@ -73,7 +73,10 @@
         "format:check": "prettier --check .",
         "test": "node --test \"test/**/*.test.ts\"",
         "bench": "node test/bench/hot-paths.bench.ts",
-        "verify": "npm run format:check && npm run check && npm test",
+        "demo:rum": "npm run build && node examples/rum/server.ts",
+        "examples:sync": "node scripts/sync-examples.ts",
+        "examples:check": "node scripts/sync-examples.ts --check",
+        "verify": "npm run format:check && npm run check && npm run examples:check && npm test",
         "prepack": "npm run build"
     },
     "devDependencies": {

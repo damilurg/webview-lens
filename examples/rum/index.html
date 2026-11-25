@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <title>webview-lens · RUM demo</title>
+        <script type="importmap">
+            {
+                "imports": {
+                    "webview-lens/rum": "/lib/rum/index.js",
+                    "web-vitals": "https://cdn.jsdelivr.net/npm/web-vitals@4.2.4/+esm"
+                }
+            }
+        </script>
+        <style>
+            body {
+                font:
+                    16px/1.5 system-ui,
+                    sans-serif;
+                max-width: 560px;
+                margin: 32px auto;
+                padding: 0 16px;
+            }
+            button {
+                font: inherit;
+                padding: 8px 14px;
+                margin: 4px 8px 4px 0;
+            }
+        </style>
+    </head>
+    <body>
+        <h1>webview-lens RUM demo</h1>
+        <p>
+            Web Vitals from this page go to <code>/api/vitals</code>. Interact with the page (INP),
+            then switch tabs or close it so CLS and INP are sent.
+        </p>
+        <button id="timing">Report a custom timing</button>
+        <button id="error">Throw an uncaught error</button>
+        <p><a href="/metrics" target="_blank">Open /metrics (Prometheus)</a></p>
+        <script type="module">
+            import { reportTiming } from '/client.js';
+
+            const started = performance.now();
+
+            document.getElementById('timing').onclick = () =>
+                reportTiming('demo.click', performance.now() - started);
+            document.getElementById('error').onclick = () => {
+                setTimeout(() => {
+                    throw new Error('demo error from the RUM page');
+                });
+            };
+        </script>
+    </body>
+</html>

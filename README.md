@@ -89,7 +89,9 @@ npx webview-lens vitals / /events "/event/42" \
 
 ### Browser (`webview-lens/rum`)
 
-```ts
+<!-- example: examples/rum/client.js -->
+
+```js
 import {
     captureGlobalErrors,
     createErrorReporter,
@@ -103,7 +105,7 @@ const context = () => ({ env: detectWebViewEnv(), release: '1.4.0' });
 const report = createVitalsReporter({
     endpoint: '/api/vitals',
     path: () => '/event/:id', // supports both :param and [param]
-    sampleRate: 0.5,
+    sampleRate: 1, // lower it in production, e.g. 0.5
     context,
 });
 [onCLS, onINP, onLCP, onFCP, onTTFB].forEach((on) => on(report));
@@ -112,11 +114,17 @@ export const reportTiming = createTimingReporter({ endpoint: '/api/timings', con
 captureGlobalErrors(createErrorReporter({ endpoint: '/api/client-log', context }));
 ```
 
+<!-- /example -->
+
 ### Server (`webview-lens/rum/server`)
 
 Works natively in Fetch API runtimes (Next.js App Router, Hono, Bun, Deno, Cloudflare Workers) and in Express / NestJS / `node:http` via `toNodeHandler`:
 
+<!-- example: examples/rum/server.ts -->
+
 ```ts
+import http from 'node:http';
+
 import {
     createClientLogHandler,
     createMetricsHandler,
@@ -128,19 +136,29 @@ import {
 
 const rum = createRumAggregator({ maxSamplesPerSeries: 1000, maxSeries: 200 });
 
-app.post(
-    '/api/vitals',
-    toNodeHandler(createVitalsHandler({ onMetric: (m) => rum.recordVital(m) })),
-);
-app.post(
-    '/api/timings',
-    toNodeHandler(createTimingsHandler({ onTiming: (t) => rum.recordTiming(t) })),
-);
-app.post(
-    '/api/client-log',
-    toNodeHandler(createClientLogHandler({ onLog: (e) => rum.recordError(e) })),
-);
-app.get('/metrics', toNodeHandler(createMetricsHandler(rum))); // Prometheus 0.0.4
+const routes: Record<string, ReturnType<typeof toNodeHandler>> = {
+    '/api/vitals': toNodeHandler(createVitalsHandler({ onMetric: (m) => rum.recordVital(m) })),
+    '/api/timings': toNodeHandler(createTimingsHandler({ onTiming: (t) => rum.recordTiming(t) })),
+    '/api/client-log': toNodeHandler(createClientLogHandler({ onLog: (e) => rum.recordError(e) })),
+    '/metrics': toNodeHandler(createMetricsHandler(rum)), // Prometheus 0.0.4
+};
+
+export const server = http.createServer((req, res) => {
+    const route = routes[new URL(req.url ?? '/', 'http://localhost').pathname];
+
+    if (route) return void route(req, res);
+    res.writeHead(404).end();
+});
+```
+
+<!-- /example -->
+
+### Runnable demo
+
+The two snippets above are [`examples/rum/client.js`](examples/rum/client.js) and [`examples/rum/server.ts`](examples/rum/server.ts), copied into this README by `npm run examples:sync` (CI fails when they drift). Run them end to end:
+
+```bash
+npm run demo:rum   # http://localhost:3000/ → interact → http://localhost:3000/metrics
 ```
 
 ## Programmatic API & Benchmarks
