@@ -10,7 +10,7 @@
 // /json/list. The DevTools WebSocket goes through the same server, piped as raw TCP to the forwarded
 // port: the debugging port rejects a handshake with a foreign Origin, so the browser's Origin is dropped.
 
-import { getVersion, listPages, type DevtoolsPage, type PagePredicate } from './cdp.ts';
+import { getVersion, listPages, pickPage, type DevtoolsPage, type PagePredicate } from './cdp.ts';
 import {
     type DevtoolsServerHandle,
     startDevtoolsHttpServer,
@@ -89,7 +89,7 @@ export const startDevtoolsLink = ({
         waitingPage: WAITING_PAGE,
         log,
         resolveRedirectPath: async () => {
-            const page = (await listPages(devtoolsPort))?.find(isTarget);
+            const page = pickPage(await listPages(devtoolsPort), isTarget);
             const revision = page && frontendRevision(page, await getVersion(devtoolsPort));
 
             return page && revision ? frontendPath(page.id, port, revision) : undefined;

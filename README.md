@@ -106,6 +106,21 @@ Key options (also configurable via `webview-lens.config.json` or `--config <file
 - `--serial <id>` (or `ANDROID_SERIAL`) selects a specific phone; `--app <package>` pins Android WebView discovery to a specific package.
 - Press **Enter** to reload the page on Android. **Ctrl+C** exits and stops servers started with `--cmd`.
 
+## Several Devices at Once
+
+One `webview-lens` process serves one device; run one per device, on their own ports. The local dev
+server is shared: every phone gets your code, and one edit reloads them all over HMR (checked with an
+Android phone and an iPhone side by side).
+
+| Devices            | Run                                                                                                                  |
+| ------------------ | -------------------------------------------------------------------------------------------------------------------- |
+| Android + iPhone   | `dev --platform android --link-port 3300 …` and `dev --platform ios --serial <udid> …` in two terminals              |
+| Two Android phones | `--serial A --port 9223 --link-port 3300` and `--serial B --port 9224 --link-port 3301`                              |
+| Two iPhones        | `--serial A --link-port 3300` and `--serial B --link-port 3301`; for `dev`, both iPhones can use the same MITM proxy |
+
+With two iPhones, start `ios_webkit_debug_proxy` yourself in a separate terminal: a proxy that
+`webview-lens` started is stopped when that process exits, and the other one would lose its iPhone.
+
 ## DevTools at a Fixed Address
 
 ```bash

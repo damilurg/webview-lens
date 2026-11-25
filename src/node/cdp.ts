@@ -10,9 +10,35 @@ export interface DevtoolsPage {
     title: string;
     webSocketDebuggerUrl: string;
     devtoolsFrontendUrl?: string;
+    /** Android WebView: JSON with `attached` (on screen), `visible`, size and position. */
+    description?: string;
 }
 
 export type PagePredicate = (page: DevtoolsPage) => boolean;
+
+/** Whether an Android WebView page is the one on screen (`"attached": true` in its description). */
+export const isPageOnScreen = (page: Pick<DevtoolsPage, 'description'>): boolean => {
+    try {
+        const info: unknown = JSON.parse(page.description ?? '');
+
+        return isRecord(info) && info.attached === true;
+    } catch {
+        return false;
+    }
+};
+
+/**
+ * The page to work with among those matching `predicate`: the one on screen first. An app keeps
+ * WebViews of screens below the current one alive (and debuggable), all on the same URL.
+ */
+export const pickPage = (
+    pages: readonly DevtoolsPage[] | null | undefined,
+    predicate: PagePredicate,
+): DevtoolsPage | undefined => {
+    const matching = (pages ?? []).filter(predicate);
+
+    return matching.find(isPageOnScreen) ?? matching[0];
+};
 
 const isDevtoolsPage = (value: unknown): value is DevtoolsPage =>
     isRecord(value) &&

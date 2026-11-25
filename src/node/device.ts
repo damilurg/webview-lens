@@ -10,7 +10,7 @@ import {
     isKeyguardShowing,
     runAdb,
 } from './adb.ts';
-import { type DevtoolsPage, listPages, type PagePredicate } from './cdp.ts';
+import { type DevtoolsPage, listPages, type PagePredicate, pickPage } from './cdp.ts';
 
 const firstLine = (error: unknown) => errorMessage(error).split('\n')[0] ?? '';
 
@@ -105,7 +105,7 @@ export const waitForPage = async (
     for (;;) {
         signal?.throwIfAborted();
 
-        const page = (await listPagesFn(port))?.find(predicate);
+        const page = pickPage(await listPagesFn(port), predicate);
 
         if (page) return page;
 
