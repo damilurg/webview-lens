@@ -1,6 +1,24 @@
+<div align="center">
+
 # webview-lens
 
-**[English](README.md)** | **[Русский](README.ru.md)**
+[![npm version](https://img.shields.io/npm/v/webview-lens?logo=npm&color=cb3837)](https://www.npmjs.com/package/webview-lens)
+[![npm downloads](https://img.shields.io/npm/dm/webview-lens?logo=npm)](https://www.npmjs.com/package/webview-lens)
+[![CI](https://github.com/damilurg/webview-lens/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/damilurg/webview-lens/actions/workflows/ci.yml)
+[![GitHub release](https://img.shields.io/github/v/release/damilurg/webview-lens?logo=github)](https://github.com/damilurg/webview-lens/releases/latest)
+[![npm provenance](https://img.shields.io/badge/npm-provenance-2ea44f?logo=sigstore&logoColor=white)](https://www.npmjs.com/package/webview-lens#provenance)
+<br>
+[![node](https://img.shields.io/node/v/webview-lens?logo=nodedotjs&logoColor=white)](https://www.npmjs.com/package/webview-lens)
+[![types](https://img.shields.io/npm/types/webview-lens?logo=typescript&logoColor=white)](https://www.npmjs.com/package/webview-lens)
+[![dependencies](https://img.shields.io/badge/dependencies-0-brightgreen)](https://www.npmjs.com/package/webview-lens?activeTab=dependencies)
+[![platforms](https://img.shields.io/badge/WebView-Android%20%7C%20iOS-6f42c1)](https://github.com/damilurg/webview-lens/blob/main/docs/ios.md)
+[![license](https://img.shields.io/npm/l/webview-lens)](https://github.com/damilurg/webview-lens/blob/main/LICENSE)
+
+[Документация](docs/ru/how-it-works.md) · [Настройка iOS](docs/ru/ios.md) · [RUM](docs/ru/rum.md) · [npm](https://www.npmjs.com/package/webview-lens) · [Changelog](CHANGELOG.md) · [Сообщить об ошибке](https://github.com/damilurg/webview-lens/issues/new)
+
+[English](README.md) | **Русский**
+
+</div>
 
 Инспекция, локальная подмена кода и замеры производительности для любого веб-приложения внутри
 **Android WebView** и **iOS WKWebView** — с **macOS**, **Windows** и **Linux**, без единой
