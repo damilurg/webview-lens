@@ -15,6 +15,7 @@ import {
     parsePackagesByPid,
     parseWebViewSockets,
     pickWebViewSocket,
+    readPackagesByPid,
     removeReversePort,
     reversePort,
 } from '../src/node/adb.ts';
@@ -270,5 +271,33 @@ describe('forwardWebView and diagnose with a fake adb', () => {
         removeReversePort(24678, adb.run);
 
         assert.deepEqual(adb.calls, ['reverse tcp:24678 tcp:24678', 'reverse --remove tcp:24678']);
+    });
+});
+
+describe('ps on old Android (toolbox, Android 5–7)', () => {
+    it('parses the toolbox column layout by its header', () => {
+        const toolbox = [
+            'USER      PID   PPID  VSIZE  RSS   WCHAN              PC  NAME',
+            'u0_a85    13510 512   1735432 98764 SyS_epoll_ 0000000000 S com.example.app.debug',
+            'root      1     0     9464   1088  SyS_epoll_ 0000000000 S /init',
+        ].join('\n');
+        const map = parsePackagesByPid(toolbox);
+
+        assert.equal(map.get(13510), 'com.example.app.debug');
+        assert.equal(map.get(1), '/init');
+    });
+
+    it('falls back to plain ps when ps -A -o fails or prints nothing usable', () => {
+        const calls: string[] = [];
+        const run = (args: string[]) => {
+            calls.push(args.join(' '));
+            if (args.includes('-A')) throw new Error('bad option: -A');
+
+            return 'USER PID PPID VSIZE RSS WCHAN PC NAME\nu0_a85 13510 512 1 1 0 0 S com.example.app.debug\n';
+        };
+
+        assert.equal(readPackagesByPid(run).get(13510), 'com.example.app.debug');
+        assert.deepEqual(calls, ['shell ps -A -o PID,NAME', 'shell ps']);
+        assert.equal(readPackagesByPid(() => '').size, 0);
     });
 });

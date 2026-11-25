@@ -124,15 +124,48 @@ export const parseFocusedPackage = (dumpsysOutput: string): string | undefined =
     dumpsysOutput.match(/mFocusedApp=ActivityRecord\{[^}]*?\s([\w.]+)\/[^}\s]+/)?.[1] ??
     dumpsysOutput.match(/mCurrentFocus=Window\{[^}]*?\s([\w.]+)\/[^}\s]+\}/)?.[1];
 
-/** Process names by pid, from `ps -A -o PID,NAME`. */
-export const parsePackagesByPid = (psOutput: string): Map<number, string> =>
-    new Map(
-        psOutput.split(/\r?\n/).flatMap((line) => {
-            const [pid, name] = line.trim().split(/\s+/);
+/**
+ * Process names by pid, from `ps -A -o PID,NAME` (toybox, Android 8+) or plain `ps` (toolbox,
+ * Android 5–7: `USER PID PPID VSIZE RSS WCHAN PC [S] NAME`). Columns are found by the header.
+ */
+export const parsePackagesByPid = (psOutput: string): Map<number, string> => {
+    const lines = psOutput.split(/\r?\n/).filter((line) => line.trim());
+    const header = lines[0]?.trim().split(/\s+/) ?? [];
+    const hasHeader = header.includes('PID');
+    const pidColumn = hasHeader ? header.indexOf('PID') : 0;
+
+    return new Map(
+        lines.slice(hasHeader ? 1 : 0).flatMap((line) => {
+            const columns = line.trim().split(/\s+/);
+            const pid = columns[pidColumn];
+            // The name is the last column in both formats (toolbox may add a state column).
+            const name = columns.length > pidColumn + 1 ? columns.at(-1) : undefined;
 
             return pid && name && /^\d+$/.test(pid) ? [[Number(pid), name] as const] : [];
         }),
     );
+};
+
+/**
+ * Process table of the phone: toybox `ps -A -o PID,NAME` (Android 8+), falling back to toolbox
+ * `ps` (Android 5–7, which rejects or ignores those flags). An empty map when neither works.
+ */
+export const readPackagesByPid = (run: AdbRunner): Map<number, string> => {
+    for (const args of [
+        ['shell', 'ps', '-A', '-o', 'PID,NAME'],
+        ['shell', 'ps'],
+    ]) {
+        try {
+            const packages = parsePackagesByPid(run(args));
+
+            if (packages.size > 0) return packages;
+        } catch {
+            // Try the next form.
+        }
+    }
+
+    return new Map();
+};
 
 /** WebView DevTools socket names from `cat /proc/net/unix`. */
 export const parseWebViewSockets = (unixOutput: string): string[] => [
@@ -183,7 +216,7 @@ export const forwardWebView = (
     const socket = pickWebViewSocket(
         sockets,
         options.app ? undefined : parseFocusedPackage(run(['shell', 'dumpsys', 'window'])),
-        parsePackagesByPid(run(['shell', 'ps', '-A', '-o', 'PID,NAME'])),
+        readPackagesByPid(run),
         options.app,
     );
 

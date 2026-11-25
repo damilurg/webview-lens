@@ -49,9 +49,26 @@ CI и даёт **RUM + Prometheus** для продакшена. **Ноль runt
 
 ## Требования
 
-- **Node.js 22.4+** для CLI (точки входа `webview-lens/rum` и `webview-lens/rum/server` не требуют Node.js).
-- **Android:** включена отладка по USB, в тестовой сборке приложения вызвано `WebView.setWebContentsDebuggingEnabled(true)`, установлен `adb` (ищется автоматически в `ADB`, `ANDROID_HOME`, `ANDROID_SDK_ROOT`, Android SDK, `PATH` и `~/Downloads`).
-- **iOS (macOS и Windows):** в тестовой сборке выставлено `webView.isInspectable = true` (iOS 16.4+), на iPhone включён _Настройки → Safari → Дополнительно → Веб-инспектор_. Для `devtools`/`vitals`/`--logs` нужен `ios_webkit_debug_proxy` (запускается автоматически) и Apple Devices / iTunes на Windows. Подробнее: [docs/ru/ios.md](docs/ru/ios.md).
+| Компонент                        | Минимум                                                                                            | Примечания                                                                                                                                                    |
+| -------------------------------- | -------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Node.js для CLI                  | **22.4**                                                                                           | Проверяется в CI на **22, 24 и 26** (Linux, macOS, Windows). Node 20 не поддерживается: нет глобального `WebSocket`, EOL.                                     |
+| Node.js для разработки проекта   | **22.18**                                                                                          | Тесты запускают `.ts` напрямую; `.nvmrc` указывает 26.                                                                                                        |
+| `webview-lens/rum` (на странице) | **Chrome / Android WebView 80**, **Safari / iOS 13.4**                                             | Синтаксис ES2020; сборщик может транспилировать ниже.                                                                                                         |
+| `webview-lens/rum/server`        | любая среда с Fetch API                                                                            | Node 18+, Edge, Bun, Deno, Cloudflare Workers.                                                                                                                |
+| `adb`                            | Android platform-tools с `adb reverse`                                                             | Ищется автоматически в `ADB`, `ANDROID_HOME`, `ANDROID_SDK_ROOT`, Android SDK, `PATH` и `~/Downloads`.                                                        |
+| Android                          | **5.0** (API 21)                                                                                   | `adb reverse` (для `--hmr-port`) требует 5.0; старый `ps` в Android 5–7 поддерживается.                                                                       |
+| Android System WebView / Chrome  | `devtools`: любой отлаживаемый WebView · `dev`: **80** · `vitals`: **77** (LCP, CLS), **96** (INP) | CDP `Fetch` (74+) и внедряемый мост WebSocket (80+). На Android 7+ WebView обновляется через Google Play.                                                     |
+| iOS                              | **16.4** с `webView.isInspectable = true`                                                          | На более старых iOS инспектировать можно только development-сборки, запущенные из Xcode. `dev` (MITM) работает на любой iOS, доверяющей пользовательскому CA. |
+| Компьютер                        | macOS, Windows 10/11, Linux                                                                        | iOS: macOS и Windows (Apple Devices или iTunes, `ios_webkit_debug_proxy`).                                                                                    |
+| Фронтенд                         | любой фреймворк или обычный HTML                                                                   | Пресеты для Next.js, Nuxt, SvelteKit, Angular, Vite, Webpack.                                                                                                 |
+
+Версии Node.js проверяются в CI. Минимумы на стороне телефона следуют из возможностей протоколов и
+браузерных API, которые использует `webview-lens`.
+
+**Настройка телефона:**
+
+- **Android:** включена отладка по USB, тестовая сборка вызывает `WebView.setWebContentsDebuggingEnabled(true)`.
+- **iOS (macOS и Windows):** в тестовой сборке выставлено `webView.isInspectable = true`, на iPhone включён _Настройки → Safari → Дополнительно → Веб-инспектор_. Для `devtools`/`vitals`/`--logs` нужен `ios_webkit_debug_proxy` (запускается автоматически) и Apple Devices / iTunes на Windows. Подробнее: [docs/ru/ios.md](docs/ru/ios.md).
 
 ## Быстрый старт
 

@@ -26,6 +26,12 @@ Use it when someone asks how to:
 - `webview-lens/rum/server`: Fetch API handlers (`Request -> Response`) for Next.js, Nuxt, SvelteKit, Hono, Bun, Deno, Workers; `toNodeHandler` for Express / node:http; `createRumAggregator` and Prometheus `/metrics`.
 - `webview-lens`: programmatic API (`startOverride`, `startDevtoolsLink`, `measureVitals`, `createAndroidDriver`, `createIosDriver`, …).
 
+## Requirements
+
+- Node.js 22.4+ for the CLI (tested on 22, 24, 26); `webview-lens/rum` runs in Chrome/Android WebView 80+ and Safari/iOS 13.4+.
+- Android 5.0+; Android System WebView 80+ for `dev`, 77+ (LCP, CLS) / 96+ (INP) for `vitals`; `adb` platform-tools.
+- iOS 16.4+ with `webView.isInspectable = true` (older iOS: development builds from Xcode); computer: macOS, Windows 10/11, Linux (iOS on macOS and Windows).
+
 ## Docs
 
 - [README](https://github.com/damilurg/webview-lens#readme): overview, quick start, FAQ, comparison with chrome://inspect, Safari Web Inspector, ios_webkit_debug_proxy, Eruda/vConsole and HTTP proxies

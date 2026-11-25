@@ -2,6 +2,22 @@
 
 All notable changes to `webview-lens` are documented in this file.
 
+## [Unreleased]
+
+### Added
+
+- Requirements table in the README: minimum Node.js, `adb`, Android, Android System WebView, iOS, host OS and browser versions.
+- FAQ and comparison with `chrome://inspect`, Safari Web Inspector, `ios_webkit_debug_proxy`, Eruda/vConsole and HTTP proxies; `llms.txt` for AI assistants; search-focused npm description and keywords.
+
+### Changed
+
+- CI tests Node.js 22, 24 and 26; releases are built on Node.js 26. Type definitions follow the minimum supported Node.js (`@types/node` 22), so APIs newer than Node 22 fail the type check.
+- `devEngines` requires Node.js 22.18+ for contributing (native `.ts` tests); `.nvmrc` pins 26.
+
+### Fixed
+
+- Android 5–7: the toolbox `ps` (no `-A -o`) is parsed by its header, with a fallback to plain `ps`, so the WebView of the app on screen is found on old phones too.
+
 ## [0.3.1] - 2026-11-25
 
 ### Added

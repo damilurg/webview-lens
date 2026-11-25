@@ -17,7 +17,7 @@ jobs:
             # No dependency cache here: a poisoned cache entry could end up in the published package.
             - uses: actions/setup-node@v7
               with:
-                  node-version: 22
+                  node-version: 26
                   registry-url: 'https://registry.npmjs.org'
                   package-manager-cache: false
             - name: Tag matches package.json version
@@ -49,7 +49,7 @@ jobs:
             # so the copy is @damilurg/webview-lens; npmjs.com stays the canonical registry.
             - uses: actions/setup-node@v7
               with:
-                  node-version: 22
+                  node-version: 26
                   registry-url: 'https://npm.pkg.github.com'
                   scope: '@damilurg'
                   package-manager-cache: false

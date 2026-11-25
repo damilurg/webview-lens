@@ -49,9 +49,26 @@ super-apps, as long as the test build enables WebView debugging.
 
 ## Requirements
 
-- **Node.js 22.4+** for the CLI (`webview-lens/rum` and `webview-lens/rum/server` have no Node requirement).
-- **Android:** USB debugging enabled, test build calling `WebView.setWebContentsDebuggingEnabled(true)`, and `adb` (auto-detected from `ADB`, `ANDROID_HOME`, `ANDROID_SDK_ROOT`, Android SDK, `PATH`, or `~/Downloads`).
-- **iOS (macOS & Windows):** test build calling `webView.isInspectable = true` (iOS 16.4+), _Settings → Safari → Advanced → Web Inspector_ enabled. For `devtools`/`vitals`/`--logs`: `ios_webkit_debug_proxy` (auto-started) and Apple Devices / iTunes on Windows. See [docs/ios.md](docs/ios.md).
+| Component                        | Minimum                                                                                        | Notes                                                                                                                   |
+| -------------------------------- | ---------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| Node.js for the CLI              | **22.4**                                                                                       | Tested in CI on **22, 24 and 26** (Linux, macOS, Windows). Node 20 is not supported: no global `WebSocket`, EOL.        |
+| Node.js for contributing         | **22.18**                                                                                      | Tests run `.ts` files natively; `.nvmrc` pins 26.                                                                       |
+| `webview-lens/rum` (in the page) | **Chrome / Android WebView 80**, **Safari / iOS 13.4**                                         | ES2020 syntax; your bundler can transpile it lower.                                                                     |
+| `webview-lens/rum/server`        | any Fetch API runtime                                                                          | Node 18+, Edge, Bun, Deno, Cloudflare Workers.                                                                          |
+| `adb`                            | Android platform-tools with `adb reverse`                                                      | Auto-detected from `ADB`, `ANDROID_HOME`, `ANDROID_SDK_ROOT`, the Android SDK, `PATH` or `~/Downloads`.                 |
+| Android                          | **5.0** (API 21)                                                                               | `adb reverse` (for `--hmr-port`) needs 5.0; the old `ps` of Android 5–7 is supported.                                   |
+| Android System WebView / Chrome  | `devtools`: any debuggable WebView · `dev`: **80** · `vitals`: **77** (LCP, CLS), **96** (INP) | CDP `Fetch` (74+) and the injected WebSocket bridge (80+). Android 7+ gets WebView updates from Google Play.            |
+| iOS                              | **16.4** with `webView.isInspectable = true`                                                   | Older iOS: only development builds run from Xcode are inspectable. `dev` (MITM) works on any iOS that trusts a user CA. |
+| Computer                         | macOS, Windows 10/11, Linux                                                                    | iOS: macOS and Windows (Apple Devices or iTunes, `ios_webkit_debug_proxy`).                                             |
+| Frontend                         | any framework or plain HTML                                                                    | Presets for Next.js, Nuxt, SvelteKit, Angular, Vite, Webpack.                                                           |
+
+Node.js versions are tested in CI. The phone-side minimums follow from the protocol features and
+browser APIs `webview-lens` uses.
+
+**Setup on the phone:**
+
+- **Android:** USB debugging enabled and a test build calling `WebView.setWebContentsDebuggingEnabled(true)`.
+- **iOS (macOS & Windows):** a test build with `webView.isInspectable = true`, _Settings → Safari → Advanced → Web Inspector_ enabled. For `devtools`/`vitals`/`--logs`: `ios_webkit_debug_proxy` (auto-started) and Apple Devices / iTunes on Windows. See [docs/ios.md](docs/ios.md).
 
 ## Quick Start
 

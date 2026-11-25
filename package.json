@@ -107,14 +107,14 @@
         "prepack": "npm run build"
     },
     "devDependencies": {
-        "@types/node": "24.19.2",
+        "@types/node": "22.20.6",
         "prettier": "3.9.10",
         "typescript": "6.0.3"
     },
     "devEngines": {
         "runtime": {
             "name": "node",
-            "version": ">=22.4.0",
+            "version": ">=22.18.0",
             "onFail": "warn"
         }
     }
