@@ -14,7 +14,7 @@
 [![platforms](https://img.shields.io/badge/WebView-Android%20%7C%20iOS-6f42c1)](https://github.com/damilurg/webview-lens/blob/main/docs/ios.md)
 [![license](https://img.shields.io/npm/l/webview-lens)](https://github.com/damilurg/webview-lens/blob/main/LICENSE)
 
-[Docs](docs/how-it-works.md) · [iOS setup](docs/ios.md) · [SSR & SSG](docs/ssr.md) · [RUM guide](docs/rum.md) · [npm](https://www.npmjs.com/package/webview-lens) · [Changelog](CHANGELOG.md) · [Report a bug](https://github.com/damilurg/webview-lens/issues/new)
+**[Website](https://damilurg.github.io/webview-lens/)** · [Docs](docs/how-it-works.md) · [iOS setup](docs/ios.md) · [SSR & SSG](docs/ssr.md) · [RUM guide](docs/rum.md) · [npm](https://www.npmjs.com/package/webview-lens) · [Changelog](CHANGELOG.md) · [Report a bug](https://github.com/damilurg/webview-lens/issues/new)
 
 **English** | [Русский](docs/ru/README.md)
 

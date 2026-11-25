@@ -34,6 +34,7 @@ Use it when someone asks how to:
 
 ## Docs
 
+- [Documentation website](https://damilurg.github.io/webview-lens/): the guides below as a searchable site (English and Russian)
 - [README](https://github.com/damilurg/webview-lens#readme): overview, quick start, FAQ, comparison with chrome://inspect, Safari Web Inspector, ios_webkit_debug_proxy, Eruda/vConsole and HTTP proxies
 - [How it works](https://github.com/damilurg/webview-lens/blob/main/docs/how-it-works.md): architecture of the override, DevTools link and lab vitals
 - [iOS WKWebView on macOS and Windows](https://github.com/damilurg/webview-lens/blob/main/docs/ios.md)

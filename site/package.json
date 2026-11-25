@@ -1,0 +1,16 @@
+{
+    "name": "webview-lens-site",
+    "private": true,
+    "type": "module",
+    "scripts": {
+        "content": "node build-content.ts",
+        "dev": "npm run content && vitepress dev",
+        "build": "npm run content && vitepress build",
+        "preview": "vitepress preview"
+    },
+    "devDependencies": {
+        "mermaid": "11.17.2",
+        "vitepress": "1.6.4",
+        "vitepress-plugin-mermaid": "2.0.17"
+    }
+}

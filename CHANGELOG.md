@@ -2,6 +2,13 @@
 
 All notable changes to `webview-lens` are documented in this file.
 
+## [Unreleased]
+
+### Added
+
+- Documentation website on GitHub Pages: <https://damilurg.github.io/webview-lens/> (English and Russian, search, Mermaid diagrams, sitemap, per-page canonical and Open Graph tags). Built with VitePress from `README.md`, `docs/` and this changelog by `site/build-content.ts`, deployed by `.github/workflows/pages.yml`.
+- `homepage` points to the website.
+
 ## [0.3.3] - 2026-11-25
 
 ### Fixed
