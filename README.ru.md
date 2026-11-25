@@ -57,6 +57,8 @@ npx webview-lens doctor
 npx webview-lens dev
 ```
 
+Пакет также зеркалируется в [GitHub Packages](https://github.com/damilurg/webview-lens/pkgs/npm/webview-lens) как `@damilurg/webview-lens` (нужны `@damilurg:registry=https://npm.pkg.github.com` в `.npmrc` и GitHub-токен с правом `read:packages`).
+
 ## Локальный dev-сервер внутри нативного приложения
 
 ```bash

@@ -2,6 +2,12 @@
 
 All notable changes to `webview-lens` are documented in this file.
 
+## [0.3.1] - 2026-11-25
+
+### Added
+
+- Releases are mirrored to GitHub Packages as `@damilurg/webview-lens`; npmjs.com stays the canonical registry.
+
 ## [0.3.0] - 2026-11-25
 
 ### Added
