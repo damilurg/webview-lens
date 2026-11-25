@@ -4,6 +4,7 @@ import type { AddressInfo } from 'node:net';
 import { describe, it } from 'node:test';
 
 import { generateRootCa } from '../src/node/drivers/ios/certs.ts';
+import { enableIfSupported } from '../src/node/drivers/ios/index.ts';
 import { describeIosDevices } from '../src/node/drivers/ios/usbmux.ts';
 import { translateCdpToWip } from '../src/node/drivers/ios/wip-cdp-bridge.ts';
 import { COLLECTOR, measureVitals } from '../src/node/vitals-lab.ts';
@@ -457,6 +458,23 @@ describe('Android: several WebViews on the same URL', () => {
         assert.equal(
             pickPage(null, () => true),
             undefined,
+        );
+    });
+});
+
+describe('enableIfSupported (iOS domains)', () => {
+    it('ignores a method this WebKit lacks but surfaces any other failure', async () => {
+        const cdpThat = (message: string) =>
+            ({
+                send: async () => {
+                    throw new Error(message);
+                },
+            }) as unknown as Parameters<typeof enableIfSupported>[0];
+
+        await enableIfSupported(cdpThat("'Page.enable' was not found"), 'Page.enable');
+        await assert.rejects(
+            enableIfSupported(cdpThat('DevTools connection closed'), 'Page.enable'),
+            /connection closed/,
         );
     });
 });

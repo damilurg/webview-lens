@@ -3,6 +3,8 @@
 import { mergeCliConfig, validateProjectConfig } from '../../src/node/config.ts';
 import { generateLeafCert, generateRootCa } from '../../src/node/drivers/ios/certs.ts';
 import { createIosDevtoolsTranslator } from '../../src/node/drivers/ios/devtools-bridge.ts';
+import { createWebKitTargetRouter } from '../../src/node/drivers/ios/webkit-targets.ts';
+import { pickPage } from '../../src/node/cdp.ts';
 import {
     buildListDevicesPlist,
     decodeUsbmuxPackets,
@@ -86,6 +88,34 @@ for (let i = 0; i < 50; i += 1) {
     });
 }
 
+// Every iOS message goes through the WebKit target router (captured iOS 26 shapes).
+const benchRouter = createWebKitTargetRouter({
+    sendUpstream: () => undefined,
+    deliver: () => undefined,
+});
+
+benchRouter.onUpstream(
+    JSON.stringify({
+        method: 'Target.targetCreated',
+        params: { targetInfo: { targetId: 'page-46', type: 'page' } },
+    }),
+);
+const benchDispatch = JSON.stringify({
+    method: 'Target.dispatchMessageFromTarget',
+    params: {
+        targetId: 'page-46',
+        message: '{"result":{"result":{"type":"number","value":2}},"id":1}',
+    },
+});
+const benchPages = Array.from({ length: 6 }, (_, i) => ({
+    id: `page-${i}`,
+    type: 'page',
+    url: 'https://stand.test/',
+    title: '',
+    webSocketDebuggerUrl: `ws://localhost/${i}`,
+    description: JSON.stringify({ attached: i === 4, visible: true }),
+}));
+
 const results = [
     runBench('ws-server: encode + decode frame', () => {
         const frame = encodeWsFrame(wsPayload);
@@ -95,6 +125,13 @@ const results = [
     runBench('usbmux: encode + decode + parse plist', () => {
         decodeUsbmuxPackets(usbmuxFrame);
         parseListDevicesPlist(usbmuxReplyXml);
+    }),
+    runBench('ios-targets: wrap command + unwrap reply', () => {
+        benchRouter.send('{"id":1,"method":"Runtime.evaluate","params":{"expression":"1"}}');
+        benchRouter.onUpstream(benchDispatch);
+    }),
+    runBench('android: pickPage among stacked WebViews', () => {
+        pickPage(benchPages, (page) => page.type === 'page');
     }),
     runBench('ios-bridge: WIP Console → CDP JSON', () => {
         translator.fromUpstream(wipConsoleJson);
@@ -182,6 +219,8 @@ const violations = checkBenchBudgets(results, {
     'ws-server: encode + decode frame': 1,
     'usbmux: encode + decode + parse plist': 1,
     'ios-bridge: WIP Console → CDP JSON': 1,
+    'ios-targets: wrap command + unwrap reply': 1,
+    'android: pickPage among stacked WebViews': 1,
     'override: URL map + toLocalHeaders': 1,
     'rum-client: sanitizePath + context + env': 1,
     'rum-server: parseVital + parseTiming': 1,

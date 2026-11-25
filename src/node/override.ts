@@ -9,7 +9,7 @@
 // HMR ports) go through a stub WebSocket in the page and a CDP binding:
 // page → binding → this process → local server, and back via Runtime.evaluate.
 
-import { errorMessage } from '../shared/utils.ts';
+import { bestEffort, errorMessage } from '../shared/utils.ts';
 import { type Cdp, connectCdp, type DevtoolsPage } from './cdp.ts';
 import { attachTelemetry, type TelemetryOptions } from './telemetry.ts';
 
@@ -437,7 +437,8 @@ export const startOverride = async ({
             !mapper.matchesRemote(request.url) ||
             bypassPrefixes.some((prefix) => remotePath.startsWith(prefix))
         ) {
-            await cdp.send('Fetch.continueRequest', { requestId }).catch(() => undefined);
+            // The request is gone if the page navigated away meanwhile.
+            await bestEffort(cdp.send('Fetch.continueRequest', { requestId }));
 
             return;
         }
@@ -468,18 +469,19 @@ export const startOverride = async ({
             });
 
             if (isEventStream(response.headers.get('content-type'))) {
-                await response.body?.cancel().catch(() => undefined);
+                // Closing an endless stream we will not read: nothing to report if it is closed already.
+                await bestEffort(response.body?.cancel());
                 logger.error(
                     `SSE stream (text/event-stream) cannot be buffered by CDP Fetch: ${request.method} ${remotePath}. Use WebSocket HMR or --bypass ${remotePath}`,
                 );
                 if (ssePolicy === 'continue') {
-                    await cdp.send('Fetch.continueRequest', { requestId }).catch(() => undefined);
+                    await bestEffort(cdp.send('Fetch.continueRequest', { requestId }));
 
                     return;
                 }
-                await cdp
-                    .send('Fetch.failRequest', { requestId, errorReason: 'Aborted' })
-                    .catch(() => undefined);
+                await bestEffort(
+                    cdp.send('Fetch.failRequest', { requestId, errorReason: 'Aborted' }),
+                );
 
                 return;
             }
@@ -525,19 +527,21 @@ export const startOverride = async ({
                 isLocalDownReported = true;
                 logger.error(`Local server ${mapper.localOrigin} does not respond`);
             }
-            await cdp
-                .send('Fetch.failRequest', { requestId, errorReason: 'ConnectionRefused' })
-                .catch(() => undefined);
+            // Already answered or gone with the page: the error above is what matters.
+            await bestEffort(
+                cdp.send('Fetch.failRequest', { requestId, errorReason: 'ConnectionRefused' }),
+            );
         }
     };
 
     const sockets = new Map<number, WebSocket>();
+    // A socket message for a page that navigated away has no receiver any more.
     const deliver = (sid: number, type: string, data = '', binary = false) =>
-        cdp
-            .send('Runtime.evaluate', {
+        bestEffort(
+            cdp.send('Runtime.evaluate', {
                 expression: `window.${RECEIVER}?.(${sid}, ${JSON.stringify(type)}, ${JSON.stringify(data)}, ${binary})`,
-            })
-            .catch(() => undefined);
+            }),
+        );
 
     const onBinding = ({ name, payload }: BindingCall) => {
         if (name !== BINDING) return;

@@ -1,6 +1,6 @@
 // iOS implementation of DeviceDriver and InspectorSession over usbmuxd + IWDP + WIP↔CDP bridge.
 
-import { sleep } from '../../../shared/utils.ts';
+import { errorMessage, sleep } from '../../../shared/utils.ts';
 import { type Cdp, type connectCdp } from '../../cdp.ts';
 import { createProtocolInspectorSession } from '../base-session.ts';
 import type {
@@ -24,6 +24,19 @@ import {
 import { describeIosDevices, listIosDevices } from './usbmux.ts';
 import { connectWebKitInspector } from './webkit-targets.ts';
 import { createWipCdpBridge } from './wip-cdp-bridge.ts';
+
+/**
+ * Enables a WebKit domain when this iOS has it. Only "'…' was not found" is ignored: a closed socket
+ * or a routing failure must surface (swallowing every error once hid "'Page' domain was not found").
+ */
+export const enableIfSupported = async (cdp: Cdp, method: string): Promise<void> => {
+    try {
+        await cdp.send(method);
+    } catch (error) {
+        if (/was not found|not supported/i.test(errorMessage(error))) return;
+        throw error;
+    }
+};
 
 /** Honest capabilities of iOS WKWebView (WebKit lacks CDP Fetch and several Web Vitals). */
 const IOS_CAPABILITIES: InspectorCapabilities = {
@@ -49,9 +62,9 @@ export const createIosInspectorSession = (rawWip: Cdp): InspectorSession =>
         platform: 'ios',
         capabilities: IOS_CAPABILITIES,
         enableTelemetry: async () => {
-            await rawWip.send('Console.enable').catch(() => undefined);
-            await rawWip.send('Runtime.enable').catch(() => undefined);
-            await rawWip.send('Network.enable').catch(() => undefined);
+            await enableIfSupported(rawWip, 'Console.enable');
+            await enableIfSupported(rawWip, 'Runtime.enable');
+            await enableIfSupported(rawWip, 'Network.enable');
         },
     });
 
@@ -228,8 +241,8 @@ export const createIosDriver = (deps: IosDriverDeps = {}): DeviceDriver => {
 
             const rawWip = await connectWipFn(target.debuggerUrl);
 
-            await rawWip.send('Page.enable').catch(() => undefined);
-            await rawWip.send('Network.enable').catch(() => undefined);
+            await enableIfSupported(rawWip, 'Page.enable');
+            await enableIfSupported(rawWip, 'Network.enable');
 
             return createIosInspectorSession(rawWip);
         },

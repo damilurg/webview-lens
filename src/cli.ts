@@ -435,9 +435,11 @@ async function dev() {
     const link = startDevtoolsLink({ port: linkPort, devtoolsPort: port, isTarget });
     let session: OverrideSession | undefined;
 
-    readline
-        .createInterface({ input: process.stdin })
-        .on('line', () => void session?.reload().catch(() => undefined));
+    readline.createInterface({ input: process.stdin }).on('line', () => {
+        session?.reload().catch((error: unknown) => {
+            console.error(`Reload failed: ${errorMessage(error)}`);
+        });
+    });
 
     for (;;) {
         const page = await waitForPage(port, isTarget, targetOptions);

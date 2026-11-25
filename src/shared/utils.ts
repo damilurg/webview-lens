@@ -8,6 +8,16 @@ export const isRecord = (value: unknown): value is Record<string, unknown> =>
 export const errorMessage = (error: unknown): string =>
     error instanceof Error ? error.message : String(error);
 
+/**
+ * Runs a step whose failure is expected and harmless (a request the page already dropped, a
+ * best-effort restore). The call site says why in a comment; anything else must not use this.
+ */
+export const bestEffort = (promise: Promise<unknown> | undefined): Promise<void> =>
+    (promise ?? Promise.resolve()).then(
+        () => undefined,
+        () => undefined,
+    );
+
 /** Async delay helper. */
 export const sleep = (ms: number): Promise<void> =>
     new Promise((resolve) => setTimeout(resolve, ms));

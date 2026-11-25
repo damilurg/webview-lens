@@ -140,6 +140,7 @@ export const beaconTransport: Transport = (endpoint, body) => {
         body,
         keepalive: true,
         headers: { 'content-type': type },
+        // Fire-and-forget telemetry: a lost beacon must never surface as an app error.
     }).catch(() => undefined);
 };
 
