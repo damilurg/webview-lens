@@ -18,6 +18,8 @@ Common options
   --app <package>   pin WebView discovery to a specific Android package name
   --match <text>    attach to the page whose URL contains text (default: any https page)
   --logs            stream console logs, uncaught exceptions and 4xx/5xx network errors to terminal
+  --verbose         what webview-lens itself does (adb, forwards, sockets, proxy), on stderr (env WEBVIEW_LENS_DEBUG=1)
+  --log-file <f>    the same as JSON Lines appended to a file, for bug reports (env WEBVIEW_LENS_LOG_FILE)
 
 dev
   local-url               local server (http://localhost:3000, env LOCAL_URL)

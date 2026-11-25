@@ -12,7 +12,10 @@
 import { bestEffort, errorMessage } from '../shared/utils.ts';
 import { type Cdp, connectCdp, type DevtoolsPage } from './cdp.ts';
 import { BINDING, bridgeShim, RECEIVER } from './bridge-shim.ts';
+import { createLogger } from './logger.ts';
 import { attachTelemetry, type TelemetryOptions } from './telemetry.ts';
+
+const debugLog = createLogger('override');
 
 export { bridgeShim };
 
@@ -371,6 +374,9 @@ export const startOverride = async ({
             !mapper.matchesRemote(request.url) ||
             bypassPrefixes.some((prefix) => remotePath.startsWith(prefix))
         ) {
+            debugLog.debug(`continue ${request.method} ${request.url}`, {
+                reason: mapper.matchesRemote(request.url) ? 'bypass' : 'other origin',
+            });
             // The request is gone if the page navigated away meanwhile.
             await bestEffort(cdp.send('Fetch.continueRequest', { requestId }));
 
@@ -509,6 +515,8 @@ export const startOverride = async ({
 
             const targetUrl = hmr ? hmr.wsUrl : mapper.toLocal(url).replace(/^http/, 'ws');
             const targetOrigin = hmr ? hmr.origin : mapper.localOrigin;
+            debugLog.debug(`bridge socket #${sid} → ${targetUrl}`, { protocols });
+
             const socket = new NodeWebSocket(targetUrl, {
                 ...(protocols.length > 0 ? { protocols } : {}),
                 headers: { origin: targetOrigin },

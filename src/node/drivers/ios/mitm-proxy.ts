@@ -8,6 +8,7 @@ import os from 'node:os';
 import tls from 'node:tls';
 
 import { errorMessage } from '../../../shared/utils.ts';
+import { createLogger } from '../../logger.ts';
 import { connectAndPipe } from '../../fs-utils.ts';
 import {
     createUrlMapper,
@@ -21,6 +22,8 @@ import { buildIosMobileConfig, type CertPair, ensureRootCa, generateLeafCert } f
 import { certLandingPage, INTERCEPT_CHECK_PATH, page, PROXY_CHECK_HOST } from './mitm-pages.ts';
 
 export { INTERCEPT_CHECK_PATH, PROXY_CHECK_HOST };
+
+const debugLog = createLogger('mitm');
 
 const DROP_REQUEST_HEADERS = new Set([
     'host',
@@ -533,6 +536,10 @@ export const startIosMitmProxy = async ({
             return;
         }
 
+        debugLog.debug(
+            `CONNECT ${target.host}:${target.port} → ${shouldInterceptHost(target.host, targetHost) ? 'intercept' : 'tunnel'}`,
+            { client: (clientSocket as net.Socket).remoteAddress },
+        );
         if (!shouldInterceptHost(target.host, targetHost)) {
             connectAndPipe(target.port, target.host, clientSocket as net.Socket, (upstream) => {
                 clientSocket.write('HTTP/1.1 200 Connection Established\r\n\r\n');

@@ -9,6 +9,9 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { findFileInDirs, isFile } from './fs-utils.ts';
+import { createLogger } from './logger.ts';
+
+const log = createLogger('adb');
 
 export interface FindAdbOptions {
     env?: Record<string, string | undefined>;
@@ -90,8 +93,23 @@ export const resolveAdb = (onFound?: (adbPath: string) => void): string => {
 /** Runs adb and returns stdout. */
 export type AdbRunner = (args: string[]) => string;
 
-export const runAdb: AdbRunner = (args) =>
-    execFileSync(resolveAdb(), args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+export const runAdb: AdbRunner = (args) => {
+    const started = Date.now();
+
+    try {
+        const output = execFileSync(resolveAdb(), args, {
+            encoding: 'utf8',
+            stdio: ['ignore', 'pipe', 'pipe'],
+        });
+
+        log.debug(`adb ${args.join(' ')}`, { ms: Date.now() - started, bytes: output.length });
+
+        return output;
+    } catch (error) {
+        log.debug(`adb ${args.join(' ')} failed`, { ms: Date.now() - started });
+        throw error;
+    }
+};
 
 /** Wraps an AdbRunner to target a specific device via `-s <serial>` (except global `adb devices`). */
 export const createAdbRunner = (serial?: string, baseRun: AdbRunner = runAdb): AdbRunner => {
@@ -200,6 +218,8 @@ export interface ForwardWebViewOptions {
     app?: string;
 }
 
+const lastForward = new Map<string, string>();
+
 /**
  * Forwards `localhost:port` to the DevTools socket of the WebView on screen (or the pinned `app`).
  * Returns the socket name, or null when no matching WebView with debugging enabled is running.
@@ -220,9 +240,17 @@ export const forwardWebView = (
         options.app,
     );
 
-    if (!socket) return null;
+    if (!socket) {
+        log.debug('no WebView socket matches', { sockets, app: options.app });
+
+        return null;
+    }
 
     run(['forward', `tcp:${port}`, `localabstract:${socket}`]);
+    if (lastForward.get(String(port)) !== socket) {
+        log.info(`forward tcp:${port} → ${socket}`, { app: options.app });
+        lastForward.set(String(port), socket);
+    }
 
     return socket;
 };

@@ -54,6 +54,8 @@ export const parseCliArgs = (argv: string[] = process.argv.slice(2)) =>
             cpu: { type: 'string' },
             budget: { type: 'string' },
             out: { type: 'string', default: 'webview-vitals.md' },
+            verbose: { type: 'boolean', default: false },
+            'log-file': { type: 'string' },
         },
     });
 

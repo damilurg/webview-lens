@@ -8,6 +8,7 @@ import { devtools } from './cli/commands/devtools.ts';
 import { vitals } from './cli/commands/vitals.ts';
 import { buildCliContext, type CliContext, parseCliArgs } from './cli/context.ts';
 import { HELP } from './cli/help.ts';
+import { configureLogging, createLogger, loggingFromEnv } from './node/logger.ts';
 import { errorMessage } from './shared/utils.ts';
 
 /** Startup errors (bad flags, bad config) are user errors: one line, no stack trace. */
@@ -41,6 +42,15 @@ if (typeof WebSocket === 'undefined') {
     console.error('webview-lens needs Node.js 22.4 or newer (global WebSocket)');
     process.exit(1);
 }
+
+const envLogging = loggingFromEnv();
+const logFile = values['log-file'] ?? envLogging.file;
+
+configureLogging({
+    verbose: values.verbose || Boolean(envLogging.verbose),
+    ...(logFile ? { file: logFile } : {}),
+});
+createLogger('cli').debug(`command: ${command}`, { args, node: process.version });
 
 const run = COMMANDS[command];
 

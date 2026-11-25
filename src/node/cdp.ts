@@ -1,6 +1,9 @@
 // A minimal Chrome DevTools Protocol client over the global WebSocket (Node 22.4+).
 
 import { isRecord } from '../shared/utils.ts';
+import { createLogger } from './logger.ts';
+
+const log = createLogger('cdp');
 
 export interface DevtoolsPage {
     id: string;
@@ -175,6 +178,8 @@ export const connectCdp = async (
         }
     };
 
+    log.debug(`socket open ${webSocketDebuggerUrl}`, { adapter: Boolean(adapter) });
+
     const wrapped = adapter?.({ sendUpstream: (raw) => ws.send(raw), deliver: handleMessage });
     const receive = wrapped ? (raw: string) => wrapped.onUpstream(raw) : handleMessage;
     const transmit = wrapped ? (raw: string) => wrapped.send(raw) : (raw: string) => ws.send(raw);
@@ -183,6 +188,7 @@ export const connectCdp = async (
 
     const closed = new Promise<void>((resolve) => {
         ws.onclose = () => {
+            log.debug(`socket closed ${webSocketDebuggerUrl}`, { pending: pending.size });
             wrapped?.dispose();
             for (const { reject } of pending.values())
                 reject(new Error('DevTools connection closed'));

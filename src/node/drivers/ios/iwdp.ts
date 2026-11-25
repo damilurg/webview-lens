@@ -6,6 +6,9 @@ import path from 'node:path';
 
 import { isRecord, sleep } from '../../../shared/utils.ts';
 import { findFileInDirs, isFile, killProcessTree } from '../../fs-utils.ts';
+import { createLogger } from '../../logger.ts';
+
+const debugLog = createLogger('iwdp');
 
 export interface FindIwdpOptions {
     env?: Record<string, string | undefined>;
@@ -185,7 +188,11 @@ export const ensureIwdp = async ({
     spawnIwdp = defaultSpawnIwdp,
     log = console.log,
 }: EnsureIwdpOptions = {}): Promise<StartedIwdp | undefined> => {
-    if ((await listFn(controlPort)) !== null) return undefined;
+    if ((await listFn(controlPort)) !== null) {
+        debugLog.debug(`already answering on :${controlPort}`);
+
+        return undefined;
+    }
 
     const { iwdp } = findFn();
 
