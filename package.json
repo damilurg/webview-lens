@@ -1,6 +1,6 @@
 {
     "name": "webview-lens",
-    "version": "0.3.1",
+    "version": "0.3.2",
     "description": "Debug Android WebView and iOS WKWebView with Chrome DevTools on macOS, Windows and Linux: a fixed DevTools URL (chrome://inspect alternative), your localhost dev server inside the app behind the production HTTPS origin, console logs in the terminal, lab Web Vitals with CI budgets, and a zero-dependency RUM + Prometheus toolkit.",
     "keywords": [
         "webview",
