@@ -6,6 +6,20 @@ All notable changes to `webview-lens` are documented in this file.
 
 Found by end-to-end runs on real phones: Redmi Note 8 Pro (Android 11, WebView 157) with a Kotlin and a Flutter app, and iPhone 17 Pro (iOS 26.6.1).
 
+### Added
+
+- **`webview-lens/viewport`:** keyboard and viewport helpers for pages in Android WebView and iOS WKWebView. `watchViewport()` keeps `--wl-keyboard-inset` (how much of the page the keyboard covers: the keyboard height on iOS, 0 where the WebView resized), `--wl-keyboard-height`, `--wl-viewport-height` and `data-wl-keyboard` up to date; `keepFocusedInputVisible()` scrolls a field the keyboard covers into view. Zero dependencies, SSR-safe; checked on Android 11 with the keyboard open.
+- **Library logger:** `--verbose` (or `WEBVIEW_LENS_DEBUG=1`) shows what webview-lens itself does — adb calls with timings, port forwards, CDP sockets, WebKit target switches, proxy decisions — on stderr; `--log-file` (or `WEBVIEW_LENS_LOG_FILE`) writes JSON Lines for bug reports. `configureLogging` / `createLogger` for your own sinks.
+- **Docs:** Getting started (install, debuggable WebView per stack, Android and iOS step by step, environment variables, config), Recipes (keyboard, iOS input zoom, safe areas, native sign-in cookies, one JS bridge API, back button, Android file upload, debug CA), runnable recipes in `examples/recipes/` copied into the docs, `ARCHITECTURE.md` and `CONTRIBUTING.md`; all on the website.
+- Public API: `pickPage`, `isPageOnScreen`, `connectWebKitInspector`, `createWebKitTargetRouter`, `TransportAdapter`.
+
+### Changed
+
+- The CDP client takes a `TransportAdapter` instead of knowing about iOS; WebKit target routing is one adapter.
+- The CLI is split into one module per command over a validated `CliContext`; the WebSocket bridge shim and the proxy's pages have their own modules. No behaviour change.
+- Harmless failures go through an explicit `bestEffort()` with the reason in a comment; iOS domain enables ignore only "method not found" (`enableIfSupported`).
+- Benchmarks for WebKit target routing and on-screen page picking.
+
 ### Fixed
 
 - **`dev` HMR for Vite-based stacks (Vite, Nuxt, SvelteKit, Angular):** the WebSocket bridge dropped the subprotocol the page asked for, and Vite only upgrades `vite-hmr` / `vite-ping` sockets, so HMR never connected. The subprotocols are now forwarded and the negotiated one is reported back to the page.

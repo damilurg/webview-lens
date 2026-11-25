@@ -258,3 +258,16 @@ export {
     type Rating,
     THRESHOLDS,
 } from '../shared/thresholds.ts';
+export {
+    configureLogging,
+    createLogger,
+    fileSink,
+    formatLogLine,
+    type LogEntry,
+    type Logger,
+    type LoggingOptions,
+    loggingFromEnv,
+    type LogLevel,
+    type LogSink,
+    stderrSink,
+} from './logger.ts';

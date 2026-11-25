@@ -14,7 +14,7 @@
 [![platforms](https://img.shields.io/badge/WebView-Android%20%7C%20iOS-6f42c1)](https://github.com/damilurg/webview-lens/blob/main/docs/ios.md)
 [![license](https://img.shields.io/npm/l/webview-lens)](https://github.com/damilurg/webview-lens/blob/main/LICENSE)
 
-**[Сайт](https://damilurg.github.io/webview-lens/ru/)** · [Документация](how-it-works.md) · [Настройка iOS](ios.md) · [SSR и SSG](ssr.md) · [RUM](rum.md) · [npm](https://www.npmjs.com/package/webview-lens) · [Changelog](../../CHANGELOG.md) · [Сообщить об ошибке](https://github.com/damilurg/webview-lens/issues/new)
+**[Сайт](https://damilurg.github.io/webview-lens/ru/)** · [Быстрый старт](getting-started.md) · [Рецепты](recipes.md) · [Настройка iOS](ios.md) · [SSR и SSG](ssr.md) · [RUM](rum.md) · [npm](https://www.npmjs.com/package/webview-lens) · [Changelog](../../CHANGELOG.md) · [Сообщить об ошибке](https://github.com/damilurg/webview-lens/issues/new)
 
 [English](../../README.md) | **Русский**
 
@@ -46,6 +46,8 @@ CI и даёт **RUM + Prometheus** для продакшена. **Ноль runt
 | `webview-lens doctor`     | Пошаговая диагностика подключения (`adb`, `usbmuxd`, `ios_webkit_debug_proxy`, экран блокировки, доступные WebView)                                                          |
 | `webview-lens/rum`        | Браузерный клиент (0 `node:*` импортов): Web Vitals, кастомные тайминги, глобальные ошибки, `detectWebViewEnv`, контекстные теги                                             |
 | `webview-lens/rum/server` | Edge-safe Fetch API хендлеры (`Request → Response`), адаптер `toNodeHandler` для Express/NestJS, агрегатор `createRumAggregator` (`p50`/`p75`/`p95`) и Prometheus `/metrics` |
+| `webview-lens/viewport`   | Браузерные помощники для экранной клавиатуры: CSS-переменные `--wl-keyboard-inset` / `--wl-viewport-height` и поле в фокусе всегда на виду, Android и iOS                    |
+| `--verbose`, `--log-file` | Что делает сам webview-lens (вызовы adb, port forward, сокеты, решения прокси), в stderr или в JSON Lines; консоль страницы остаётся в DevTools                              |
 
 ## Требования
 
@@ -301,7 +303,10 @@ TTFB, Long Tasks и JS heap на реальном телефоне, пишет �
 
 ## Документация
 
-- Как это работает (архитектура): [docs/ru/how-it-works.md](how-it-works.md) ([EN](../how-it-works.md))
+- Быстрый старт (установка, переменные окружения, Android и iOS по шагам): [docs/ru/getting-started.md](getting-started.md) ([EN](../getting-started.md))
+- Рецепты (клавиатура, safe areas, авторизация WebView, JS-bridge, загрузка файлов, управление webview-lens из кода): [docs/ru/recipes.md](recipes.md) ([EN](../recipes.md))
+- Как это работает: [docs/ru/how-it-works.md](how-it-works.md) ([EN](../how-it-works.md))
+- Архитектура кода и правила: [ARCHITECTURE.md](../../ARCHITECTURE.md) · участие в разработке: [CONTRIBUTING.md](../../CONTRIBUTING.md)
 - Настройка iOS WKWebView (macOS и Windows): [docs/ru/ios.md](ios.md) ([EN](../ios.md))
 - SSR и SSG (Next.js, Nuxt, SvelteKit, Angular): [docs/ru/ssr.md](ssr.md) ([EN](../ssr.md))
 - Продакшен-RUM и Prometheus: [docs/ru/rum.md](rum.md) ([EN](../rum.md))
