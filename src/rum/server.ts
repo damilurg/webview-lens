@@ -331,46 +331,18 @@ export interface NodeServerResponse {
 export const toNodeHandler =
     (handler: (request: Request) => Promise<Response>) =>
     async (req: NodeIncomingMessage, res: NodeServerResponse): Promise<void> => {
-        const method = req.method ?? 'GET';
-        const rawHost = req.headers.host;
-        const host = (Array.isArray(rawHost) ? rawHost[0] : rawHost) ?? 'localhost';
-        const url = new URL(req.url ?? '/', `http://${host}`).toString();
-        const headers = new Headers();
+        let response: Response;
 
-        for (const [name, value] of Object.entries(req.headers)) {
-            if (value === undefined) continue;
-            if (!Array.isArray(value)) {
-                headers.set(name, value);
-                continue;
-            }
-            for (const item of value) headers.append(name, item);
+        try {
+            response = await handler(toFetchRequest(req));
+        } catch {
+            // A throwing callback or a malformed Host header must not become an unhandled
+            // rejection that takes down a bare node:http server.
+            res.statusCode = 500;
+            res.end();
+
+            return;
         }
-
-        const init: RequestInit & { duplex?: 'half' } = { method, headers };
-
-        if (method !== 'GET' && method !== 'HEAD') {
-            const iterator = req[Symbol.asyncIterator]();
-            const encoder = new TextEncoder();
-
-            init.body = new ReadableStream<Uint8Array>({
-                async pull(controller) {
-                    const { done, value } = await iterator.next();
-
-                    if (done) {
-                        controller.close();
-
-                        return;
-                    }
-                    controller.enqueue(typeof value === 'string' ? encoder.encode(value) : value);
-                },
-                cancel() {
-                    void iterator.return?.();
-                },
-            });
-            init.duplex = 'half';
-        }
-
-        const response = await handler(new Request(url, init));
 
         res.statusCode = response.status;
         response.headers.forEach((value, name) => res.setHeader(name, value));
@@ -381,7 +353,48 @@ export const toNodeHandler =
             return;
         }
 
-        const body = new Uint8Array(await response.arrayBuffer());
-
-        res.end(body);
+        res.end(new Uint8Array(await response.arrayBuffer()));
     };
+
+const toFetchRequest = (req: NodeIncomingMessage): Request => {
+    const method = req.method ?? 'GET';
+    const rawHost = req.headers.host;
+    const host = (Array.isArray(rawHost) ? rawHost[0] : rawHost) ?? 'localhost';
+    const url = new URL(req.url ?? '/', `http://${host}`).toString();
+    const headers = new Headers();
+
+    for (const [name, value] of Object.entries(req.headers)) {
+        if (value === undefined) continue;
+        if (!Array.isArray(value)) {
+            headers.set(name, value);
+            continue;
+        }
+        for (const item of value) headers.append(name, item);
+    }
+
+    const init: RequestInit & { duplex?: 'half' } = { method, headers };
+
+    if (method !== 'GET' && method !== 'HEAD') {
+        const iterator = req[Symbol.asyncIterator]();
+        const encoder = new TextEncoder();
+
+        init.body = new ReadableStream<Uint8Array>({
+            async pull(controller) {
+                const { done, value } = await iterator.next();
+
+                if (done) {
+                    controller.close();
+
+                    return;
+                }
+                controller.enqueue(typeof value === 'string' ? encoder.encode(value) : value);
+            },
+            cancel() {
+                void iterator.return?.();
+            },
+        });
+        init.duplex = 'half';
+    }
+
+    return new Request(url, init);
+};

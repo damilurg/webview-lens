@@ -80,6 +80,8 @@ app.post(
 app.get('/metrics', toNodeHandler(createMetricsHandler(rum)));
 ```
 
+Экспортируемые ряды (префикс по умолчанию `webview_lens`): `webview_lens_vital_samples_total` (counter), `webview_lens_vital_good_rate`, `webview_lens_vital_quantile` и `webview_lens_timing_quantile` (gauge с меткой `quantile`), `webview_lens_client_errors_total` (counter).
+
 ## Нюанс по iOS WKWebView
 
 Safari/WKWebView поддерживает `TTFB`, `FCP`, Navigation/Resource Timing, кастомные тайминги (`createTimingReporter`) и сбор ошибок (`captureGlobalErrors`), но не отдаёт `CLS` и `INP` (а на старых версиях iOS — и `LCP`). Всегда сегментируйте дашборды по тегу `context.env` (`android-webview` vs `ios-wkwebview`).

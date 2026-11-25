@@ -20,10 +20,15 @@ const isDevtoolsPage = (value: unknown): value is DevtoolsPage =>
     typeof value.url === 'string' &&
     typeof value.webSocketDebuggerUrl === 'string';
 
+/** A half-open forward (socket accepted, nothing answers) must not stall polling loops forever. */
+const HTTP_TIMEOUT_MS = 5000;
+
 /** Pages on the DevTools port; null when the port does not answer (no forward, or a stale socket). */
 export const listPages = async (port: string | number): Promise<DevtoolsPage[] | null> => {
     try {
-        const response = await fetch(`http://localhost:${port}/json/list`);
+        const response = await fetch(`http://localhost:${port}/json/list`, {
+            signal: AbortSignal.timeout(HTTP_TIMEOUT_MS),
+        });
 
         if (!response.ok) return null;
 
@@ -38,7 +43,10 @@ export const listPages = async (port: string | number): Promise<DevtoolsPage[] |
 /** `/json/version`: browser, User-Agent, WebKit-Version. Empty object when unavailable. */
 export const getVersion = async (port: string | number): Promise<Record<string, unknown>> => {
     try {
-        const data: unknown = await (await fetch(`http://localhost:${port}/json/version`)).json();
+        const response = await fetch(`http://localhost:${port}/json/version`, {
+            signal: AbortSignal.timeout(HTTP_TIMEOUT_MS),
+        });
+        const data: unknown = await response.json();
 
         return isRecord(data) ? data : {};
     } catch {
@@ -94,7 +102,14 @@ export const connectCdp = async (webSocketDebuggerUrl: string): Promise<Cdp> => 
     });
 
     ws.onmessage = ({ data }) => {
-        const message: Message = JSON.parse(String(data));
+        let message: Message;
+
+        try {
+            message = JSON.parse(String(data)) as Message;
+        } catch {
+            // A malformed frame must not crash the process (listener errors surface as uncaught).
+            return;
+        }
 
         if (message.id !== undefined) {
             const call = pending.get(message.id);
@@ -109,8 +124,14 @@ export const connectCdp = async (webSocketDebuggerUrl: string): Promise<Cdp> => 
 
             return;
         }
-        if (message.method)
-            listeners.get(message.method)?.forEach((listener) => listener(message.params));
+        if (!message.method) return;
+        for (const listener of listeners.get(message.method) ?? []) {
+            try {
+                listener(message.params);
+            } catch (error) {
+                console.error(`CDP listener for ${message.method} failed:`, error);
+            }
+        }
     };
 
     const on = <T>(method: string, listener: (params: T) => void) => {

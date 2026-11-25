@@ -241,11 +241,11 @@ export const toPrometheusText = (snapshot: RumSnapshot, prefix = 'webview_lens')
     const lines: string[] = [];
 
     if (snapshot.vitals.length > 0) {
-        lines.push(`# HELP ${prefix}_vital_count Total Web Vital samples received`);
-        lines.push(`# TYPE ${prefix}_vital_count counter`);
+        lines.push(`# HELP ${prefix}_vital_samples_total Total Web Vital samples received`);
+        lines.push(`# TYPE ${prefix}_vital_samples_total counter`);
         for (const v of snapshot.vitals) {
             lines.push(
-                `${prefix}_vital_count${formatLabels({ name: v.name, path: v.path, env: v.env })} ${v.count}`,
+                `${prefix}_vital_samples_total${formatLabels({ name: v.name, path: v.path, env: v.env })} ${v.count}`,
             );
         }
 

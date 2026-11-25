@@ -7,7 +7,8 @@ import { sleep } from '../shared/utils.ts';
 import { killProcessTree } from './fs-utils.ts';
 
 export const isServerUp = (url: string): Promise<boolean> =>
-    fetch(url, { method: 'HEAD', redirect: 'manual' }).then(
+    // A server that accepts but never answers (stuck compile, half-open port) counts as down.
+    fetch(url, { method: 'HEAD', redirect: 'manual', signal: AbortSignal.timeout(5000) }).then(
         () => true,
         () => false,
     );

@@ -17,6 +17,7 @@ import {
 } from '../../ws-server.ts';
 import type { InspectableTarget } from '../types.ts';
 import {
+    createExecutionContextTracker,
     translateCdpToWip,
     translateWipEventToCdp,
     translateWipResultToCdp,
@@ -50,7 +51,15 @@ export interface ClientFrameResult {
 export interface IosDevtoolsTranslator {
     fromClient(rawJson: string): ClientFrameResult;
     fromUpstream(rawJson: string): string | null;
+    /** Builds a bridge-originated WIP command whose reply is swallowed (never reaches the UI). */
+    internalCommand(method: string, params?: Record<string, unknown>): string;
 }
+
+/** Ids of bridge-originated commands; far above anything the DevTools frontend allocates. */
+const INTERNAL_ID_BASE = 1_000_000_000;
+
+/** Upper bound for bytes buffered from the DevTools client before frames are decoded. */
+const MAX_CLIENT_BUFFER_BYTES = 32 * 1024 * 1024;
 
 interface JsonRpcMessage {
     id?: number;
@@ -63,8 +72,17 @@ interface JsonRpcMessage {
 /** Stateful per-connection WIP ↔ CDP JSON-RPC frame translator. */
 export const createIosDevtoolsTranslator = (): IosDevtoolsTranslator => {
     const pendingMethods = new Map<number, string>();
+    const internalIds = new Set<number>();
+    const contexts = createExecutionContextTracker();
+    let nextInternalId = INTERNAL_ID_BASE;
 
     return {
+        internalCommand(method: string, params: Record<string, unknown> = {}): string {
+            nextInternalId += 1;
+            internalIds.add(nextInternalId);
+
+            return JSON.stringify({ id: nextInternalId, method, params });
+        },
         fromClient(rawJson: string): ClientFrameResult {
             let msg: JsonRpcMessage;
 
@@ -101,6 +119,8 @@ export const createIosDevtoolsTranslator = (): IosDevtoolsTranslator => {
                 return null;
             }
 
+            if (msg.id !== undefined && internalIds.delete(msg.id)) return null;
+
             if (msg.id !== undefined) {
                 const originalMethod = pendingMethods.get(msg.id);
 
@@ -115,7 +135,11 @@ export const createIosDevtoolsTranslator = (): IosDevtoolsTranslator => {
             }
 
             if (typeof msg.method === 'string') {
-                const translated = translateWipEventToCdp(msg.method, msg.params);
+                contexts.observe(msg.method, msg.params);
+
+                const translated = translateWipEventToCdp(msg.method, msg.params, {
+                    executionContextId: contexts.mainContextId,
+                });
 
                 if (!translated) return null;
 
@@ -235,9 +259,7 @@ export const startIosDevtoolsLink = ({
                 socket.write(buildWebSocketAcceptResponse(key));
                 clientAccepted = true;
                 // Enable WebKit Console domain proactively so console.log appears in Chrome DevTools.
-                upstream.send(
-                    JSON.stringify({ id: 900_001, method: 'Console.enable', params: {} }),
-                );
+                upstream.send(translator.internalCommand('Console.enable'));
                 if (buffer.length > 0) flushClientBuffer();
             };
 
@@ -252,6 +274,12 @@ export const startIosDevtoolsLink = ({
 
             socket.on('data', (chunk: Buffer) => {
                 buffer = Buffer.concat([buffer, chunk]);
+                if (buffer.length > MAX_CLIENT_BUFFER_BYTES) {
+                    if (clientAccepted) socket.write(encodeCloseFrame(1009, 'message too big'));
+                    closeAll();
+
+                    return;
+                }
                 if (clientAccepted) flushClientBuffer();
             });
             socket.on('error', closeAll);

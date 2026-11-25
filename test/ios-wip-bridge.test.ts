@@ -39,6 +39,7 @@ describe('WIP ↔ CDP protocol translation', () => {
                 url: 'https://stand.test/app.js',
                 line: 10,
                 column: 5,
+                timestamp: 1_700_000_000.5,
             },
         });
 
@@ -47,6 +48,7 @@ describe('WIP ↔ CDP protocol translation', () => {
             params: {
                 type: 'warning',
                 args: [{ type: 'string', value: 'slow bridge' }],
+                timestamp: 1_700_000_000_500,
                 stackTrace: {
                     callFrames: [
                         {

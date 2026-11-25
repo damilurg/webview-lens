@@ -4,6 +4,7 @@ import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import net from 'node:net';
 import path from 'node:path';
+import tls from 'node:tls';
 
 import { isRecord } from '../shared/utils.ts';
 
@@ -83,18 +84,25 @@ export const killProcessTree = (
     child.kill('SIGTERM');
 };
 
-/** Connects to a TCP target, invokes `onConnect` once open, and pipes both sockets with shared error teardown. */
+/**
+ * Connects to a TCP target (or a TLS one when `secure` is given), invokes `onConnect` once open,
+ * and pipes both sockets with shared error teardown.
+ */
 export const connectAndPipe = (
     port: number,
     host: string,
     clientSocket: net.Socket,
     onConnect: (upstream: net.Socket) => void,
+    secure?: tls.ConnectionOptions,
 ): net.Socket => {
-    const upstream = net.connect(port, host, () => {
+    const ready = () => {
         onConnect(upstream);
         upstream.pipe(clientSocket);
         clientSocket.pipe(upstream);
-    });
+    };
+    const upstream: net.Socket = secure
+        ? tls.connect({ ...secure, port, host }, ready)
+        : net.connect(port, host, ready);
     const cleanup = () => {
         upstream.destroy();
         clientSocket.destroy();

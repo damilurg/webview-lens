@@ -87,6 +87,7 @@ describe('Feature: Cross-platform Chrome DevTools bridge for iOS WKWebView', () 
                             url: 'https://stand.example.test/app.js',
                             line: 25,
                             column: 8,
+                            timestamp: 1_700_000_000,
                         },
                     },
                 }),
@@ -97,6 +98,7 @@ describe('Feature: Cross-platform Chrome DevTools bridge for iOS WKWebView', () 
                 params: {
                     type: 'error',
                     args: [{ type: 'string', value: 'boom on iphone' }],
+                    timestamp: 1_700_000_000_000,
                     stackTrace: {
                         callFrames: [
                             {

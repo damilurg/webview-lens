@@ -3,7 +3,7 @@
 // your local dev server) while tunneling all other domains untouched via raw TCP CONNECT.
 
 import http from 'node:http';
-import type net from 'node:net';
+import net from 'node:net';
 import os from 'node:os';
 import tls from 'node:tls';
 
@@ -57,6 +57,42 @@ export const parseConnectTarget = (authority: string): ConnectTarget | null => {
 
     return { host, port };
 };
+
+const PRIVATE_NETWORKS = (() => {
+    const list = new net.BlockList();
+
+    for (const [prefix, bits] of [
+        ['127.0.0.0', 8],
+        ['10.0.0.0', 8],
+        ['172.16.0.0', 12],
+        ['192.168.0.0', 16],
+        ['169.254.0.0', 16],
+        ['100.64.0.0', 10],
+    ] as const) {
+        list.addSubnet(prefix, bits, 'ipv4');
+    }
+    list.addAddress('::1', 'ipv6');
+    list.addSubnet('fe80::', 10, 'ipv6');
+    list.addSubnet('fc00::', 7, 'ipv6');
+
+    return list;
+})();
+
+/**
+ * Whether a client address is loopback, private (RFC 1918 / RFC 4193), link-local or CGNAT
+ * (RFC 6598). The proxy listens on all interfaces; this keeps it from being an open proxy.
+ */
+export const isPrivateNetworkAddress = (address: string | undefined): boolean => {
+    if (!address) return false;
+
+    const family = net.isIP(address);
+
+    if (family === 0) return false;
+
+    return PRIVATE_NETWORKS.check(address, family === 6 ? 'ipv6' : 'ipv4');
+};
+
+const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '::1', '[::1]']);
 
 /** Selective MITM rule: intercept only exact target host (case-insensitive). */
 export const shouldInterceptHost = (host: string, targetHost: string): boolean =>
@@ -234,6 +270,11 @@ export interface IosMitmProxyOptions {
     port?: number;
     /** Listening host (default: `0.0.0.0` so iPhone on Wi-Fi can reach it). */
     host?: string;
+    /**
+     * Which client addresses may use the proxy. Default: loopback and private networks only
+     * (`isPrivateNetworkAddress`), so a public interface does not expose an open proxy.
+     */
+    allowClient?: (address: string | undefined) => boolean;
     bypassPrefixes?: readonly string[];
     quietPrefixes?: readonly string[];
     ca?: CertPair;
@@ -248,6 +289,43 @@ export interface IosMitmProxy {
     readonly targetHost: string;
     close(): Promise<void>;
 }
+
+/** Forwards an absolute-form plain HTTP proxy request (`GET http://host/path`) as is. */
+const forwardPlainHttp = (req: http.IncomingMessage, res: http.ServerResponse): void => {
+    let target: URL;
+
+    try {
+        target = new URL(req.url ?? '');
+    } catch {
+        res.writeHead(400).end();
+
+        return;
+    }
+
+    const headers = stripHopByHopHeaders(req.headers);
+
+    headers.host = target.host;
+
+    const upstream = http.request(
+        {
+            hostname: target.hostname.replace(/^\[|\]$/g, ''),
+            port: Number(target.port) || 80,
+            method: req.method,
+            path: `${target.pathname}${target.search}`,
+            headers,
+        },
+        (upstreamRes) => {
+            res.writeHead(upstreamRes.statusCode ?? 502, stripHopByHopHeaders(upstreamRes.headers));
+            upstreamRes.pipe(res);
+        },
+    );
+
+    upstream.on('error', () => {
+        if (!res.headersSent) res.writeHead(502);
+        res.end();
+    });
+    req.pipe(upstream);
+};
 
 const readBody = async (req: http.IncomingMessage): Promise<Buffer> => {
     const chunks: Buffer[] = [];
@@ -270,6 +348,7 @@ export const startIosMitmProxy = async ({
     localBase = '',
     port = 8888,
     host = '0.0.0.0',
+    allowClient = isPrivateNetworkAddress,
     bypassPrefixes = [],
     quietPrefixes = [],
     ca,
@@ -325,16 +404,40 @@ export const startIosMitmProxy = async ({
 
     // Native WebSocket HMR tunneling over the decrypted HTTPS connection.
     decryptedServer.on('upgrade', (req, clientSocket, head) => {
-        const localPort = Number(localUrl.port) || (localUrl.protocol === 'https:' ? 443 : 80);
+        const isHttps = localUrl.protocol === 'https:';
+        const localPort = Number(localUrl.port) || (isHttps ? 443 : 80);
+        const localHost = localUrl.hostname.replace(/^\[|\]$/g, '');
+        // Local https dev servers (Vite/Angular `--https`) use self-signed certs: trust them on
+        // loopback only.
+        const secure = isHttps
+            ? {
+                  servername: net.isIP(localHost) ? undefined : localHost,
+                  rejectUnauthorized: !LOOPBACK_HOSTS.has(localUrl.hostname),
+              }
+            : undefined;
 
-        connectAndPipe(localPort, localUrl.hostname, clientSocket as net.Socket, (upstream) => {
-            upstream.write(buildWsUpgradeHandshake(req, mapper));
-            if (head.length > 0) upstream.write(head);
-        });
+        connectAndPipe(
+            localPort,
+            localHost,
+            clientSocket as net.Socket,
+            (upstream) => {
+                upstream.write(buildWsUpgradeHandshake(req, mapper));
+                if (head.length > 0) upstream.write(head);
+            },
+            secure,
+        );
     });
 
     // Outer HTTP proxy + CA download server.
     const proxyServer = http.createServer((req, res) => {
+        // With the iPhone's Wi-Fi proxy set, plain http:// traffic arrives in absolute form
+        // (`GET http://host/path`): forward it instead of answering with the landing page.
+        if (/^http:\/\//i.test(req.url ?? '')) {
+            forwardPlainHttp(req, res);
+
+            return;
+        }
+
         const urlPath = new URL(req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`)
             .pathname;
 
@@ -361,6 +464,14 @@ export const startIosMitmProxy = async ({
 
         res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
         res.end(certLandingPage(hostHint, port));
+    });
+
+    proxyServer.on('connection', (socket: net.Socket) => {
+        if (allowClient(socket.remoteAddress)) return;
+        logger.error(
+            `Proxy refused client ${socket.remoteAddress ?? 'unknown'} (not a private network)`,
+        );
+        socket.destroy();
     });
 
     proxyServer.on('connect', (req, clientSocket, head) => {
@@ -413,7 +524,10 @@ export const startIosMitmProxy = async ({
         close: () =>
             new Promise<void>((resolve) => {
                 decryptedServer.close();
+                decryptedServer.closeAllConnections();
                 proxyServer.close(() => resolve());
+                // Keep-alive and tunneled sockets would otherwise hold close() open indefinitely.
+                proxyServer.closeAllConnections();
             }),
     };
 };

@@ -100,6 +100,8 @@ app.post(
 app.get('/metrics', toNodeHandler(createMetricsHandler(rum)));
 ```
 
+Exported series (default prefix `webview_lens`): `webview_lens_vital_samples_total` (counter), `webview_lens_vital_good_rate`, `webview_lens_vital_quantile` and `webview_lens_timing_quantile` (gauges with a `quantile` label), `webview_lens_client_errors_total` (counter).
+
 ## Note on iOS WKWebView Metrics
 
 Safari/WKWebView supports `TTFB`, `FCP`, Navigation/Resource Timing, custom timings (`createTimingReporter`), and global error capture (`captureGlobalErrors`), while `CLS` and `INP` (and `LCP` on older iOS versions) are not emitted by WebKit. Always segment dashboards by `context.env` (`android-webview` vs `ios-wkwebview`).

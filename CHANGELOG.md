@@ -2,6 +2,22 @@
 
 All notable changes to `webview-lens` are documented in this file.
 
+## [Unreleased]
+
+### Changed
+
+- **Breaking (Prometheus):** `webview_lens_vital_count` is renamed to `webview_lens_vital_samples_total`, following the Prometheus `_total` naming convention for counters. Update dashboards and alerts.
+- The iOS MITM proxy serves only loopback, private, link-local and CGNAT clients by default (`allowClient` option), so it is no longer an open proxy on a public interface.
+- CLI flags go through the same validation as `webview-lens.config.json`; invalid flags, `--runs`, `--interact` and `--remote` fail with a one-line error instead of a stack trace.
+
+### Fixed
+
+- iOS MITM proxy: plain `http://` requests from the iPhone are forwarded instead of answered with the CA landing page; `close()` no longer hangs on keep-alive sockets; WebSocket HMR works with an `https://` local dev server.
+- iOS DevTools bridge: the reply to the bridge's own `Console.enable` no longer reaches Chrome DevTools; client buffering is capped; console events carry CDP `timestamp` and the main-world `executionContextId`.
+- `dev` WebSocket bridge: malformed binding payloads are ignored, and the page can only open sockets to the stand origin and configured HMR ports.
+- CDP client: malformed frames or a throwing listener no longer crash the process; `/json/*` probes and the local server probe time out after 5 s.
+- `toNodeHandler` answers 500 instead of an unhandled rejection when the callback throws or the `Host` header is malformed.
+
 ## [0.2.0] - 2026-11-22
 
 ### Added

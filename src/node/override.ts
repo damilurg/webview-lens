@@ -498,10 +498,30 @@ export const startOverride = async ({
     const onBinding = ({ name, payload }: BindingCall) => {
         if (name !== BINDING) return;
 
-        const { sid, type, url, data = '', binary = false }: BridgeMessage = JSON.parse(payload);
+        // The binding is callable by any script in the page: treat the payload as untrusted.
+        let message: BridgeMessage;
 
-        if (type === 'open' && url) {
+        try {
+            message = JSON.parse(payload) as BridgeMessage;
+        } catch {
+            return;
+        }
+
+        const { sid, type, url, data = '', binary = false } = message;
+
+        if (!Number.isInteger(sid) || typeof data !== 'string') return;
+
+        if (type === 'open' && typeof url === 'string') {
             const hmr = resolveHmrTarget(url, hmrPorts);
+
+            // Only the stand's origin (mapped to local) and configured HMR ports: never an
+            // arbitrary host the page asks for.
+            if (!hmr && !mapper.matchesRemote(url)) {
+                void deliver(sid, 'error').then(() => deliver(sid, 'close'));
+
+                return;
+            }
+
             const targetUrl = hmr ? hmr.wsUrl : mapper.toLocal(url).replace(/^http/, 'ws');
             const targetOrigin = hmr ? hmr.origin : mapper.localOrigin;
             const socket = new NodeWebSocket(targetUrl, {

@@ -62,11 +62,63 @@ export const translateWipResultToCdp = (method: string, result: unknown): unknow
     return result;
 };
 
+export interface WipEventContext {
+    /** CDP execution context of the page's main world, attached to console events. */
+    executionContextId?: number | undefined;
+    /** Clock for events WebKit sends without a timestamp. Default: `Date.now`. */
+    now?: () => number;
+}
+
+export interface ExecutionContextTracker {
+    /** Feeds a WIP event; returns true when it was a context lifecycle event. */
+    observe(method: string, params: unknown): boolean;
+    readonly mainContextId: number | undefined;
+}
+
+/**
+ * Tracks the main-world execution context id from WIP `Runtime.executionContext*` events: the first
+ * page context created after `executionContextsCleared` (a main-frame navigation) is the main frame's.
+ */
+export const createExecutionContextTracker = (): ExecutionContextTracker => {
+    let mainContextId: number | undefined;
+
+    return {
+        observe(method: string, params: unknown): boolean {
+            if (method === 'Runtime.executionContextsCleared') {
+                mainContextId = undefined;
+
+                return true;
+            }
+            if (method !== 'Runtime.executionContextCreated') return false;
+
+            const context = isRecord(params) && isRecord(params.context) ? params.context : {};
+            const isPageContext = context.isPageContext === true || context.type === 'normal';
+
+            if (mainContextId === undefined && isPageContext && typeof context.id === 'number') {
+                mainContextId = context.id;
+            }
+
+            return true;
+        },
+        get mainContextId() {
+            return mainContextId;
+        },
+    };
+};
+
+/** WebKit console timestamps are seconds since epoch; CDP's are milliseconds. */
+const toCdpTimestamp = (value: unknown, now: () => number): number =>
+    typeof value === 'number' && Number.isFinite(value) && value > 0 ? value * 1000 : now();
+
 const toZeroBased = (value: unknown): number | undefined =>
     typeof value === 'number' && Number.isFinite(value) ? Math.max(0, value - 1) : undefined;
 
 /** Translates a WebKit Inspector Protocol event into its CDP equivalent. */
-export const translateWipEventToCdp = (method: string, params: unknown): ProtocolMessage | null => {
+export const translateWipEventToCdp = (
+    method: string,
+    params: unknown,
+    { executionContextId, now = Date.now }: WipEventContext = {},
+): ProtocolMessage | null => {
     if (method === 'Console.messageAdded' && isRecord(params) && isRecord(params.message)) {
         const msg = params.message;
         const level = typeof msg.level === 'string' ? msg.level : 'log';
@@ -94,6 +146,8 @@ export const translateWipEventToCdp = (method: string, params: unknown): Protoco
             params: {
                 type: level,
                 args,
+                timestamp: toCdpTimestamp(msg.timestamp, now),
+                ...(executionContextId !== undefined ? { executionContextId } : {}),
                 ...(stackTrace ? { stackTrace } : {}),
             },
         };
@@ -124,12 +178,19 @@ export const translateWipEventToCdp = (method: string, params: unknown): Protoco
 export const createWipCdpBridge = (rawWip: Cdp): Cdp => {
     const cdpListeners = new Map<string, Set<(params: unknown) => void>>();
     const subscribedWipMethods = new Set<string>();
+    const contexts = createExecutionContextTracker();
+
+    for (const method of ['Runtime.executionContextCreated', 'Runtime.executionContextsCleared']) {
+        rawWip.on(method, (params) => void contexts.observe(method, params));
+    }
 
     const ensureWipSubscription = (wipMethod: string) => {
         if (subscribedWipMethods.has(wipMethod)) return;
         subscribedWipMethods.add(wipMethod);
         rawWip.on(wipMethod, (rawParams) => {
-            const translated = translateWipEventToCdp(wipMethod, rawParams);
+            const translated = translateWipEventToCdp(wipMethod, rawParams, {
+                executionContextId: contexts.mainContextId,
+            });
 
             if (!translated) return;
             for (const listener of cdpListeners.get(translated.method) ?? []) {

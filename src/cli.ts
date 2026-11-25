@@ -8,7 +8,12 @@ import { parseArgs } from 'node:util';
 
 import { createAdbRunner, removeReversePort, resolveAdb, reversePort } from './node/adb.ts';
 import { connectCdp, type PagePredicate } from './node/cdp.ts';
-import { loadProjectConfig, mergeCliConfig, writeStarterConfig } from './node/config.ts';
+import {
+    loadProjectConfig,
+    mergeCliConfig,
+    validateProjectConfig,
+    writeStarterConfig,
+} from './node/config.ts';
 import { waitForPage } from './node/device.ts';
 import { startDevtoolsLink } from './node/devtools-link.ts';
 import { defaultCertDir, ensureRootCa } from './node/drivers/ios/certs.ts';
@@ -83,39 +88,51 @@ vitals
 The phone: USB debugging on, the app's WebView debuggable (WebView.setWebContentsDebuggingEnabled).
 adb is found in ADB, ANDROID_HOME, ANDROID_SDK_ROOT, the Android SDK, PATH and Downloads.`;
 
-const { values, positionals } = parseArgs({
-    allowPositionals: true,
-    options: {
-        help: { type: 'boolean', short: 'h' },
-        config: { type: 'string' },
-        force: { type: 'boolean', default: false },
-        platform: { type: 'string' },
-        port: { type: 'string' },
-        serial: { type: 'string' },
-        app: { type: 'string' },
-        match: { type: 'string' },
-        logs: { type: 'boolean' },
-        remote: { type: 'string' },
-        'remote-base': { type: 'string' },
-        'local-base': { type: 'string' },
-        preset: { type: 'string' },
-        cmd: { type: 'string' },
-        ws: { type: 'string', multiple: true },
-        'hmr-port': { type: 'string', multiple: true },
-        quiet: { type: 'string', multiple: true },
-        bypass: { type: 'string', multiple: true },
-        sse: { type: 'string' },
-        'proxy-port': { type: 'string' },
-        'link-port': { type: 'string' },
-        runs: { type: 'string', default: '3' },
-        cold: { type: 'boolean', default: false },
-        interact: { type: 'string', default: '0' },
-        throttle: { type: 'string' },
-        cpu: { type: 'string' },
-        budget: { type: 'string' },
-        out: { type: 'string', default: 'webview-vitals.md' },
-    },
-});
+/** Startup errors (bad flags, bad config) are user errors: one line, no stack trace. */
+const orExit = <T>(fn: () => T): T => {
+    try {
+        return fn();
+    } catch (error) {
+        console.error(errorMessage(error));
+        process.exit(1);
+    }
+};
+
+const { values, positionals } = orExit(() =>
+    parseArgs({
+        allowPositionals: true,
+        options: {
+            help: { type: 'boolean', short: 'h' },
+            config: { type: 'string' },
+            force: { type: 'boolean', default: false },
+            platform: { type: 'string' },
+            port: { type: 'string' },
+            serial: { type: 'string' },
+            app: { type: 'string' },
+            match: { type: 'string' },
+            logs: { type: 'boolean' },
+            remote: { type: 'string' },
+            'remote-base': { type: 'string' },
+            'local-base': { type: 'string' },
+            preset: { type: 'string' },
+            cmd: { type: 'string' },
+            ws: { type: 'string', multiple: true },
+            'hmr-port': { type: 'string', multiple: true },
+            quiet: { type: 'string', multiple: true },
+            bypass: { type: 'string', multiple: true },
+            sse: { type: 'string' },
+            'proxy-port': { type: 'string' },
+            'link-port': { type: 'string' },
+            runs: { type: 'string', default: '3' },
+            cold: { type: 'boolean', default: false },
+            interact: { type: 'string', default: '0' },
+            throttle: { type: 'string' },
+            cpu: { type: 'string' },
+            budget: { type: 'string' },
+            out: { type: 'string', default: 'webview-vitals.md' },
+        },
+    }),
+);
 
 const [command, ...args] = positionals;
 
@@ -129,59 +146,76 @@ if (typeof WebSocket === 'undefined') {
     process.exit(1);
 }
 
-const loadedConfig = loadProjectConfig(values.config ? { configPath: values.config } : {});
-const cliHmrPorts = values['hmr-port']?.map((p) => {
-    const num = Number(p);
+const loadedConfig = orExit(() =>
+    loadProjectConfig(values.config ? { configPath: values.config } : {}),
+);
+const cfg = orExit(() => {
+    const cliHmrPorts = values['hmr-port']?.map((p) => {
+        const num = Number(p);
 
-    if (!Number.isInteger(num) || num <= 0 || num > 65535) {
-        throw new Error(`Invalid --hmr-port "${p}"`);
+        if (!Number.isInteger(num) || num <= 0 || num > 65535) {
+            throw new Error(`Invalid --hmr-port "${p}"`);
+        }
+
+        return num;
+    });
+
+    if (values.platform !== undefined && !isPlatformSelection(values.platform)) {
+        throw new Error(
+            `Unknown --platform "${values.platform}". Expected one of: ${PLATFORM_SELECTIONS.join(', ')}`,
+        );
+    }
+    if (values.preset !== undefined && !isPresetSelection(values.preset)) {
+        throw new Error(
+            `Unknown --preset "${values.preset}". Expected one of: ${PRESET_SELECTIONS.join(', ')}`,
+        );
+    }
+    if (values.sse !== undefined && values.sse !== 'fail' && values.sse !== 'continue') {
+        throw new Error(`Unknown --sse "${values.sse}". Expected "fail" or "continue"`);
+    }
+    if (values.throttle !== undefined && !isNetworkThrottlePreset(values.throttle)) {
+        throw new Error(
+            `Unknown --throttle "${values.throttle}". Expected one of: ${NETWORK_THROTTLE_PRESETS.join(', ')}`,
+        );
     }
 
-    return num;
-});
+    const runs = Number(values.runs);
+    const interact = Number(values.interact);
 
-if (values.platform !== undefined && !isPlatformSelection(values.platform)) {
-    throw new Error(
-        `Unknown --platform "${values.platform}". Expected one of: ${PLATFORM_SELECTIONS.join(', ')}`,
-    );
-}
-if (values.preset !== undefined && !isPresetSelection(values.preset)) {
-    throw new Error(
-        `Unknown --preset "${values.preset}". Expected one of: ${PRESET_SELECTIONS.join(', ')}`,
-    );
-}
-if (values.sse !== undefined && values.sse !== 'fail' && values.sse !== 'continue') {
-    throw new Error(`Unknown --sse "${values.sse}". Expected "fail" or "continue"`);
-}
-if (values.throttle !== undefined && !isNetworkThrottlePreset(values.throttle)) {
-    throw new Error(
-        `Unknown --throttle "${values.throttle}". Expected one of: ${NETWORK_THROTTLE_PRESETS.join(', ')}`,
-    );
-}
+    if (!Number.isInteger(runs) || runs < 1) {
+        throw new Error(`Invalid --runs "${values.runs}". Expected an integer >= 1`);
+    }
+    if (!Number.isFinite(interact) || interact < 0) {
+        throw new Error(`Invalid --interact "${values.interact}". Expected seconds >= 0`);
+    }
 
-const cfg = mergeCliConfig(loadedConfig.config, {
-    ...(values.platform !== undefined ? { platform: values.platform } : {}),
-    ...(values.preset !== undefined ? { preset: values.preset } : {}),
-    ...(args[0] !== undefined && command === 'dev' ? { local: args[0] } : {}),
-    ...(values.remote !== undefined ? { remote: values.remote } : {}),
-    ...(values['remote-base'] !== undefined ? { remoteBase: values['remote-base'] } : {}),
-    ...(values['local-base'] !== undefined ? { localBase: values['local-base'] } : {}),
-    ...(values.cmd !== undefined ? { cmd: values.cmd } : {}),
-    ...(values.ws !== undefined ? { ws: values.ws } : {}),
-    ...(cliHmrPorts !== undefined ? { hmrPorts: cliHmrPorts } : {}),
-    ...(values.quiet !== undefined ? { quiet: values.quiet } : {}),
-    ...(values.bypass !== undefined ? { bypass: values.bypass } : {}),
-    ...(values.sse !== undefined ? { sse: values.sse } : {}),
-    ...(values.port !== undefined ? { port: values.port } : {}),
-    ...(values['link-port'] !== undefined ? { linkPort: values['link-port'] } : {}),
-    ...(values['proxy-port'] !== undefined ? { proxyPort: values['proxy-port'] } : {}),
-    ...(values.serial !== undefined ? { serial: values.serial } : {}),
-    ...(values.app !== undefined ? { app: values.app } : {}),
-    ...(values.match !== undefined ? { match: values.match } : {}),
-    ...(values.logs !== undefined ? { logs: values.logs } : {}),
-    ...(values.throttle !== undefined ? { throttle: values.throttle } : {}),
-    ...(values.cpu !== undefined ? { cpu: Number(values.cpu) } : {}),
-    ...(values.budget !== undefined ? { budget: values.budget } : {}),
+    // The merged result goes through the same validation as the config file (ports, cpu, …).
+    return validateProjectConfig(
+        mergeCliConfig(loadedConfig.config, {
+            ...(values.platform !== undefined ? { platform: values.platform } : {}),
+            ...(values.preset !== undefined ? { preset: values.preset } : {}),
+            ...(args[0] !== undefined && command === 'dev' ? { local: args[0] } : {}),
+            ...(values.remote !== undefined ? { remote: values.remote } : {}),
+            ...(values['remote-base'] !== undefined ? { remoteBase: values['remote-base'] } : {}),
+            ...(values['local-base'] !== undefined ? { localBase: values['local-base'] } : {}),
+            ...(values.cmd !== undefined ? { cmd: values.cmd } : {}),
+            ...(values.ws !== undefined ? { ws: values.ws } : {}),
+            ...(cliHmrPorts !== undefined ? { hmrPorts: cliHmrPorts } : {}),
+            ...(values.quiet !== undefined ? { quiet: values.quiet } : {}),
+            ...(values.bypass !== undefined ? { bypass: values.bypass } : {}),
+            ...(values.sse !== undefined ? { sse: values.sse } : {}),
+            ...(values.port !== undefined ? { port: values.port } : {}),
+            ...(values['link-port'] !== undefined ? { linkPort: values['link-port'] } : {}),
+            ...(values['proxy-port'] !== undefined ? { proxyPort: values['proxy-port'] } : {}),
+            ...(values.serial !== undefined ? { serial: values.serial } : {}),
+            ...(values.app !== undefined ? { app: values.app } : {}),
+            ...(values.match !== undefined ? { match: values.match } : {}),
+            ...(values.logs !== undefined ? { logs: values.logs } : {}),
+            ...(values.throttle !== undefined ? { throttle: values.throttle } : {}),
+            ...(values.cpu !== undefined ? { cpu: Number(values.cpu) } : {}),
+            ...(values.budget !== undefined ? { budget: values.budget } : {}),
+        }),
+    );
 });
 
 const port = String(cfg.port ?? process.env.DEVTOOLS_PORT ?? '9223');
@@ -195,7 +229,15 @@ const targetOptions = {
     ...(app ? { app } : {}),
 };
 
-const remoteOrigin = cfg.remote ? new URL(cfg.remote).origin : undefined;
+const remoteOrigin = cfg.remote
+    ? orExit(() => {
+          try {
+              return new URL(cfg.remote ?? '').origin;
+          } catch {
+              throw new Error(`Invalid --remote "${cfg.remote}". Expected an absolute URL`);
+          }
+      })
+    : undefined;
 
 const isTarget: PagePredicate = (page) => {
     if (page.type !== 'page') return false;

@@ -50,3 +50,5 @@ npx webview-lens dev http://localhost:5173 --platform ios --remote https://stand
 ```
 
 On the iPhone, set **Settings → Wi-Fi → (i) → Configure Proxy → Manual** to the printed LAN IP and port (`8888`). Open your WebView screen in the app — it now loads directly from your local dev server with full HMR.
+
+The proxy listens on all interfaces but only serves clients from loopback, private (`10/8`, `172.16/12`, `192.168/16`, `fc00::/7`), link-local and CGNAT (`100.64/10`) addresses, so it is not an open proxy on a public interface. Pass `allowClient` to `startIosMitmProxy` to change that rule. An `https://` local dev server (Vite/Angular `--https`) works for WebSocket HMR too; its self-signed certificate is trusted on `localhost` only.
