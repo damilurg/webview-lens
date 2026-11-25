@@ -106,7 +106,11 @@ export const classifyTlsError = (error: Error): string => {
     if (
         /unknown[_\s]ca|certificate[_\s]unknown|bad[_\s]certificate|alert.*certificate/i.test(msg)
     ) {
-        return `iOS rejected the proxy certificate (${msg}). Install the profile from /webview-lens.mobileconfig and enable it in Settings → General → About → Certificate Trust Settings, or disable SSL Pinning in the test build.`;
+        // The raw OpenSSL text ("…:ssl/tls alert certificate unknown:…:SSL alert number 46") says
+        // little to a person; name the alert and the fix instead.
+        const alert = msg.match(/alert ([a-z ]+?)(?::|$)/i)?.[1]?.trim() ?? 'certificate rejected';
+
+        return `iOS does not trust the proxy certificate (TLS alert: ${alert}). On the iPhone: Settings → General → About → Certificate Trust Settings → turn on "webview-lens Local CA" (install it first from http://<mac-ip>:<proxy-port>/). An app with SSL pinning rejects it too: use a test build without pinning.`;
     }
     if (/ECONNRESET|socket hang up/i.test(msg)) {
         return `iOS closed the TLS handshake (${msg}). Check Certificate Trust Settings and verify SSL Pinning is disabled in the test build.`;
@@ -544,6 +548,9 @@ export const startIosMitmProxy = async ({
         socket.destroy();
     });
 
+    let lastTlsError = '';
+    let lastTlsErrorAt = 0;
+
     proxyServer.on('connect', (req, clientSocket, head) => {
         const target = parseConnectTarget(req.url ?? '');
 
@@ -571,7 +578,13 @@ export const startIosMitmProxy = async ({
         });
 
         tlsSocket.on('error', (error) => {
-            logger.error(classifyTlsError(error));
+            // One rejected handshake per connection: Safari retries a lot, say it once a minute.
+            const message = classifyTlsError(error);
+            const now = Date.now();
+
+            if (message !== lastTlsError || now - lastTlsErrorAt > 60_000) logger.error(message);
+            lastTlsError = message;
+            lastTlsErrorAt = now;
             tlsSocket.destroy();
         });
 
