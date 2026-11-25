@@ -314,7 +314,9 @@ const runTelemetryLoop = async <T extends { url: string; title?: string }>({
 
 const logAdbPath = () => {
     try {
-        resolveAdb((adbPath) => console.log(`adb: ${adbPath}`));
+        // Driver selection may have resolved adb already, so print the path rather than rely on
+        // resolveAdb's first-time callback.
+        console.log(`adb: ${resolveAdb()}`);
     } catch {
         // waitForPage prints where it looked.
     }

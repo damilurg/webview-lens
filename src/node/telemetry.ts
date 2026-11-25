@@ -72,6 +72,8 @@ export const formatRemoteObject = (obj: RemoteObject): string => {
     if (obj.value !== undefined) {
         return typeof obj.value === 'string' ? obj.value : String(obj.value);
     }
+    // An Error's description is "TypeError: msg\n    at …"; its preview only lists stack/message fields.
+    if (obj.subtype === 'error' && obj.description) return obj.description;
     if (obj.preview?.properties?.length) {
         const props = obj.preview.properties.map((p) => `${p.name}: ${p.value ?? '…'}`).join(', ');
 

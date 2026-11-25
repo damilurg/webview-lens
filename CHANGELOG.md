@@ -2,6 +2,16 @@
 
 All notable changes to `webview-lens` are documented in this file.
 
+## [Unreleased]
+
+Found by an end-to-end run on a real phone (Redmi Note 8 Pro, Android 11, WebView 157) with a Kotlin and a Flutter app.
+
+### Fixed
+
+- **`dev` HMR for Vite-based stacks (Vite, Nuxt, SvelteKit, Angular):** the WebSocket bridge dropped the subprotocol the page asked for, and Vite only upgrades `vite-hmr` / `vite-ping` sockets, so HMR never connected. The subprotocols are now forwarded and the negotiated one is reported back to the page.
+- `--logs`: an uncaught exception prints as `Error: message` with its stack instead of the object preview `{stack: …, message: …}`.
+- `devtools` / `dev` / `vitals` print the `adb` path again (it was skipped when driver detection had already found adb).
+
 ## [0.3.4] - 2026-11-25
 
 ### Added

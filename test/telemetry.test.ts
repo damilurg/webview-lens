@@ -34,6 +34,21 @@ describe('telemetry formatting helpers', () => {
             }),
             '{id: 42, ok: true}',
         );
+        // A live exception carries an object preview too ({stack, message}): the Error text wins.
+        assert.equal(
+            formatRemoteObject({
+                type: 'object',
+                subtype: 'error',
+                description: 'Error: boom\n    at onclick (https://stand/app.js:1:10)',
+                preview: {
+                    properties: [
+                        { name: 'stack', value: 'Error: boom…' },
+                        { name: 'message', value: 'boom' },
+                    ],
+                },
+            }),
+            'Error: boom\n    at onclick (https://stand/app.js:1:10)',
+        );
     });
 
     it('formats locations with 1-based line and column numbers', () => {

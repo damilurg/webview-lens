@@ -55,12 +55,14 @@ interface BridgeMessage {
     url?: string;
     data?: string;
     binary?: boolean;
+    /** WebSocket subprotocols the page asked for (Vite HMR requires `vite-hmr`). */
+    protocols?: string[];
 }
 
 /** Node's WebSocket (undici) takes headers in its second argument, unlike the DOM signature. */
 const NodeWebSocket = WebSocket as unknown as new (
     url: string,
-    init?: { headers?: Record<string, string> },
+    init?: { protocols?: string[]; headers?: Record<string, string> },
 ) => WebSocket;
 
 export type SsePolicy = 'fail' | 'continue';
@@ -245,12 +247,14 @@ export const bridgeShim = (
     const post = (message) => ${BINDING}(JSON.stringify(message));
     class Bridged extends EventTarget {
         static CONNECTING = 0; static OPEN = 1; static CLOSING = 2; static CLOSED = 3;
-        constructor(url) {
+        constructor(url, protocols) {
             super();
             this.url = String(url); this.readyState = 0; this.binaryType = 'blob';
             this.protocol = ''; this.extensions = ''; this.bufferedAmount = 0;
             this.sid = ++next; open.set(this.sid, this);
-            post({ sid: this.sid, type: 'open', url: this.url.replace(/^ws/, 'http') });
+            // Subprotocols must reach the local server: Vite only upgrades 'vite-hmr' / 'vite-ping'.
+            const list = protocols == null ? [] : [].concat(protocols).map(String);
+            post({ sid: this.sid, type: 'open', url: this.url.replace(/^ws/, 'http'), protocols: list });
         }
         send(data) {
             const binary = typeof data !== 'string';
@@ -269,7 +273,7 @@ export const bridgeShim = (
     window.${RECEIVER} = (sid, type, data, binary) => {
         const ws = open.get(sid);
         if (!ws) return;
-        if (type === 'open') { ws.readyState = 1; ws._emit('open'); return; }
+        if (type === 'open') { ws.readyState = 1; ws.protocol = data || ''; ws._emit('open'); return; }
         if (type === 'message') {
             let payload = data;
             if (binary) { const bytes = Uint8Array.from(atob(data), (c) => c.charCodeAt(0)); payload = ws.binaryType === 'arraybuffer' ? bytes.buffer : new Blob([bytes]); }
@@ -280,7 +284,7 @@ export const bridgeShim = (
         if (type === 'close') { ws.readyState = 3; open.delete(sid); ws._emit('close'); }
     };
     window.WebSocket = new Proxy(Native, {
-        construct(target, args) { const url = String(args[0]); return prefixes.some((p) => url.startsWith(p)) ? new Bridged(args[0]) : new target(...args); },
+        construct(target, args) { const url = String(args[0]); return prefixes.some((p) => url.startsWith(p)) ? new Bridged(args[0], args[1]) : new target(...args); },
     });
 })();`;
 };
@@ -548,6 +552,9 @@ export const startOverride = async ({
         }
 
         const { sid, type, url, data = '', binary = false } = message;
+        const protocols = Array.isArray(message.protocols)
+            ? message.protocols.filter((p): p is string => typeof p === 'string').slice(0, 8)
+            : [];
 
         if (!Number.isInteger(sid) || typeof data !== 'string') return;
 
@@ -565,11 +572,12 @@ export const startOverride = async ({
             const targetUrl = hmr ? hmr.wsUrl : mapper.toLocal(url).replace(/^http/, 'ws');
             const targetOrigin = hmr ? hmr.origin : mapper.localOrigin;
             const socket = new NodeWebSocket(targetUrl, {
+                ...(protocols.length > 0 ? { protocols } : {}),
                 headers: { origin: targetOrigin },
             });
 
             socket.binaryType = 'arraybuffer';
-            socket.onopen = () => deliver(sid, 'open');
+            socket.onopen = () => deliver(sid, 'open', socket.protocol);
             socket.onmessage = ({ data: frame }) =>
                 typeof frame === 'string'
                     ? deliver(sid, 'message', frame)
