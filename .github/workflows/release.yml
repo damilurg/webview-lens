@@ -10,12 +10,15 @@ jobs:
     publish:
         runs-on: ubuntu-latest
         steps:
-            - uses: actions/checkout@v4
-            - uses: actions/setup-node@v4
+            - uses: actions/checkout@v7
+              with:
+                  persist-credentials: false
+            # No dependency cache here: a poisoned cache entry could end up in the published package.
+            - uses: actions/setup-node@v7
               with:
                   node-version: 22
                   registry-url: 'https://registry.npmjs.org'
-                  cache: npm
+                  package-manager-cache: false
             - name: Tag matches package.json version
               run: |
                   version="$(node -p "require('./package.json').version")"
