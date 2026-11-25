@@ -75,6 +75,8 @@ const enSidebar = [
         text: 'Guide',
         items: [
             { text: 'Overview', link: '/' },
+            { text: 'Getting started', link: '/getting-started' },
+            { text: 'Recipes', link: '/recipes' },
             { text: 'How it works', link: '/how-it-works' },
             { text: 'iOS on macOS & Windows', link: '/ios' },
             { text: 'SSR & SSG', link: '/ssr' },
@@ -84,6 +86,7 @@ const enSidebar = [
     {
         text: 'Reference',
         items: [
+            { text: 'Architecture', link: '/architecture' },
             { text: 'Standards conformance', link: '/standards' },
             { text: 'Changelog', link: '/changelog' },
         ],
@@ -95,6 +98,8 @@ const ruSidebar = [
         text: 'Руководство',
         items: [
             { text: 'Обзор', link: '/ru/' },
+            { text: 'Быстрый старт', link: '/ru/getting-started' },
+            { text: 'Рецепты', link: '/ru/recipes' },
             { text: 'Как это работает', link: '/ru/how-it-works' },
             { text: 'iOS на macOS и Windows', link: '/ru/ios' },
             { text: 'SSR и SSG', link: '/ru/ssr' },
@@ -104,6 +109,7 @@ const ruSidebar = [
     {
         text: 'Справка',
         items: [
+            { text: 'Архитектура', link: '/ru/architecture' },
             { text: 'Соответствие стандартам', link: '/ru/standards' },
             { text: 'Changelog', link: '/ru/changelog' },
         ],
@@ -202,7 +208,8 @@ export default withMermaid(
                 lang: 'en',
                 themeConfig: {
                     nav: [
-                        { text: 'Guide', link: '/how-it-works' },
+                        { text: 'Getting started', link: '/getting-started' },
+                        { text: 'Recipes', link: '/recipes' },
                         { text: 'iOS', link: '/ios' },
                         { text: 'SSR & SSG', link: '/ssr' },
                         { text: 'RUM', link: '/rum' },
@@ -221,7 +228,8 @@ export default withMermaid(
                     'Отладка Android WebView и iOS WKWebView в Chrome DevTools на macOS, Windows и Linux.',
                 themeConfig: {
                     nav: [
-                        { text: 'Руководство', link: '/ru/how-it-works' },
+                        { text: 'Быстрый старт', link: '/ru/getting-started' },
+                        { text: 'Рецепты', link: '/ru/recipes' },
                         { text: 'iOS', link: '/ru/ios' },
                         { text: 'SSR и SSG', link: '/ru/ssr' },
                         { text: 'RUM', link: '/ru/rum' },

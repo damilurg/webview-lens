@@ -1,7 +1,9 @@
 // A minimal Chrome DevTools Protocol client over the global WebSocket (Node 22.4+).
 
 import { isRecord } from '../shared/utils.ts';
-import { createWebKitTargetRouter, type WebKitTargetRouter } from './drivers/ios/webkit-targets.ts';
+import { createLogger } from './logger.ts';
+
+const log = createLogger('cdp');
 
 export interface DevtoolsPage {
     id: string;
@@ -100,17 +102,30 @@ interface Message {
     error?: { message: string };
 }
 
+/**
+ * A message-level adapter between the client and the socket, for protocols that wrap CDP-shaped
+ * messages (WebKit's target routing on iOS). It sends frames with `sendUpstream` and hands plain
+ * messages back through `deliver`.
+ */
+export interface TransportAdapter {
+    onUpstream(raw: string): void;
+    send(raw: string): void;
+    dispose(): void;
+}
+
+export type TransportAdapterFactory = (io: {
+    sendUpstream: (raw: string) => void;
+    deliver: (raw: string) => void;
+}) => TransportAdapter;
+
 export interface ConnectCdpOptions {
-    /**
-     * WebKit page sockets (iOS 12.2+): route commands through `Target.sendMessageToTarget` and
-     * unwrap `Target.dispatchMessageFromTarget`. Falls back to direct messages on older iOS.
-     */
-    webkitTargets?: boolean;
+    /** Wraps the socket (see `TransportAdapter`). Default: plain CDP frames. */
+    adapter?: TransportAdapterFactory;
 }
 
 export const connectCdp = async (
     webSocketDebuggerUrl: string,
-    { webkitTargets = false }: ConnectCdpOptions = {},
+    { adapter }: ConnectCdpOptions = {},
 ): Promise<Cdp> => {
     const ws = new WebSocket(webSocketDebuggerUrl);
     const pending = new Map<
@@ -128,18 +143,6 @@ export const connectCdp = async (
                     'Cannot connect to DevTools: another debugger may hold the page (close chrome://inspect for it)',
                 ),
             );
-    });
-
-    let router: WebKitTargetRouter | undefined;
-
-    const closed = new Promise<void>((resolve) => {
-        ws.onclose = () => {
-            router?.dispose();
-            for (const { reject } of pending.values())
-                reject(new Error('DevTools connection closed'));
-            pending.clear();
-            resolve();
-        };
     });
 
     const handleMessage = (raw: string) => {
@@ -175,17 +178,24 @@ export const connectCdp = async (
         }
     };
 
-    router = webkitTargets
-        ? createWebKitTargetRouter({ sendUpstream: (raw) => ws.send(raw), deliver: handleMessage })
-        : undefined;
-    ws.onmessage = ({ data }) => {
-        if (router) {
-            router.onUpstream(String(data));
+    log.debug(`socket open ${webSocketDebuggerUrl}`, { adapter: Boolean(adapter) });
 
-            return;
-        }
-        handleMessage(String(data));
-    };
+    const wrapped = adapter?.({ sendUpstream: (raw) => ws.send(raw), deliver: handleMessage });
+    const receive = wrapped ? (raw: string) => wrapped.onUpstream(raw) : handleMessage;
+    const transmit = wrapped ? (raw: string) => wrapped.send(raw) : (raw: string) => ws.send(raw);
+
+    ws.onmessage = ({ data }) => receive(String(data));
+
+    const closed = new Promise<void>((resolve) => {
+        ws.onclose = () => {
+            log.debug(`socket closed ${webSocketDebuggerUrl}`, { pending: pending.size });
+            wrapped?.dispose();
+            for (const { reject } of pending.values())
+                reject(new Error('DevTools connection closed'));
+            pending.clear();
+            resolve();
+        };
+    });
 
     const on = <T>(method: string, listener: (params: T) => void) => {
         const set = listeners.get(method) ?? new Set();
@@ -208,14 +218,7 @@ export const connectCdp = async (
                 }
                 nextId += 1;
                 pending.set(nextId, { resolve: resolve as (v: unknown) => void, reject });
-                const raw = JSON.stringify({ id: nextId, method, params });
-
-                if (router) {
-                    router.send(raw);
-
-                    return;
-                }
-                ws.send(raw);
+                transmit(JSON.stringify({ id: nextId, method, params }));
             }),
         on,
         once: <T>(method: string) =>
@@ -226,13 +229,9 @@ export const connectCdp = async (
                 });
             }),
         close: () => {
-            router?.dispose();
+            wrapped?.dispose();
             ws.close();
         },
         closed,
     };
 };
-
-/** A WebKit Inspector page socket (iOS) as a CDP-shaped transport, with target routing. */
-export const connectWebKitInspector = (webSocketDebuggerUrl: string): Promise<Cdp> =>
-    connectCdp(webSocketDebuggerUrl, { webkitTargets: true });

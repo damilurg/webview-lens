@@ -14,7 +14,7 @@
 [![platforms](https://img.shields.io/badge/WebView-Android%20%7C%20iOS-6f42c1)](https://github.com/damilurg/webview-lens/blob/main/docs/ios.md)
 [![license](https://img.shields.io/npm/l/webview-lens)](https://github.com/damilurg/webview-lens/blob/main/LICENSE)
 
-**[Website](https://damilurg.github.io/webview-lens/)** · [Docs](docs/how-it-works.md) · [iOS setup](docs/ios.md) · [SSR & SSG](docs/ssr.md) · [RUM guide](docs/rum.md) · [npm](https://www.npmjs.com/package/webview-lens) · [Changelog](CHANGELOG.md) · [Report a bug](https://github.com/damilurg/webview-lens/issues/new)
+**[Website](https://damilurg.github.io/webview-lens/)** · [Getting started](docs/getting-started.md) · [Recipes](docs/recipes.md) · [iOS setup](docs/ios.md) · [SSR & SSG](docs/ssr.md) · [RUM guide](docs/rum.md) · [npm](https://www.npmjs.com/package/webview-lens) · [Changelog](CHANGELOG.md) · [Report a bug](https://github.com/damilurg/webview-lens/issues/new)
 
 **English** | [Русский](docs/ru/README.md)
 
@@ -46,6 +46,8 @@ super-apps, as long as the test build enables WebView debugging.
 | `webview-lens doctor`     | Diagnoses everything blocking the connection (`adb`, `usbmuxd`, `ios_webkit_debug_proxy`, screen lock, debuggable WebViews)                                    |
 | `webview-lens/rum`        | Browser client (0 `node:*` imports): Web Vitals, custom timings, global errors, `detectWebViewEnv`, context tags                                               |
 | `webview-lens/rum/server` | Edge-safe Fetch API handlers (`Request → Response`), Express/Node `toNodeHandler`, bounded `createRumAggregator` (`p50`/`p75`/`p95`) and Prometheus `/metrics` |
+| `webview-lens/viewport`   | Browser helpers for the on-screen keyboard: `--wl-keyboard-inset` / `--wl-viewport-height` CSS variables and focused fields kept visible, Android and iOS      |
+| `--verbose`, `--log-file` | What webview-lens itself does (adb calls, forwards, sockets, proxy decisions), on stderr or as JSON Lines; the page's own console stays in DevTools            |
 
 ## Requirements
 
@@ -301,7 +303,10 @@ Android, and `ios_webkit_debug_proxy` on iOS.
 
 ## Documentation
 
-- Architecture: [docs/how-it-works.md](docs/how-it-works.md)
+- Getting started (install, env vars, Android and iOS step by step): [docs/getting-started.md](docs/getting-started.md)
+- Recipes (keyboard, safe areas, signing the WebView in, JS bridge, file upload, scripting webview-lens): [docs/recipes.md](docs/recipes.md)
+- How it works: [docs/how-it-works.md](docs/how-it-works.md)
+- Code architecture and rules: [ARCHITECTURE.md](ARCHITECTURE.md) · contributing: [CONTRIBUTING.md](CONTRIBUTING.md)
 - iOS WKWebView setup (macOS & Windows): [docs/ios.md](docs/ios.md)
 - SSR & SSG (Next.js, Nuxt, SvelteKit, Angular): [docs/ssr.md](docs/ssr.md)
 - Production RUM & Prometheus guide: [docs/rum.md](docs/rum.md)

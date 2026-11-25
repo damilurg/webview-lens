@@ -21,7 +21,7 @@ import {
     rate,
     type Rating,
 } from '../shared/thresholds.ts';
-import { sleep } from '../shared/utils.ts';
+import { bestEffort, sleep } from '../shared/utils.ts';
 
 /** In-page collector, installed before the app's scripts on every load. */
 export const COLLECTOR = `(() => {
@@ -313,12 +313,13 @@ export const measureVitals = async ({
             });
         }
     } finally {
-        await session.setCacheDisabled(false).catch(() => undefined);
+        // Best-effort restore: the page may already be gone, and the measurement result stands.
+        await bestEffort(session.setCacheDisabled(false));
         if (throttle !== 'none' && session.setNetworkThrottle) {
-            await session.setNetworkThrottle('none').catch(() => undefined);
+            await bestEffort(session.setNetworkThrottle('none'));
         }
         if (cpu > 1 && session.setCpuThrottle) {
-            await session.setCpuThrottle(1).catch(() => undefined);
+            await bestEffort(session.setCpuThrottle(1));
         }
         session.close();
     }

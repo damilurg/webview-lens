@@ -3,6 +3,9 @@
 import { createAndroidDriver } from './android.ts';
 import { createIosDriver } from './ios/index.ts';
 import type { DeviceDriver, PlatformSelection } from './types.ts';
+import { createLogger } from '../logger.ts';
+
+const log = createLogger('drivers');
 
 /** Default ordered driver list for this build of webview-lens. */
 export const createDefaultDrivers = (): DeviceDriver[] => [
@@ -38,8 +41,13 @@ export const resolveDriver = async (
     }
 
     for (const driver of drivers) {
-        if (await driver.isAvailable()) return driver;
+        if (await driver.isAvailable()) {
+            log.info(`platform auto → ${driver.platform}`);
+
+            return driver;
+        }
     }
+    log.info(`platform auto: no device yet, using ${drivers[0]!.platform}`);
 
     return drivers[0]!;
 };

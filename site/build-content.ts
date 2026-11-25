@@ -34,6 +34,27 @@ export const PAGES: readonly Page[] = [
         home: 'en',
     },
     {
+        source: 'docs/getting-started.md',
+        route: '/getting-started',
+        title: 'Getting started: Android WebView and iOS WKWebView',
+        description:
+            'Install webview-lens, make the WebView debuggable, connect an Android phone or an iPhone step by step, environment variables and project config.',
+    },
+    {
+        source: 'docs/recipes.md',
+        route: '/recipes',
+        title: 'WebView recipes: keyboard, safe areas, auth, JS bridge, file upload',
+        description:
+            'Fixes for WebView pains in Kotlin, Flutter and Swift: keyboard covering inputs, iOS input zoom, safe areas, native sign-in cookies, one JS bridge API, back button, Android file upload.',
+    },
+    {
+        source: 'ARCHITECTURE.md',
+        route: '/architecture',
+        title: 'Architecture',
+        description:
+            'How webview-lens is built: a functional core with an imperative shell, factories with handles, dependencies as parameters, and the patterns and tests behind it.',
+    },
+    {
         source: 'docs/how-it-works.md',
         route: '/how-it-works',
         title: 'How it works',
@@ -87,6 +108,26 @@ export const PAGES: readonly Page[] = [
         description:
             'Chrome DevTools для Android WebView и iOS WKWebView на macOS, Windows и Linux: постоянный адрес DevTools, локальный dev-сервер внутри приложения, логи WebView, Web Vitals с бюджетами CI, RUM и Prometheus.',
         home: 'ru',
+    },
+    {
+        source: 'docs/ru/getting-started.md',
+        route: '/ru/getting-started',
+        title: 'Быстрый старт: Android WebView и iOS WKWebView',
+        description:
+            'Установка webview-lens, отлаживаемый WebView, подключение Android-телефона и iPhone по шагам, переменные окружения и конфиг проекта.',
+    },
+    {
+        source: 'docs/ru/recipes.md',
+        route: '/ru/recipes',
+        title: 'Рецепты WebView: клавиатура, safe areas, авторизация, JS-bridge, файлы',
+        description:
+            'Решения проблем WebView на Kotlin, Flutter и Swift: клавиатура закрывает поле, зум iOS при фокусе, safe areas, нативный вход через cookie, единый JS-bridge, кнопка «Назад», загрузка файлов на Android.',
+    },
+    {
+        source: 'ARCHITECTURE.md',
+        route: '/ru/architecture',
+        title: 'Architecture',
+        description: 'Архитектура webview-lens (на английском).',
     },
     {
         source: 'docs/ru/how-it-works.md',

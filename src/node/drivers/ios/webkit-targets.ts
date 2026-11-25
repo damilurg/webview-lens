@@ -5,6 +5,10 @@
 // so the CDP translator and the Chrome DevTools UI keep speaking plain protocol messages.
 
 import { isRecord } from '../../../shared/utils.ts';
+import { type Cdp, connectCdp } from '../../cdp.ts';
+import { createLogger } from '../../logger.ts';
+
+const log = createLogger('ios-targets');
 
 export interface WebKitTargetRouterOptions {
     /** Writes a raw frame to the WebKit socket. */
@@ -82,6 +86,9 @@ export const createWebKitTargetRouter = ({
     const legacyTimer = setTimeout(() => {
         if (targetId) return;
         legacy = true;
+        log.info('no Target.targetCreated: direct messages (iOS before 12.2)', {
+            queued: queue.length,
+        });
         flush();
     }, legacyAfterMs);
 
@@ -99,6 +106,7 @@ export const createWebKitTargetRouter = ({
         if (targetId && (targetIsPage || !isPage)) return;
         targetId = id;
         targetIsPage = isPage;
+        log.debug(`target ${id} (${String(info?.type)})`, { queued: queue.length });
         clearTimeout(legacyTimer);
         flush();
     };
@@ -118,6 +126,7 @@ export const createWebKitTargetRouter = ({
             if (method === 'Target.targetCreated') return void onTargetCreated(params);
             if (method === 'Target.didCommitProvisionalTarget' && isRecord(params)) {
                 if (params.oldTargetId === targetId && typeof params.newTargetId === 'string') {
+                    log.debug(`navigation committed: target ${targetId} → ${params.newTargetId}`);
                     targetId = params.newTargetId;
                 }
 
@@ -145,3 +154,7 @@ export const createWebKitTargetRouter = ({
         },
     };
 };
+
+/** A WebKit Inspector page socket (iOS) as a CDP-shaped transport, with target routing. */
+export const connectWebKitInspector = (webSocketDebuggerUrl: string): Promise<Cdp> =>
+    connectCdp(webSocketDebuggerUrl, { adapter: (io) => createWebKitTargetRouter(io) });

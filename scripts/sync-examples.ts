@@ -19,12 +19,20 @@ import * as prettier from 'prettier';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
-export const MARKDOWN_FILES = ['README.md', 'docs/ru/README.md', 'docs/rum.md', 'docs/ru/rum.md'];
+export const MARKDOWN_FILES = [
+    'README.md',
+    'docs/ru/README.md',
+    'docs/rum.md',
+    'docs/ru/rum.md',
+    'docs/recipes.md',
+    'docs/ru/recipes.md',
+];
 
 const PACKAGE_SPECIFIERS: Readonly<Record<string, string>> = {
     'src/node/index.ts': 'webview-lens',
     'src/rum/index.ts': 'webview-lens/rum',
     'src/rum/server.ts': 'webview-lens/rum/server',
+    'src/viewport/index.ts': 'webview-lens/viewport',
 };
 
 // Prettier puts a blank line between the HTML comments and the fence: allow it both ways.

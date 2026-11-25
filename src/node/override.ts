@@ -9,9 +9,15 @@
 // HMR ports) go through a stub WebSocket in the page and a CDP binding:
 // page → binding → this process → local server, and back via Runtime.evaluate.
 
-import { errorMessage } from '../shared/utils.ts';
+import { bestEffort, errorMessage } from '../shared/utils.ts';
 import { type Cdp, connectCdp, type DevtoolsPage } from './cdp.ts';
+import { BINDING, bridgeShim, RECEIVER } from './bridge-shim.ts';
+import { createLogger } from './logger.ts';
 import { attachTelemetry, type TelemetryOptions } from './telemetry.ts';
+
+const debugLog = createLogger('override');
+
+export { bridgeShim };
 
 /** Headers fetch computes itself, or that must not reach the WebView as they are. */
 export const DROP_RESPONSE_HEADERS: ReadonlySet<string> = new Set([
@@ -29,9 +35,6 @@ const DROP_REQUEST = new Set([
     'connection',
     'accept-encoding',
 ]);
-
-const BINDING = '__webviewLensWsSend';
-const RECEIVER = '__webviewLensWsRecv';
 
 interface PausedRequest {
     requestId: string;
@@ -223,72 +226,6 @@ export const createUrlMapper = ({
 export const isEventStream = (contentType: string | null | undefined): boolean =>
     Boolean(contentType && /^text\/event-stream\b/i.test(contentType.trim()));
 
-/** Page script replacing WebSocket for URLs under the bridged prefixes and separate HMR ports. */
-export const bridgeShim = (
-    remote: string,
-    wsPrefixes: readonly string[],
-    hmrPorts: readonly number[] = [],
-): string => {
-    const wsRemote = remote.replace(/\/+$/, '').replace(/^http/, 'ws');
-    const hmrPrefixes = hmrPorts.flatMap((port) => [
-        `ws://localhost:${port}`,
-        `wss://localhost:${port}`,
-        `ws://127.0.0.1:${port}`,
-        `wss://127.0.0.1:${port}`,
-    ]);
-    const prefixes = [...wsPrefixes.map((prefix) => wsRemote + prefix), ...hmrPrefixes];
-
-    return `(() => {
-    const Native = window.WebSocket;
-    const prefixes = ${JSON.stringify(prefixes)};
-    const open = new Map();
-    let next = 0;
-    const b64 = (buf) => { let s = ''; for (const b of new Uint8Array(buf)) s += String.fromCharCode(b); return btoa(s); };
-    const post = (message) => ${BINDING}(JSON.stringify(message));
-    class Bridged extends EventTarget {
-        static CONNECTING = 0; static OPEN = 1; static CLOSING = 2; static CLOSED = 3;
-        constructor(url, protocols) {
-            super();
-            this.url = String(url); this.readyState = 0; this.binaryType = 'blob';
-            this.protocol = ''; this.extensions = ''; this.bufferedAmount = 0;
-            this.sid = ++next; open.set(this.sid, this);
-            // Subprotocols must reach the local server: Vite only upgrades 'vite-hmr' / 'vite-ping'.
-            const list = protocols == null ? [] : [].concat(protocols).map(String);
-            post({ sid: this.sid, type: 'open', url: this.url.replace(/^ws/, 'http'), protocols: list });
-        }
-        send(data) {
-            const binary = typeof data !== 'string';
-            const go = (payload) => post({ sid: this.sid, type: 'send', data: payload, binary });
-            if (!binary) { go(data); return; }
-            if (data instanceof Blob) { data.arrayBuffer().then((b) => go(b64(b))); return; }
-            go(b64(ArrayBuffer.isView(data) ? data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength) : data));
-        }
-        close() { this.readyState = 2; post({ sid: this.sid, type: 'close' }); }
-        _emit(type, init) {
-            const event = type === 'message' ? new MessageEvent('message', init) : type === 'close' ? new CloseEvent('close', { code: 1000 }) : new Event(type);
-            this.dispatchEvent(event);
-            this['on' + type]?.(event);
-        }
-    }
-    window.${RECEIVER} = (sid, type, data, binary) => {
-        const ws = open.get(sid);
-        if (!ws) return;
-        if (type === 'open') { ws.readyState = 1; ws.protocol = data || ''; ws._emit('open'); return; }
-        if (type === 'message') {
-            let payload = data;
-            if (binary) { const bytes = Uint8Array.from(atob(data), (c) => c.charCodeAt(0)); payload = ws.binaryType === 'arraybuffer' ? bytes.buffer : new Blob([bytes]); }
-            ws._emit('message', { data: payload });
-            return;
-        }
-        if (type === 'error') { ws._emit('error'); return; }
-        if (type === 'close') { ws.readyState = 3; open.delete(sid); ws._emit('close'); }
-    };
-    window.WebSocket = new Proxy(Native, {
-        construct(target, args) { const url = String(args[0]); return prefixes.some((p) => url.startsWith(p)) ? new Bridged(args[0], args[1]) : new target(...args); },
-    });
-})();`;
-};
-
 /** RFC 9110 §7.6.1 standard hop-by-hop headers. */
 const HOP_BY_HOP = new Set([
     'connection',
@@ -437,7 +374,11 @@ export const startOverride = async ({
             !mapper.matchesRemote(request.url) ||
             bypassPrefixes.some((prefix) => remotePath.startsWith(prefix))
         ) {
-            await cdp.send('Fetch.continueRequest', { requestId }).catch(() => undefined);
+            debugLog.debug(`continue ${request.method} ${request.url}`, {
+                reason: mapper.matchesRemote(request.url) ? 'bypass' : 'other origin',
+            });
+            // The request is gone if the page navigated away meanwhile.
+            await bestEffort(cdp.send('Fetch.continueRequest', { requestId }));
 
             return;
         }
@@ -468,18 +409,19 @@ export const startOverride = async ({
             });
 
             if (isEventStream(response.headers.get('content-type'))) {
-                await response.body?.cancel().catch(() => undefined);
+                // Closing an endless stream we will not read: nothing to report if it is closed already.
+                await bestEffort(response.body?.cancel());
                 logger.error(
                     `SSE stream (text/event-stream) cannot be buffered by CDP Fetch: ${request.method} ${remotePath}. Use WebSocket HMR or --bypass ${remotePath}`,
                 );
                 if (ssePolicy === 'continue') {
-                    await cdp.send('Fetch.continueRequest', { requestId }).catch(() => undefined);
+                    await bestEffort(cdp.send('Fetch.continueRequest', { requestId }));
 
                     return;
                 }
-                await cdp
-                    .send('Fetch.failRequest', { requestId, errorReason: 'Aborted' })
-                    .catch(() => undefined);
+                await bestEffort(
+                    cdp.send('Fetch.failRequest', { requestId, errorReason: 'Aborted' }),
+                );
 
                 return;
             }
@@ -525,19 +467,21 @@ export const startOverride = async ({
                 isLocalDownReported = true;
                 logger.error(`Local server ${mapper.localOrigin} does not respond`);
             }
-            await cdp
-                .send('Fetch.failRequest', { requestId, errorReason: 'ConnectionRefused' })
-                .catch(() => undefined);
+            // Already answered or gone with the page: the error above is what matters.
+            await bestEffort(
+                cdp.send('Fetch.failRequest', { requestId, errorReason: 'ConnectionRefused' }),
+            );
         }
     };
 
     const sockets = new Map<number, WebSocket>();
+    // A socket message for a page that navigated away has no receiver any more.
     const deliver = (sid: number, type: string, data = '', binary = false) =>
-        cdp
-            .send('Runtime.evaluate', {
+        bestEffort(
+            cdp.send('Runtime.evaluate', {
                 expression: `window.${RECEIVER}?.(${sid}, ${JSON.stringify(type)}, ${JSON.stringify(data)}, ${binary})`,
-            })
-            .catch(() => undefined);
+            }),
+        );
 
     const onBinding = ({ name, payload }: BindingCall) => {
         if (name !== BINDING) return;
@@ -571,6 +515,8 @@ export const startOverride = async ({
 
             const targetUrl = hmr ? hmr.wsUrl : mapper.toLocal(url).replace(/^http/, 'ws');
             const targetOrigin = hmr ? hmr.origin : mapper.localOrigin;
+            debugLog.debug(`bridge socket #${sid} → ${targetUrl}`, { protocols });
+
             const socket = new NodeWebSocket(targetUrl, {
                 ...(protocols.length > 0 ? { protocols } : {}),
                 headers: { origin: targetOrigin },

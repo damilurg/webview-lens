@@ -79,6 +79,10 @@
             "types": "./dist/rum/server.d.ts",
             "default": "./dist/rum/server.js"
         },
+        "./viewport": {
+            "types": "./dist/viewport/index.d.ts",
+            "default": "./dist/viewport/index.js"
+        },
         "./package.json": "./package.json"
     },
     "files": [
