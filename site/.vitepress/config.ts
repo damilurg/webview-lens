@@ -127,6 +127,8 @@ export default withMermaid(
         description:
             'Debug Android WebView and iOS WKWebView in Chrome DevTools on macOS, Windows and Linux.',
         sitemap: { hostname: `${SITE}/` },
+        // Mermaid pulls CommonJS modules (fastdom): pre-bundle it so `vitepress dev` loads it as ESM.
+        vite: { optimizeDeps: { include: ['mermaid'] } },
         head: [
             ['meta', { name: 'theme-color', content: '#6f42c1' }],
             ['meta', { property: 'og:type', content: 'website' }],
