@@ -4,7 +4,7 @@
 import { isRecord } from '../shared/utils.ts';
 import { readPackageJson } from './fs-utils.ts';
 
-export type PresetName = 'next' | 'vite' | 'webpack' | 'nuxt' | 'angular' | 'generic';
+export type PresetName = 'next' | 'vite' | 'webpack' | 'nuxt' | 'sveltekit' | 'angular' | 'generic';
 
 export type PresetSelection = PresetName | 'auto';
 
@@ -35,6 +35,12 @@ export const PRESETS: Readonly<Record<PresetName, FrameworkPreset>> = {
         wsPrefixes: ['/_nuxt/'],
         quietPrefixes: ['/_nuxt/'],
     },
+    sveltekit: {
+        name: 'sveltekit',
+        // Vite HMR socket on the page origin; SvelteKit serves its runtime from /.svelte-kit and /src.
+        wsPrefixes: ['/'],
+        quietPrefixes: ['/@vite', '/@fs', '/@id', '/node_modules/', '/.svelte-kit/', '/src/'],
+    },
     angular: {
         name: 'angular',
         wsPrefixes: ['/ng-cli-ws'],
@@ -53,6 +59,7 @@ export const PRESET_SELECTIONS: readonly PresetSelection[] = [
     'vite',
     'webpack',
     'nuxt',
+    'sveltekit',
     'angular',
     'generic',
 ];
@@ -66,6 +73,7 @@ export const detectPresetFromDependencies = (
 ): PresetName => {
     if ('next' in deps) return 'next';
     if ('nuxt' in deps || 'nuxt3' in deps) return 'nuxt';
+    if ('@sveltejs/kit' in deps) return 'sveltekit';
     if ('@angular/core' in deps || '@angular/cli' in deps) return 'angular';
     if ('vite' in deps) return 'vite';
     if ('webpack-dev-server' in deps || 'react-scripts' in deps || 'webpack' in deps) {

@@ -35,6 +35,7 @@ export interface ProjectConfig {
     quiet?: string[];
     bypass?: string[];
     sse?: SsePolicy;
+    forwarded?: boolean;
     port?: number | string;
     linkPort?: number | string;
     proxyPort?: number | string;
@@ -149,6 +150,13 @@ export const validateProjectConfig = (raw: unknown): ProjectConfig => {
         config.logs = raw.logs;
     }
 
+    if (raw.forwarded !== undefined) {
+        if (typeof raw.forwarded !== 'boolean') {
+            throw new Error('Config "forwarded" must be a boolean');
+        }
+        config.forwarded = raw.forwarded;
+    }
+
     if (raw.cpu !== undefined) {
         if (typeof raw.cpu !== 'number' || !Number.isFinite(raw.cpu) || raw.cpu < 1) {
             throw new Error('Config "cpu" must be a number >= 1');
@@ -248,6 +256,7 @@ const DEFAULT_PORT_BY_PRESET: Readonly<Record<PresetName, number>> = {
     nuxt: 3000,
     webpack: 3000,
     generic: 3000,
+    sveltekit: 5173,
 };
 
 const detectDevCommand = (cwd: string): string | undefined => {

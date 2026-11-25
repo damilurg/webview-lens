@@ -14,7 +14,7 @@
 [![platforms](https://img.shields.io/badge/WebView-Android%20%7C%20iOS-6f42c1)](https://github.com/damilurg/webview-lens/blob/main/docs/ios.md)
 [![license](https://img.shields.io/npm/l/webview-lens)](https://github.com/damilurg/webview-lens/blob/main/LICENSE)
 
-[Документация](docs/ru/how-it-works.md) · [Настройка iOS](docs/ru/ios.md) · [RUM](docs/ru/rum.md) · [npm](https://www.npmjs.com/package/webview-lens) · [Changelog](CHANGELOG.md) · [Сообщить об ошибке](https://github.com/damilurg/webview-lens/issues/new)
+[Документация](docs/ru/how-it-works.md) · [Настройка iOS](docs/ru/ios.md) · [SSR и SSG](docs/ru/ssr.md) · [RUM](docs/ru/rum.md) · [npm](https://www.npmjs.com/package/webview-lens) · [Changelog](CHANGELOG.md) · [Сообщить об ошибке](https://github.com/damilurg/webview-lens/issues/new)
 
 [English](README.md) | **Русский**
 
@@ -33,7 +33,7 @@ runtime-зависимости (**0 dependencies**). В комплекте та�
 
 | Компонент                 | Назначение                                                                                                                                                                   |
 | ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `webview-lens init`       | Определяет сборщик (`vite`, `next`, `webpack`, `nuxt`, `angular`) и создаёт `webview-lens.config.json`                                                                       |
+| `webview-lens init`       | Определяет сборщик (`next`, `nuxt`, `sveltekit`, `angular`, `vite`, `webpack`) и создаёт `webview-lens.config.json`                                                          |
 | `webview-lens dev`        | Подменяет HTTPS-домен стенда вашим локальным dev-сервером (Android: CDP `Fetch`; iOS: selective HTTPS MITM) с HMR и `--logs`                                                 |
 | `webview-lens devtools`   | Полноценный Chrome DevTools на **постоянном** `http://localhost:3300` (переживает перезапуски приложения; на iOS работает через WIP ↔ CDP мост на Windows и macOS)           |
 | `webview-lens cert`       | Генерирует локальный X.509 v3 Root CA и выводит QR-код в терминал для установки `.mobileconfig` на тестовый iPhone                                                           |
@@ -70,7 +70,8 @@ npx webview-lens dev http://localhost:5173 --platform ios --remote https://stand
 Основные опции (можно зафиксировать в `webview-lens.config.json` или указать через `--config <file>`):
 
 - `--platform auto|android|ios` — выбор платформы (`auto` сам подхватит подключённый телефон).
-- `--preset auto|next|vite|webpack|nuxt|angular|generic` — пресеты HMR WebSocket и фильтрации шума статики.
+- `--preset auto|next|nuxt|sveltekit|angular|vite|webpack|generic` — пресеты HMR WebSocket и фильтрации шума статики.
+- `--forwarded` — отправляет SSR-серверу `X-Forwarded-Host/Proto` стенда, чтобы абсолютные URL, canonical и OAuth-колбэки указывали на стенд. Работает с SSR dev-серверами, production-сборками и статикой (SSG): см. [docs/ru/ssr.md](docs/ru/ssr.md).
 - `--remote <url>` — origin стенда для подмены (на Android определяется автоматически по открытому WebView; на iOS обязателен).
 - `--remote-base /shop` и `--local-base /` — маппинг subpath стенда на корень локального сервера (с перезаписью URL, `Referer` и `Location`).
 - `--ws <prefix>` — префиксы WebSocket для моста через CDP на Android (повторяемый флаг).
@@ -195,6 +196,7 @@ npm run bench
 
 - Как это работает (архитектура): [docs/ru/how-it-works.md](docs/ru/how-it-works.md) ([EN](docs/how-it-works.md))
 - Настройка iOS WKWebView (macOS и Windows): [docs/ru/ios.md](docs/ru/ios.md) ([EN](docs/ios.md))
+- SSR и SSG (Next.js, Nuxt, SvelteKit, Angular): [docs/ru/ssr.md](docs/ru/ssr.md) ([EN](docs/ssr.md))
 - Продакшен-RUM и Prometheus: [docs/ru/rum.md](docs/ru/rum.md) ([EN](docs/rum.md))
 - Соответствие стандартам ISO / RFC: [docs/ru/standards.md](docs/ru/standards.md) ([EN](docs/standards.md))
 - История релизов: [CHANGELOG.md](CHANGELOG.md)

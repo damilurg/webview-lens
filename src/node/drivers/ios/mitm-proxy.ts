@@ -12,6 +12,7 @@ import { connectAndPipe } from '../../fs-utils.ts';
 import {
     createUrlMapper,
     DROP_RESPONSE_HEADERS,
+    forwardedHeadersFor,
     stripHopByHopHeaders,
     type OverrideLogger,
     type UrlMapper,
@@ -121,6 +122,8 @@ export interface DecryptedRequestInput {
     body?: Uint8Array;
     mapper: UrlMapper;
     bypassPrefixes?: readonly string[];
+    /** Reverse-proxy mode for SSR (see `OverrideOptions.forwardedHeaders`). */
+    forwardedHeaders?: boolean;
     fetchImpl?: typeof fetch;
 }
 
@@ -141,6 +144,7 @@ export const handleDecryptedRequest = async ({
     body,
     mapper,
     bypassPrefixes = [],
+    forwardedHeaders = false,
     fetchImpl = fetch,
 }: DecryptedRequestInput): Promise<DecryptedResponseOutput> => {
     const remoteUrl = `${mapper.remoteOrigin}${url.startsWith('/') ? url : `/${url}`}`;
@@ -161,16 +165,19 @@ export const handleDecryptedRequest = async ({
 
         const value = Array.isArray(rawValue) ? rawValue.join(', ') : rawValue;
 
-        if (!bypassed && lower === 'origin') {
+        const rewrite = !bypassed && !forwardedHeaders;
+
+        if (rewrite && lower === 'origin') {
             outHeaders.origin = mapper.localOrigin;
             continue;
         }
-        if (!bypassed && lower === 'referer') {
+        if (rewrite && lower === 'referer') {
             outHeaders.referer = mapper.toLocal(value);
             continue;
         }
         outHeaders[lower] = value;
     }
+    if (!bypassed && forwardedHeaders) Object.assign(outHeaders, forwardedHeadersFor(mapper));
 
     const init: RequestInit = {
         method,
@@ -277,6 +284,8 @@ export interface IosMitmProxyOptions {
     allowClient?: (address: string | undefined) => boolean;
     bypassPrefixes?: readonly string[];
     quietPrefixes?: readonly string[];
+    /** Reverse-proxy mode for SSR (see `OverrideOptions.forwardedHeaders`). */
+    forwardedHeaders?: boolean;
     ca?: CertPair;
     certDir?: string;
     fetchImpl?: typeof fetch;
@@ -351,6 +360,7 @@ export const startIosMitmProxy = async ({
     allowClient = isPrivateNetworkAddress,
     bypassPrefixes = [],
     quietPrefixes = [],
+    forwardedHeaders = false,
     ca,
     certDir,
     fetchImpl = fetch,
@@ -374,6 +384,7 @@ export const startIosMitmProxy = async ({
                 body,
                 mapper,
                 bypassPrefixes,
+                forwardedHeaders,
                 fetchImpl,
             });
 

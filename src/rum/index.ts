@@ -97,15 +97,41 @@ export interface TimingPayload {
 /** Sends a JSON body to an endpoint without waiting for the answer. */
 export type Transport = (endpoint: string, body: string) => void;
 
+/** True during SSR / SSG prerender (Node, Deno, Bun, Edge workers): no document to report from. */
+export const isServerRuntime = (): boolean =>
+    typeof window === 'undefined' || typeof document === 'undefined';
+
 /**
- * sendBeacon, or `fetch` with keepalive where the beacon is unavailable or refused.
- * Use a same-origin endpoint: a cross-origin JSON beacon needs a CORS preflight.
+ * Whether `endpoint` is on another origin than the page (an SSG site on a CDN posting to an API
+ * host). Relative endpoints are same-origin.
+ */
+export const isCrossOriginEndpoint = (
+    endpoint: string,
+    pageHref: string = typeof location === 'undefined' ? '' : location.href,
+): boolean => {
+    if (!pageHref) return false;
+    try {
+        return new URL(endpoint, pageHref).origin !== new URL(pageHref).origin;
+    } catch {
+        return false;
+    }
+};
+
+/**
+ * sendBeacon, or `fetch` with keepalive where the beacon is unavailable or refused. A no-op on the
+ * server, so reporters can be created in code shared by SSR and the browser.
+ *
+ * Same-origin bodies go as `application/json`. Cross-origin ones go as `text/plain`, a CORS-safelisted
+ * type that needs no preflight; the handlers parse the body whatever its Content-Type.
  */
 export const beaconTransport: Transport = (endpoint, body) => {
+    if (isServerRuntime()) return;
+
+    const type = isCrossOriginEndpoint(endpoint) ? 'text/plain;charset=UTF-8' : 'application/json';
     const isQueued =
         typeof navigator !== 'undefined' &&
         typeof navigator.sendBeacon === 'function' &&
-        navigator.sendBeacon(endpoint, new Blob([body], { type: 'application/json' }));
+        navigator.sendBeacon(endpoint, new Blob([body], { type }));
 
     if (isQueued) return;
 
@@ -113,7 +139,7 @@ export const beaconTransport: Transport = (endpoint, body) => {
         method: 'POST',
         body,
         keepalive: true,
-        headers: { 'content-type': 'application/json' },
+        headers: { 'content-type': type },
     }).catch(() => undefined);
 };
 
@@ -283,11 +309,16 @@ const describe = (reason: unknown): { message: string; stack?: string } => {
 
 /**
  * Reports uncaught errors and unhandled promise rejections. Returns a function that stops it.
+ * On the server (SSR / SSG prerender) it does nothing and returns a no-op.
  */
 export const captureGlobalErrors = (
     report: (fields: Record<string, unknown>) => void,
-    target: Pick<Window, 'addEventListener' | 'removeEventListener'> = window,
+    target?: Pick<Window, 'addEventListener' | 'removeEventListener'>,
 ): (() => void) => {
+    // SSR / SSG prerender: nothing to listen to; safe to call from shared app setup code.
+    if (!target && typeof window === 'undefined') return () => undefined;
+
+    const host = target ?? window;
     const onError = (event: ErrorEvent) => {
         report({
             source: 'window.error',
@@ -301,11 +332,11 @@ export const captureGlobalErrors = (
         report({ source: 'unhandledrejection', ...describe(event.reason) });
     };
 
-    target.addEventListener('error', onError);
-    target.addEventListener('unhandledrejection', onRejection);
+    host.addEventListener('error', onError);
+    host.addEventListener('unhandledrejection', onRejection);
 
     return () => {
-        target.removeEventListener('error', onError);
-        target.removeEventListener('unhandledrejection', onRejection);
+        host.removeEventListener('error', onError);
+        host.removeEventListener('unhandledrejection', onRejection);
     };
 };

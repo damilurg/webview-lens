@@ -2,6 +2,21 @@
 
 All notable changes to `webview-lens` are documented in this file.
 
+## [Unreleased]
+
+### Added
+
+- **SSR & SSG guide** ([docs/ssr.md](docs/ssr.md), [RU](docs/ru/ssr.md)): request flow, dev / production / static modes and RUM wiring for Next.js, Nuxt, SvelteKit and Angular.
+- `dev --forwarded` (config `"forwarded": true`): reverse-proxy mode for SSR servers with `X-Forwarded-Host/Proto/Port`, `Forwarded` and `X-Forwarded-Prefix`, keeping the stand's Origin/Referer (Android and iOS).
+- `sveltekit` preset, detected from `@sveltejs/kit`.
+- RUM handlers: `allowOrigin` for cross-origin reporting from SSG sites (CORS headers and `OPTIONS` preflight); `corsHeaders` helper.
+- RUM client: `isServerRuntime` and `isCrossOriginEndpoint`.
+
+### Changed
+
+- RUM client is SSR-safe: `beaconTransport` and the reporters are no-ops on the server, and `captureGlobalErrors` without a target returns a no-op instead of throwing `ReferenceError: window`.
+- Cross-origin beacons are sent as `text/plain` (CORS-safelisted, no preflight).
+
 ## [0.2.1] - 2026-11-25
 
 ### Changed

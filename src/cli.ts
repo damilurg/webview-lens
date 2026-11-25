@@ -61,7 +61,7 @@ Common options
 
 dev
   local-url               local server (http://localhost:3000, env LOCAL_URL)
-  --preset <name>         bundler defaults: auto, next, vite, webpack, nuxt, angular, generic (auto)
+  --preset <name>         bundler defaults: auto, next, nuxt, sveltekit, angular, vite, webpack, generic (auto)
   --remote <url>          origin to serve (default: the origin the WebView is on)
   --remote-base <path>    stand subpath to override (e.g. /shop)
   --local-base <path>     local server subpath mapped to --remote-base (default: /)
@@ -71,6 +71,8 @@ dev
   --quiet <prefix>        path prefix hidden from request logs, repeatable
   --bypass <prefix>       path prefix passed straight through to the stand, repeatable
   --sse <fail|continue>   handling of text/event-stream responses (fail)
+  --forwarded             SSR reverse-proxy mode: send X-Forwarded-Host/Proto/Port and Forwarded
+                          for the stand, keep Origin/Referer (absolute URLs, OAuth callbacks)
   --proxy-port <n>        HTTPS MITM proxy port for iOS dev / cert (8888)
   --link-port <n>         port of the DevTools link (3300, env DEVTOOLS_LINK_PORT)
   Enter reloads the page on the phone, Ctrl+C exits.
@@ -121,6 +123,7 @@ const { values, positionals } = orExit(() =>
             quiet: { type: 'string', multiple: true },
             bypass: { type: 'string', multiple: true },
             sse: { type: 'string' },
+            forwarded: { type: 'boolean' },
             'proxy-port': { type: 'string' },
             'link-port': { type: 'string' },
             runs: { type: 'string', default: '3' },
@@ -204,6 +207,7 @@ const cfg = orExit(() => {
             ...(values.quiet !== undefined ? { quiet: values.quiet } : {}),
             ...(values.bypass !== undefined ? { bypass: values.bypass } : {}),
             ...(values.sse !== undefined ? { sse: values.sse } : {}),
+            ...(values.forwarded !== undefined ? { forwarded: values.forwarded } : {}),
             ...(values.port !== undefined ? { port: values.port } : {}),
             ...(values['link-port'] !== undefined ? { linkPort: values['link-port'] } : {}),
             ...(values['proxy-port'] !== undefined ? { proxyPort: values['proxy-port'] } : {}),
@@ -322,6 +326,7 @@ async function dev() {
     const driver = await selectDriver();
     const preset = resolvePreset(cfg.preset ?? 'auto');
     const ssePolicy: SsePolicy = cfg.sse ?? 'fail';
+    const forwardedHeaders = Boolean(cfg.forwarded);
     const wsPrefixes = cfg.ws ?? preset.wsPrefixes;
     const quietPrefixes = cfg.quiet ?? preset.quietPrefixes;
     const hmrPorts = cfg.hmrPorts ?? [];
@@ -347,6 +352,7 @@ async function dev() {
             ...basePathOptions,
             port: proxyPort,
             quietPrefixes,
+            forwardedHeaders,
         });
 
         registerCleanup(() => {
@@ -449,6 +455,7 @@ async function dev() {
                 quietPrefixes,
                 ...(hmrPorts.length ? { hmrPorts } : {}),
                 ssePolicy,
+                forwardedHeaders,
                 telemetry: logsEnabled,
             });
             console.log(`Override on: ${remote} → ${local}. Enter reloads the page, Ctrl+C exits.`);

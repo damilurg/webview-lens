@@ -182,23 +182,65 @@ const rejectResponse = (reason: RejectReason, allow = 'POST') =>
 
 const STATUS: Record<RejectReason, number> = { method: 405, 'too-large': 413, invalid: 400 };
 
+/**
+ * Origins allowed to post from another site (an SSG page on a CDN reporting to an API host):
+ * an exact origin, a list, or a predicate. Default: none, same-origin only.
+ */
+export type AllowOrigin = string | readonly string[] | ((origin: string) => boolean);
+
+const isOriginAllowed = (allowOrigin: AllowOrigin | undefined, origin: string | null): boolean => {
+    if (!allowOrigin || !origin) return false;
+    if (typeof allowOrigin === 'function') return allowOrigin(origin);
+    if (typeof allowOrigin === 'string') return allowOrigin === '*' || allowOrigin === origin;
+
+    return allowOrigin.includes(origin);
+};
+
+/** CORS response headers for an allowed cross-origin request; empty for anything else. */
+export const corsHeaders = (
+    allowOrigin: AllowOrigin | undefined,
+    origin: string | null,
+): Record<string, string> =>
+    origin && isOriginAllowed(allowOrigin, origin)
+        ? { 'access-control-allow-origin': origin, vary: 'origin' }
+        : {};
+
+const withHeaders = (response: Response, headers: Record<string, string>): Response => {
+    for (const [name, value] of Object.entries(headers)) response.headers.set(name, value);
+
+    return response;
+};
+
 interface JsonPostHandlerConfig<T> {
     maxBytes: number;
     parse: (body: unknown, request: Request) => T | null;
     onValid: (payload: T, request: Request) => void | Promise<void>;
     onReject?: ((reason: RejectReason, request: Request) => void) | undefined;
+    allowOrigin?: AllowOrigin | undefined;
 }
 
-/** Shared Fetch API POST pipeline: method guard (405+Allow), streaming cap (413), JSON parse & validate (400), callback, 204. */
+/**
+ * Shared Fetch API POST pipeline: CORS preflight for allowed origins, method guard (405+Allow),
+ * streaming cap (413), JSON parse & validate (400), callback, 204.
+ */
 const createJsonPostHandler =
-    <T>({ maxBytes, parse, onValid, onReject }: JsonPostHandlerConfig<T>) =>
+    <T>({ maxBytes, parse, onValid, onReject, allowOrigin }: JsonPostHandlerConfig<T>) =>
     async (request: Request): Promise<Response> => {
+        const cors = corsHeaders(allowOrigin, request.headers.get('origin'));
         const reject = (reason: RejectReason) => {
             onReject?.(reason, request);
 
-            return rejectResponse(reason, 'POST');
+            return withHeaders(rejectResponse(reason, 'POST'), cors);
         };
 
+        if (request.method === 'OPTIONS' && Object.keys(cors).length > 0) {
+            return empty(204, {
+                ...cors,
+                'access-control-allow-methods': 'POST',
+                'access-control-allow-headers': 'content-type',
+                'access-control-max-age': '86400',
+            });
+        }
         if (request.method !== 'POST') return reject('method');
 
         const text = await readLimitedText(request, maxBytes).catch(() => null);
@@ -211,10 +253,12 @@ const createJsonPostHandler =
 
         await onValid(payload, request);
 
-        return empty(204);
+        return withHeaders(empty(204), cors);
     };
 
 export interface VitalsHandlerOptions {
+    /** Cross-origin pages allowed to post here (SSG on another host). Default: same-origin only. */
+    allowOrigin?: AllowOrigin;
     onMetric: (metric: VitalMetric, request: Request) => void | Promise<void>;
     onReject?: (reason: RejectReason, request: Request) => void;
     /** One metric is a couple of hundred bytes. Default 2 KiB. */
@@ -229,6 +273,7 @@ export interface VitalsHandlerOptions {
 export const createVitalsHandler = ({
     onMetric,
     onReject,
+    allowOrigin,
     maxBytes = 2 * 1024,
 }: VitalsHandlerOptions) =>
     createJsonPostHandler({
@@ -236,9 +281,12 @@ export const createVitalsHandler = ({
         parse: parseVital,
         onValid: onMetric,
         onReject,
+        allowOrigin,
     });
 
 export interface TimingsHandlerOptions {
+    /** Cross-origin pages allowed to post here (SSG on another host). Default: same-origin only. */
+    allowOrigin?: AllowOrigin;
     onTiming: (timing: TimingMetric, request: Request) => void | Promise<void>;
     onReject?: (reason: RejectReason, request: Request) => void;
     /** Default 2 KiB. */
@@ -249,6 +297,7 @@ export interface TimingsHandlerOptions {
 export const createTimingsHandler = ({
     onTiming,
     onReject,
+    allowOrigin,
     maxBytes = 2 * 1024,
 }: TimingsHandlerOptions) =>
     createJsonPostHandler({
@@ -256,6 +305,7 @@ export const createTimingsHandler = ({
         parse: parseTiming,
         onValid: onTiming,
         onReject,
+        allowOrigin,
     });
 
 export interface ClientLogEntry {
@@ -266,6 +316,8 @@ export interface ClientLogEntry {
 }
 
 export interface ClientLogHandlerOptions {
+    /** Cross-origin pages allowed to post here (SSG on another host). Default: same-origin only. */
+    allowOrigin?: AllowOrigin;
     onLog: (entry: ClientLogEntry, request: Request) => void | Promise<void>;
     onReject?: (reason: RejectReason, request: Request) => void;
     /** Default 16 KiB. */
@@ -280,6 +332,7 @@ export interface ClientLogHandlerOptions {
 export const createClientLogHandler = ({
     onLog,
     onReject,
+    allowOrigin,
     maxBytes = 16 * 1024,
     maxFields = 20,
     maxValueLength = 1000,
@@ -292,6 +345,7 @@ export const createClientLogHandler = ({
     return createJsonPostHandler<ClientLogEntry>({
         maxBytes,
         onReject,
+        allowOrigin,
         onValid: onLog,
         parse: (body, request) => {
             if (!isRecord(body) || Object.keys(body).length > maxFields) return null;

@@ -14,7 +14,7 @@
 [![platforms](https://img.shields.io/badge/WebView-Android%20%7C%20iOS-6f42c1)](https://github.com/damilurg/webview-lens/blob/main/docs/ios.md)
 [![license](https://img.shields.io/npm/l/webview-lens)](https://github.com/damilurg/webview-lens/blob/main/LICENSE)
 
-[Docs](docs/how-it-works.md) · [iOS setup](docs/ios.md) · [RUM guide](docs/rum.md) · [npm](https://www.npmjs.com/package/webview-lens) · [Changelog](CHANGELOG.md) · [Report a bug](https://github.com/damilurg/webview-lens/issues/new)
+[Docs](docs/how-it-works.md) · [iOS setup](docs/ios.md) · [SSR & SSG](docs/ssr.md) · [RUM guide](docs/rum.md) · [npm](https://www.npmjs.com/package/webview-lens) · [Changelog](CHANGELOG.md) · [Report a bug](https://github.com/damilurg/webview-lens/issues/new)
 
 **English** | [Русский](README.ru.md)
 
@@ -32,7 +32,7 @@ the real stand's HTTPS origin with zero changes to your frontend code.
 
 | Piece                     | What it does                                                                                                                                                   |
 | ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `webview-lens init`       | Detects your bundler (`vite`, `next`, `webpack`, `nuxt`, `angular`) and creates `webview-lens.config.json`                                                     |
+| `webview-lens init`       | Detects your bundler (`next`, `nuxt`, `sveltekit`, `angular`, `vite`, `webpack`) and creates `webview-lens.config.json`                                        |
 | `webview-lens dev`        | Serves the stand's HTTPS origin from your local dev server (Android: CDP `Fetch`; iOS: selective HTTPS MITM) with HMR and `--logs`                             |
 | `webview-lens devtools`   | Full Chrome DevTools at a **fixed** `http://localhost:3300` (survives app restarts; bridges iOS WIP ↔ CDP on Windows & macOS)                                  |
 | `webview-lens cert`       | Generates a local X.509 v3 Root CA and prints a terminal QR code to install `.mobileconfig` on a test iPhone                                                   |
@@ -69,7 +69,8 @@ npx webview-lens dev http://localhost:5173 --platform ios --remote https://stand
 Key options (also configurable via `webview-lens.config.json` or `--config <file>`):
 
 - `--platform auto|android|ios` selects the device driver (`auto` picks whichever phone is connected).
-- `--preset auto|next|vite|webpack|nuxt|angular|generic` configures WebSocket HMR prefixes and quiet static logs.
+- `--preset auto|next|nuxt|sveltekit|angular|vite|webpack|generic` configures WebSocket HMR prefixes and quiet static logs.
+- `--forwarded` sends `X-Forwarded-Host/Proto` for the stand to SSR servers, so absolute URLs, canonical tags and OAuth callbacks point at the stand. Works with SSR dev servers, production builds and static (SSG) output: see [docs/ssr.md](docs/ssr.md).
 - `--remote <url>` sets the stand origin to override (default: the current WebView origin on Android; required on iOS).
 - `--remote-base /shop` and `--local-base /` map a stand subpath to your local server root (rewriting URLs, `Referer`, and `Location`).
 - `--ws <prefix>` bridges WebSockets under that prefix over CDP on Android (repeatable).
@@ -194,6 +195,7 @@ npm run bench
 
 - Architecture: [docs/how-it-works.md](docs/how-it-works.md)
 - iOS WKWebView setup (macOS & Windows): [docs/ios.md](docs/ios.md)
+- SSR & SSG (Next.js, Nuxt, SvelteKit, Angular): [docs/ssr.md](docs/ssr.md)
 - Production RUM & Prometheus guide: [docs/rum.md](docs/rum.md)
 - ISO / RFC protocol conformance: [docs/standards.md](docs/standards.md)
 - Release history: [CHANGELOG.md](CHANGELOG.md)

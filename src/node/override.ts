@@ -111,6 +111,11 @@ export interface OverrideOptions {
     bypassPrefixes?: readonly string[];
     /** What to do when the local server responds with `text/event-stream`. Default: `'fail'`. */
     ssePolicy?: SsePolicy;
+    /**
+     * Reverse-proxy mode for SSR: send `X-Forwarded-*` / `Forwarded` describing the stand and keep
+     * Origin/Referer as the stand's. Default: false (the local server sees itself as the origin).
+     */
+    forwardedHeaders?: boolean;
     /** Custom CDP connector (for testing or custom transports). */
     connect?: (webSocketDebuggerUrl: string) => Promise<Cdp>;
     /** Custom fetch implementation (for testing or custom transports). */
@@ -322,21 +327,53 @@ export const stripHopByHopHeaders = <T extends string | string[] | undefined>(
     return result;
 };
 
-/** Request headers for the local server: cookies of the stand's domain, Origin and Referer rewritten. */
+/**
+ * Reverse-proxy headers describing the stand to an SSR server (`--forwarded`): frameworks then build
+ * absolute URLs, redirects, canonical/OG tags and OAuth callbacks for the stand, not for localhost.
+ */
+export const forwardedHeadersFor = (
+    mapper: Pick<UrlMapper, 'remoteOrigin' | 'remoteBase'>,
+): Record<string, string> => {
+    const remote = new URL(mapper.remoteOrigin);
+    const proto = remote.protocol.replace(/:$/, '');
+    const port = remote.port || (proto === 'https' ? '443' : '80');
+
+    return {
+        'x-forwarded-host': remote.host,
+        'x-forwarded-proto': proto,
+        'x-forwarded-port': port,
+        forwarded: `host="${remote.host}";proto=${proto}`,
+        ...(mapper.remoteBase ? { 'x-forwarded-prefix': mapper.remoteBase } : {}),
+    };
+};
+
+/**
+ * Request headers for the local server: cookies of the stand's domain, Origin and Referer rewritten
+ * to the local server. With `forwarded` (reverse-proxy mode) Origin and Referer stay the stand's, so
+ * framework CSRF checks (Next.js Server Actions compare Origin with X-Forwarded-Host) stay consistent.
+ */
 export const toLocalHeaders = (
     headers: Record<string, string>,
     cookies: readonly { name: string; value: string }[],
     local: string,
     toLocal: (url: string) => string,
+    forwarded?: Record<string, string>,
 ): Record<string, string> => {
     const cleaned = stripHopByHopHeaders(headers);
     const result = Object.fromEntries(
         Object.entries(cleaned).filter(([name]) => !DROP_REQUEST.has(name.toLowerCase())),
     );
+    const origin = headers.Origin ?? headers.origin;
     const referer = headers.Referer ?? headers.referer;
 
     if (cookies.length) result.cookie = cookies.map((c) => `${c.name}=${c.value}`).join('; ');
-    if (headers.Origin ?? headers.origin) result.origin = local;
+    if (forwarded) {
+        if (origin) result.origin = origin;
+        if (referer) result.referer = referer;
+
+        return { ...result, ...forwarded };
+    }
+    if (origin) result.origin = local;
     if (referer) result.referer = toLocal(referer);
 
     return result;
@@ -378,6 +415,7 @@ export const startOverride = async ({
     quietPrefixes = ['/_next/static', '/__nextjs'],
     bypassPrefixes = [],
     ssePolicy = 'fail',
+    forwardedHeaders = false,
     connect = connectCdp,
     fetchImpl = fetch,
     telemetry = false,
@@ -385,6 +423,7 @@ export const startOverride = async ({
 }: OverrideOptions): Promise<OverrideSession> => {
     const cdp = await connect(page.webSocketDebuggerUrl);
     const mapper = createUrlMapper({ remote, local, remoteBase, localBase });
+    const forwarded = forwardedHeadersFor(mapper);
     let isLocalDownReported = false;
 
     const handle = async ({ requestId, request }: PausedRequest) => {
@@ -418,6 +457,7 @@ export const startOverride = async ({
                     cookies,
                     mapper.localOrigin,
                     mapper.toLocal,
+                    forwardedHeaders ? forwarded : undefined,
                 ),
                 body: body === undefined || typeof body === 'string' ? body : new Uint8Array(body),
                 redirect: 'manual',
