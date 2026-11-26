@@ -22,6 +22,7 @@ Found by end-to-end runs on real phones: Redmi Note 8 Pro (Android 11, WebView 1
 
 ### Fixed
 
+- The `angular` preset bridges the HMR WebSocket of Angular 17+ (`@angular/build` on Vite, `wss://host/?token=…`). It pointed at `/ng-cli-ws`, the webpack dev server's path, so `ng serve` edits never reached the WebView.
 - `dev` on Android follows the app when it recreates its WebView (rotation, a new screen): the old page stays alive but hidden, and the override now moves to the WebView on screen instead of serving the hidden one.
 - **`dev` HMR for Vite-based stacks (Vite, Nuxt, SvelteKit, Angular):** the WebSocket bridge dropped the subprotocol the page asked for, and Vite only upgrades `vite-hmr` / `vite-ping` sockets, so HMR never connected. The subprotocols are now forwarded and the negotiated one is reported back to the page.
 - `--logs`: an uncaught exception prints as `Error: message` with its stack instead of the object preview `{stack: …, message: …}`.

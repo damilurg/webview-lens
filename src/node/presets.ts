@@ -43,7 +43,9 @@ export const PRESETS: Readonly<Record<PresetName, FrameworkPreset>> = {
     },
     angular: {
         name: 'angular',
-        wsPrefixes: ['/ng-cli-ws'],
+        // Angular 17+ (`@angular/build`) serves through Vite: the HMR socket is on the page
+        // origin (`wss://host/?token=…`). `/ng-cli-ws` was the webpack dev server's path.
+        wsPrefixes: ['/'],
         quietPrefixes: ['/@vite', '/@fs', '/assets/'],
     },
     generic: {

@@ -58,3 +58,11 @@ describe('detectPreset & resolvePreset', () => {
         assert.equal(isPresetSelection('unknown'), false);
     });
 });
+
+describe('Vite-based dev servers', () => {
+    it('bridge the HMR socket on the page origin (Angular 17+ runs on Vite)', () => {
+        for (const name of ['vite', 'sveltekit', 'angular'] as const) {
+            assert.ok(PRESETS[name].wsPrefixes.includes('/'), `${name} must bridge "/"`);
+        }
+    });
+});
