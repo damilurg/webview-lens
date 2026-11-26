@@ -10,7 +10,13 @@ import {
     isKeyguardShowing,
     runAdb,
 } from './adb.ts';
-import { type DevtoolsPage, listPages, type PagePredicate, pickPage } from './cdp.ts';
+import {
+    type DevtoolsPage,
+    isPageOnScreen,
+    listPages,
+    type PagePredicate,
+    pickPage,
+} from './cdp.ts';
 
 const firstLine = (error: unknown) => errorMessage(error).split('\n')[0] ?? '';
 
@@ -119,6 +125,37 @@ export const waitForPage = async (
 
         if (hint !== lastHint) log(`… ${hint}`);
         lastHint = hint;
+        await sleep(intervalMs);
+    }
+};
+
+export interface WatchScreenOptions {
+    intervalMs?: number;
+    listPages?: typeof listPages;
+    signal?: AbortSignal;
+}
+
+/**
+ * Resolves with the new page once another WebView matching `predicate` is the one on screen while
+ * `currentId` is not: apps recreate their WebView (rotation, a new screen) and leave the old one
+ * alive but hidden. Never resolves while `currentId` stays on screen (or no page reports it).
+ */
+export const waitForOtherPageOnScreen = async (
+    port: string | number,
+    currentId: string,
+    predicate: PagePredicate,
+    { intervalMs = 2000, listPages: listPagesFn = listPages, signal }: WatchScreenOptions = {},
+): Promise<DevtoolsPage> => {
+    for (;;) {
+        signal?.throwIfAborted();
+
+        const pages = (await listPagesFn(port)) ?? [];
+        const current = pages.find((page) => page.id === currentId);
+        const onScreen = pages.filter(predicate).find(isPageOnScreen);
+
+        if (onScreen && onScreen.id !== currentId && current && !isPageOnScreen(current)) {
+            return onScreen;
+        }
         await sleep(intervalMs);
     }
 };

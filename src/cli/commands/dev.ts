@@ -4,7 +4,7 @@
 import readline from 'node:readline';
 
 import { createAdbRunner, removeReversePort, reversePort } from '../../node/adb.ts';
-import { waitForPage } from '../../node/device.ts';
+import { waitForOtherPageOnScreen, waitForPage } from '../../node/device.ts';
 import { startDevtoolsLink } from '../../node/devtools-link.ts';
 import { detectLanAddresses, startIosMitmProxy } from '../../node/drivers/ios/mitm-proxy.ts';
 import type { DeviceDriver } from '../../node/drivers/types.ts';
@@ -182,9 +182,28 @@ const devAndroid = async (ctx: CliContext, settings: DevSettings) => {
             console.log(
                 `Override on: ${remote} → ${settings.local}. Enter reloads the page, Ctrl+C exits.`,
             );
-            await session.closed;
+            // Follow the app: a WebView recreated on rotation or a new screen takes over, and the
+            // one we hold stays alive but hidden.
+            const watch = new AbortController();
+            const otherOnScreen = waitForOtherPageOnScreen(port, page.id, isTarget, {
+                signal: watch.signal,
+            });
+
+            // Aborted once the race is decided: that rejection is expected, not an error.
+            otherOnScreen.catch(() => undefined);
+
+            const outcome = await Promise.race([
+                session.closed.then(() => 'closed' as const),
+                otherOnScreen,
+            ]).finally(() => watch.abort());
+
+            session.close();
             session = undefined;
-            console.log('The WebView page closed, waiting for a new one…');
+            console.log(
+                outcome === 'closed'
+                    ? 'The WebView page closed, waiting for a new one…'
+                    : `Another WebView is on screen now (${outcome.url}), switching to it…`,
+            );
         } catch (error) {
             session = undefined;
             console.error(errorMessage(error));
