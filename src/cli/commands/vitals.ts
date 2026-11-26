@@ -25,8 +25,16 @@ export const vitals = async (ctx: CliContext): Promise<void> => {
     }
 
     const budgets = cfg.budget ? parseBudgets(cfg.budget) : undefined;
-    const driver = await ctx.selectDriver();
     const paths = ctx.args.length > 0 ? ctx.args.map(fromGitBashPath) : ['/'];
+    const notPath = paths.find((pagePath) => !pagePath.startsWith('/'));
+
+    // Paths are measured on the origin of the page the app has open.
+    if (notPath !== undefined) {
+        throw new Error(
+            `vitals takes paths such as / or /orders, not "${notPath}". The origin is the page the app has open.`,
+        );
+    }
+    const driver = await ctx.selectDriver();
     const devtoolsPort = ctx.portFor(driver.platform);
 
     if (driver.platform === 'android') logAdbPath();

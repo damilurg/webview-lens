@@ -49,6 +49,12 @@ Bun and Deno. A test enforces it.
 7. **Logging.** The page's console belongs to DevTools and `--logs`. What webview-lens itself does goes
    through `createLogger(scope)`: silent by default, `--verbose` / `--log-file` to see it.
 8. **Zero runtime dependencies** (enforced by a test). Dev tooling only: TypeScript, Prettier.
+9. **Decode, don't cast** (enforced by a test that walks the TypeScript AST of `src`). Data from
+   outside (protocol frames, page scripts, JSON files, CLI flags) arrives as `unknown` and goes through
+   a decoder (`src/shared/decode.ts`, `src/node/protocol.ts`) that returns the value or `undefined`.
+   No `as T` (only `as const`), no `<T>x`, no non-null `!`; indexed reads use bounds-checked helpers
+   (`buffer.readUInt8`, `itemAt`). Where Node's types are narrower than the runtime (an upgrade socket
+   typed as `Duplex`), narrow with a runtime check such as `instanceof net.Socket`.
 
 ## Patterns, and where
 

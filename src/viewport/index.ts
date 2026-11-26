@@ -94,7 +94,7 @@ const isSameState = (a: ViewportState, b: ViewportState): boolean =>
     Math.abs(a.keyboardInset - b.keyboardInset) < 2;
 
 const browserWindow = (): ViewportWindow | undefined =>
-    typeof window === 'undefined' ? undefined : (window as unknown as ViewportWindow);
+    typeof window === 'undefined' ? undefined : window;
 
 /**
  * Keeps `--wl-viewport-height`, `--wl-keyboard-inset`, `--wl-keyboard-height` and

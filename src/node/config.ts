@@ -231,6 +231,48 @@ export const loadProjectConfig = ({
     return { path: resolved, config: validateProjectConfig(parsed) };
 };
 
+/** Every field of `ProjectConfig`, checked by the compiler in both directions. */
+const CONFIG_KEYS = [
+    'platform',
+    'preset',
+    'local',
+    'remote',
+    'remoteBase',
+    'localBase',
+    'cmd',
+    'ws',
+    'hmrPorts',
+    'quiet',
+    'bypass',
+    'sse',
+    'forwarded',
+    'port',
+    'linkPort',
+    'proxyPort',
+    'serial',
+    'app',
+    'match',
+    'logs',
+    'throttle',
+    'cpu',
+    'budget',
+] as const satisfies readonly (keyof ProjectConfig)[];
+
+// A new ProjectConfig field without an entry above fails to compile here.
+type ExpectNever<T extends never> = T;
+type MissingConfigKeys = ExpectNever<Exclude<keyof ProjectConfig, (typeof CONFIG_KEYS)[number]>>;
+
+/** Copies one field when the source gives it (`undefined` means "not given"). */
+const copyGiven = <K extends keyof ProjectConfig>(
+    target: ProjectConfig,
+    source: Partial<ProjectConfig>,
+    key: K,
+): void => {
+    const value = source[key];
+
+    if (value !== undefined) target[key] = value;
+};
+
 /** Merges CLI overrides on top of project config; explicit CLI fields always win. */
 export const mergeCliConfig = (
     base: ProjectConfig,
@@ -238,13 +280,7 @@ export const mergeCliConfig = (
 ): ProjectConfig => {
     const merged: ProjectConfig = { ...base };
 
-    for (const [key, value] of Object.entries(overrides) as [
-        keyof ProjectConfig,
-        ProjectConfig[keyof ProjectConfig],
-    ][]) {
-        if (value === undefined) continue;
-        (merged as Record<string, unknown>)[key] = value;
-    }
+    for (const key of CONFIG_KEYS) copyGiven(merged, overrides, key);
 
     return merged;
 };

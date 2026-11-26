@@ -213,7 +213,7 @@ export const POST: RequestHandler = ({ request }) => vitals(request);
 ### Angular (SSR)
 
 ```ts
-// src/app/app.component.ts — afterNextRender runs only in the browser
+// src/app/app.ts (app.component.ts before Angular 20) — afterNextRender runs only in the browser
 import { Component, afterNextRender } from '@angular/core';
 import { onCLS, onFCP, onINP, onLCP, onTTFB } from 'web-vitals';
 import {
@@ -223,8 +223,8 @@ import {
     detectWebViewEnv,
 } from 'webview-lens/rum';
 
-@Component({ selector: 'app-root', templateUrl: './app.component.html' })
-export class AppComponent {
+@Component({ selector: 'app-root', templateUrl: './app.html' })
+export class App {
     constructor() {
         afterNextRender(() => {
             const context = () => ({ env: detectWebViewEnv() });

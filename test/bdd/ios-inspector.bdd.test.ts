@@ -28,18 +28,17 @@ const createFakeWipSocket = () => {
 
             return {} as T;
         },
-        on: <T>(method: string, listener: (params: T) => void) => {
+        on: (method: string, listener: (params: unknown) => void) => {
             const set = listeners.get(method) ?? new Set();
-            const fn = listener as (params: unknown) => void;
 
-            set.add(fn);
+            set.add(listener);
             listeners.set(method, set);
 
-            return () => set.delete(fn);
+            return () => set.delete(listener);
         },
-        once: <T>(method: string) =>
-            new Promise<T>((resolve) => {
-                const off = socket.on<T>(method, (params) => {
+        once: (method: string) =>
+            new Promise<unknown>((resolve) => {
+                const off = socket.on(method, (params) => {
                     off();
                     resolve(params);
                 });
@@ -141,7 +140,7 @@ describe('Feature: Cross-platform iOS USB Discovery & WKWebView Inspector (macOS
 
             await session.setCacheDisabled(true);
             await session.addInitScript('window.__boot = true;');
-            const result = await session.evaluate<string>('"hello"');
+            const result = await session.evaluate('"hello"');
 
             assert.equal(result, 'hello-from-wkwebview');
             assert.ok(

@@ -47,7 +47,10 @@ export const resolveDriver = async (
             return driver;
         }
     }
-    log.info(`platform auto: no device yet, using ${drivers[0]!.platform}`);
+    const [fallback] = drivers;
 
-    return drivers[0]!;
+    if (!fallback) throw new Error('No device drivers registered');
+    log.info(`platform auto: no device yet, using ${fallback.platform}`);
+
+    return fallback;
 };

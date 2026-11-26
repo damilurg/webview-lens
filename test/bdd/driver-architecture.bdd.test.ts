@@ -198,7 +198,7 @@ describe('Feature: Platform-agnostic DeviceDriver architecture', () => {
             assert.equal(report.targets.length, 1);
 
             const session = await driver.connectInspector(report.targets[0]!);
-            const evaluated = await session.evaluate<string>('1+1');
+            const evaluated = await session.evaluate('1+1');
 
             assert.equal(evaluated, '42');
             assert.ok(sent.includes('Page.enable'));

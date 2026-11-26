@@ -20,10 +20,10 @@ export const THRESHOLDS: Readonly<Record<MetricName, readonly [good: number, poo
 };
 
 export const isMetricName = (value: unknown): value is MetricName =>
-    typeof value === 'string' && (METRIC_NAMES as readonly string[]).includes(value);
+    typeof value === 'string' && METRIC_NAMES.some((item) => item === value);
 
 export const isRating = (value: unknown): value is Rating =>
-    typeof value === 'string' && (RATINGS as readonly string[]).includes(value);
+    typeof value === 'string' && RATINGS.some((item) => item === value);
 
 export const rate = (name: MetricName, value: number): Rating => {
     const [good, poor] = THRESHOLDS[name];

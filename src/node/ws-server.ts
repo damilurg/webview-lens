@@ -83,8 +83,8 @@ export const decodeWsFrames = (buffer: Buffer): { frames: WsFrame[]; remainder: 
     let offset = 0;
 
     while (offset + 2 <= buffer.length) {
-        const b0 = buffer[offset]!;
-        const b1 = buffer[offset + 1]!;
+        const b0 = buffer.readUInt8(offset);
+        const b1 = buffer.readUInt8(offset + 1);
         const fin = Boolean(b0 & 0x80);
         const opcode = b0 & 0x0f;
         const masked = Boolean(b1 & 0x80);
@@ -105,7 +105,7 @@ export const decodeWsFrames = (buffer: Buffer): { frames: WsFrame[]; remainder: 
             const maskStart = offset + headerLen;
 
             for (let i = 0; i < payload.length; i += 1) {
-                payload[i] = payload[i]! ^ buffer[maskStart + (i % 4)]!;
+                payload.writeUInt8(payload.readUInt8(i) ^ buffer.readUInt8(maskStart + (i % 4)), i);
             }
         }
 

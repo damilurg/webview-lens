@@ -2,6 +2,7 @@
 
 import { waitWithTimeout } from '../../shared/utils.ts';
 import type { Cdp } from '../cdp.ts';
+import { decodeEvaluateResult } from '../protocol.ts';
 import { attachTelemetry, type TelemetryOptions } from '../telemetry.ts';
 import type {
     InspectorCapabilities,
@@ -27,13 +28,12 @@ export const createProtocolInspectorSession = (
 ): InspectorSession => ({
     platform,
     capabilities,
-    async evaluate<T = unknown>(expression: string): Promise<T> {
-        const { result } = await transport.send<{ result?: { value?: T } }>('Runtime.evaluate', {
-            expression,
-            returnByValue: true,
-        });
+    async evaluate(expression: string): Promise<unknown> {
+        const evaluated = decodeEvaluateResult(
+            await transport.send('Runtime.evaluate', { expression, returnByValue: true }),
+        );
 
-        return result?.value as T;
+        return evaluated?.value;
     },
     async addInitScript(source: string): Promise<void> {
         await transport.send('Page.addScriptToEvaluateOnNewDocument', { source });

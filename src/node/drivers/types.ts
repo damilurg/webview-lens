@@ -9,7 +9,7 @@ export type PlatformSelection = Platform | 'auto';
 export const PLATFORM_SELECTIONS: readonly PlatformSelection[] = ['auto', 'android', 'ios'];
 
 export const isPlatformSelection = (value: string): value is PlatformSelection =>
-    (PLATFORM_SELECTIONS as readonly string[]).includes(value);
+    PLATFORM_SELECTIONS.some((item) => item === value);
 
 export interface ConnectedDevice {
     id: string;
@@ -77,7 +77,8 @@ export interface NetworkThrottleProfile {
 export interface InspectorSession {
     readonly platform: Platform;
     readonly capabilities: InspectorCapabilities;
-    evaluate<T = unknown>(expression: string): Promise<T>;
+    /** The expression's value (by value), or `undefined` if it threw; decode what you read. */
+    evaluate(expression: string): Promise<unknown>;
     addInitScript(source: string): Promise<void>;
     navigate(url: string, options?: NavigateOptions): Promise<void>;
     reload(options?: { ignoreCache?: boolean }): Promise<void>;

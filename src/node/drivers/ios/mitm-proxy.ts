@@ -213,7 +213,8 @@ export const handleDecryptedRequest = async ({
     };
 
     if (body && body.byteLength > 0 && method !== 'GET' && method !== 'HEAD') {
-        init.body = body as unknown as BodyInit;
+        // A copy on its own ArrayBuffer: a Buffer may sit on a shared pool, which BodyInit excludes.
+        init.body = Uint8Array.from(body);
     }
 
     const response = await fetchImpl(targetUrl, init);
@@ -442,6 +443,12 @@ export const startIosMitmProxy = async ({
 
     // Native WebSocket HMR tunneling over the decrypted HTTPS connection.
     decryptedServer.on('upgrade', (req, clientSocket, head) => {
+        // An HTTP server hands upgrades and CONNECTs a net.Socket; the type says only Duplex.
+        if (!(clientSocket instanceof net.Socket)) {
+            clientSocket.destroy();
+
+            return;
+        }
         const isHttps = localUrl.protocol === 'https:';
         const localPort = Number(localUrl.port) || (isHttps ? 443 : 80);
         const localHost = localUrl.hostname.replace(/^\[|\]$/g, '');
@@ -457,7 +464,7 @@ export const startIosMitmProxy = async ({
         connectAndPipe(
             localPort,
             localHost,
-            clientSocket as net.Socket,
+            clientSocket,
             (upstream) => {
                 upstream.write(buildWsUpgradeHandshake(req, mapper));
                 if (head.length > 0) upstream.write(head);
@@ -528,6 +535,12 @@ export const startIosMitmProxy = async ({
     let lastTlsErrorAt = 0;
 
     proxyServer.on('connect', (req, clientSocket, head) => {
+        // An HTTP server hands upgrades and CONNECTs a net.Socket; the type says only Duplex.
+        if (!(clientSocket instanceof net.Socket)) {
+            clientSocket.destroy();
+
+            return;
+        }
         const target = parseConnectTarget(req.url ?? '');
 
         if (!target) {
@@ -538,10 +551,10 @@ export const startIosMitmProxy = async ({
 
         debugLog.debug(
             `CONNECT ${target.host}:${target.port} → ${shouldInterceptHost(target.host, targetHost) ? 'intercept' : 'tunnel'}`,
-            { client: (clientSocket as net.Socket).remoteAddress },
+            { client: clientSocket.remoteAddress },
         );
         if (!shouldInterceptHost(target.host, targetHost)) {
-            connectAndPipe(target.port, target.host, clientSocket as net.Socket, (upstream) => {
+            connectAndPipe(target.port, target.host, clientSocket, (upstream) => {
                 clientSocket.write('HTTP/1.1 200 Connection Established\r\n\r\n');
                 if (head.length > 0) upstream.write(head);
             });

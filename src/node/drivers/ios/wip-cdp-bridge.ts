@@ -2,6 +2,7 @@
 // Enables running unified telemetry, lab vitals and Chrome DevTools against iOS WKWebView
 // on both Windows and macOS.
 
+import { rec } from '../../../shared/decode.ts';
 import { isRecord } from '../../../shared/utils.ts';
 import type { Cdp } from '../../cdp.ts';
 
@@ -209,11 +210,10 @@ export const createWipCdpBridge = (rawWip: Cdp): Cdp => {
         });
     };
 
-    const on = <T>(cdpMethod: string, listener: (params: T) => void) => {
+    const on = (cdpMethod: string, listener: (params: unknown) => void) => {
         const set = cdpListeners.get(cdpMethod) ?? new Set();
-        const untyped = listener as (params: unknown) => void;
 
-        set.add(untyped);
+        set.add(listener);
         cdpListeners.set(cdpMethod, set);
 
         if (cdpMethod === 'Runtime.consoleAPICalled') {
@@ -222,21 +222,21 @@ export const createWipCdpBridge = (rawWip: Cdp): Cdp => {
         ensureWipSubscription(cdpMethod);
 
         return () => {
-            set.delete(untyped);
+            set.delete(listener);
         };
     };
 
     return {
-        async send<T = unknown>(method: string, params: object = {}): Promise<T> {
-            const translated = translateCdpToWip(method, params as Record<string, unknown>);
+        async send(method: string, params: object = {}): Promise<unknown> {
+            const translated = translateCdpToWip(method, rec(params) ?? {});
             const result = await rawWip.send(translated.method, translated.params);
 
-            return translateWipResultToCdp(method, result) as T;
+            return translateWipResultToCdp(method, result);
         },
         on,
-        once: <T>(method: string) =>
-            new Promise<T>((resolve) => {
-                const off = on<T>(method, (params) => {
+        once: (method: string) =>
+            new Promise<unknown>((resolve) => {
+                const off = on(method, (params) => {
                     off();
                     resolve(params);
                 });

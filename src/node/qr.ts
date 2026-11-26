@@ -28,6 +28,16 @@ export interface QrMatrix {
 }
 
 // GF(256) multiplication tables with primitive polynomial 0x11d (x^8 + x^4 + x^3 + x^2 + 1).
+/** Reads `list[index]`; a QR table or buffer read out of range is a bug, so it throws. */
+const itemAt = <T>(list: ArrayLike<T>, index: number): T => {
+    const item = list[index];
+
+    if (item === undefined)
+        throw new RangeError(`QR: index ${index} out of range (${list.length})`);
+
+    return item;
+};
+
 const GF_EXP = new Uint8Array(512);
 const GF_LOG = new Uint8Array(256);
 
@@ -41,14 +51,14 @@ const GF_LOG = new Uint8Array(256);
         if (x & 0x100) x ^= 0x11d;
     }
     for (let i = 255; i < 512; i += 1) {
-        GF_EXP[i] = GF_EXP[i - 255]!;
+        GF_EXP[i] = itemAt(GF_EXP, i - 255);
     }
 })();
 
 const gfMul = (a: number, b: number): number => {
     if (a === 0 || b === 0) return 0;
 
-    return GF_EXP[GF_LOG[a]! + GF_LOG[b]!]!;
+    return itemAt(GF_EXP, itemAt(GF_LOG, a) + itemAt(GF_LOG, b));
 };
 
 const rsGeneratorPoly = (degree: number): Uint8Array => {
@@ -56,11 +66,11 @@ const rsGeneratorPoly = (degree: number): Uint8Array => {
 
     for (let i = 0; i < degree; i += 1) {
         const next = new Uint8Array(poly.length + 1);
-        const factor = GF_EXP[i]!;
+        const factor = itemAt(GF_EXP, i);
 
         for (let j = 0; j < poly.length; j += 1) {
-            next[j] = next[j]! ^ poly[j]!;
-            next[j + 1] = next[j + 1]! ^ gfMul(poly[j]!, factor);
+            next[j] = itemAt(next, j) ^ itemAt(poly, j);
+            next[j + 1] = itemAt(next, j + 1) ^ gfMul(itemAt(poly, j), factor);
         }
         poly = next;
     }
@@ -73,12 +83,12 @@ const rsComputeEc = (data: Uint8Array, ecLen: number): Uint8Array => {
     const rem = new Uint8Array(ecLen);
 
     for (const byte of data) {
-        const factor = byte ^ rem[0]!;
+        const factor = byte ^ itemAt(rem, 0);
 
         rem.copyWithin(0, 1);
         rem[ecLen - 1] = 0;
         for (let i = 0; i < ecLen; i += 1) {
-            rem[i] = rem[i]! ^ gfMul(gen[i + 1]!, factor);
+            rem[i] = itemAt(rem, i) ^ gfMul(itemAt(gen, i + 1), factor);
         }
     }
 
@@ -120,14 +130,14 @@ const buildDataCodewords = (bytes: Uint8Array, spec: VersionSpec): Uint8Array =>
     for (let i = 0; i < dataByteCount; i += 1) {
         let byte = 0;
 
-        for (let b = 0; b < 8; b += 1) byte = (byte << 1) | bits[i * 8 + b]!;
+        for (let b = 0; b < 8; b += 1) byte = (byte << 1) | itemAt(bits, i * 8 + b);
         out[i] = byte;
     }
 
     const padBytes = [0xec, 0x11];
 
     for (let i = dataByteCount; i < spec.dataCodewords; i += 1) {
-        out[i] = padBytes[(i - dataByteCount) % 2]!;
+        out[i] = itemAt(padBytes, (i - dataByteCount) % 2);
     }
 
     return out;
@@ -148,10 +158,10 @@ const interleaveCodewords = (data: Uint8Array, spec: VersionSpec): Uint8Array =>
     const total: number[] = [];
 
     for (let i = 0; i < blockDataLen; i += 1) {
-        for (const block of dataBlocks) total.push(block[i]!);
+        for (const block of dataBlocks) total.push(itemAt(block, i));
     }
     for (let i = 0; i < spec.ecPerBlock; i += 1) {
-        for (const block of ecBlocks) total.push(block[i]!);
+        for (const block of ecBlocks) total.push(itemAt(block, i));
     }
 
     return new Uint8Array(total);
@@ -377,7 +387,7 @@ export const encodeQrMatrix = (text: string): QrMatrix => {
                 let dark = 0;
 
                 if (bitIndex < totalBits) {
-                    dark = (codewords[bitIndex >> 3]! >> (7 - (bitIndex & 7))) & 1;
+                    dark = (itemAt(codewords, bitIndex >> 3) >> (7 - (bitIndex & 7))) & 1;
                     bitIndex += 1;
                 }
                 baseModules[idx] = dark;
@@ -391,7 +401,7 @@ export const encodeQrMatrix = (text: string): QrMatrix => {
     let bestModules = baseModules;
 
     for (let mask = 0; mask < MASK_PREDICATES.length; mask += 1) {
-        const predicate = MASK_PREDICATES[mask]!;
+        const predicate = itemAt(MASK_PREDICATES, mask);
         const candidate = new Uint8Array(baseModules);
 
         for (let r = 0; r < size; r += 1) {
@@ -399,7 +409,7 @@ export const encodeQrMatrix = (text: string): QrMatrix => {
                 const idx = r * size + c;
 
                 if (reserved[idx] === 1) continue;
-                if (predicate(r, c)) candidate[idx] = candidate[idx]! ^ 1;
+                if (predicate(r, c)) candidate[idx] = itemAt(candidate, idx) ^ 1;
             }
         }
         writeFormatBits(candidate, size, mask);

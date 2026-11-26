@@ -20,8 +20,15 @@ Found by end-to-end runs on real phones: Redmi Note 8 Pro (Android 11, WebView 1
 - Harmless failures go through an explicit `bestEffort()` with the reason in a comment; iOS domain enables ignore only "method not found" (`enableIfSupported`).
 - Benchmarks for WebKit target routing and on-screen page picking.
 
+### Changed
+
+- **Breaking (programmatic API):** `Cdp.send()`, `Cdp.on()`, `Cdp.once()` and `InspectorSession.evaluate()` return `unknown` instead of taking a type parameter that only claimed the shape. Decode results with the exported `sendDecoded`, `subscribe` and decoders (`decodeCookies`, `decodeEvaluateResult`, `rec`, `str`, `num`, …); see the recipe "Reading protocol results without casts".
+- The library source has no type assertions (`as T`, `<T>x`, non-null `!`), checked by a test on the TypeScript AST. Protocol frames, the bridge shim's messages, lab vitals and CLI flags are decoded field by field; a frame of another shape is skipped instead of failing later on `undefined`.
+
 ### Fixed
 
+- `vitals` with a URL instead of a path (`vitals https://…`) fails with a clear message. On Android it failed with "Cannot navigate to invalid URL", and on iOS it printed a row of dashes.
+- `--platform`, `--preset`, `--sse` and `--throttle` are narrowed where they are checked; before, the flag object was cast to the config type after a separate check.
 - The `angular` preset bridges the HMR WebSocket of Angular 17+ (`@angular/build` on Vite, `wss://host/?token=…`). It pointed at `/ng-cli-ws`, the webpack dev server's path, so `ng serve` edits never reached the WebView.
 - `dev` on Android follows the app when it recreates its WebView (rotation, a new screen): the old page stays alive but hidden, and the override now moves to the WebView on screen instead of serving the hidden one.
 - **`dev` HMR for Vite-based stacks (Vite, Nuxt, SvelteKit, Angular):** the WebSocket bridge dropped the subprotocol the page asked for, and Vite only upgrades `vite-hmr` / `vite-ping` sockets, so HMR never connected. The subprotocols are now forwarded and the negotiated one is reported back to the page.

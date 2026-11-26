@@ -67,7 +67,7 @@ export const PRESET_SELECTIONS: readonly PresetSelection[] = [
 ];
 
 export const isPresetSelection = (value: string): value is PresetSelection =>
-    (PRESET_SELECTIONS as readonly string[]).includes(value);
+    PRESET_SELECTIONS.some((item) => item === value);
 
 /** Picks the best preset from a merged dependencies map. */
 export const detectPresetFromDependencies = (

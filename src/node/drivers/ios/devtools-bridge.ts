@@ -2,8 +2,10 @@
 // Accepts Chrome DevTools WebSocket frames (CDP), translates them to WebKit Inspector Protocol (WIP)
 // for the connected iPhone, and translates responses/events back to CDP.
 
+import { parseJson } from '../../../shared/decode.ts';
 import { startDevtoolsHttpServer } from '../../devtools-frontend.ts';
 import { frontendPath, type DevtoolsLink } from '../../devtools-link.ts';
+import { decodeRpcMessage } from '../../protocol.ts';
 import {
     buildWebSocketAcceptResponse,
     createWsFrameAssembler,
@@ -85,14 +87,6 @@ const INTERNAL_ID_BASE = 1_000_000_000;
 /** Upper bound for bytes buffered from the DevTools client before frames are decoded. */
 const MAX_CLIENT_BUFFER_BYTES = 32 * 1024 * 1024;
 
-interface JsonRpcMessage {
-    id?: number;
-    method?: string;
-    params?: Record<string, unknown>;
-    result?: unknown;
-    error?: unknown;
-}
-
 /** Stateful per-connection WIP ↔ CDP JSON-RPC frame translator. */
 export const createIosDevtoolsTranslator = (): IosDevtoolsTranslator => {
     const pendingMethods = new Map<number, string>();
@@ -108,13 +102,9 @@ export const createIosDevtoolsTranslator = (): IosDevtoolsTranslator => {
             return JSON.stringify({ id: nextInternalId, method, params });
         },
         fromClient(rawJson: string): ClientFrameResult {
-            let msg: JsonRpcMessage;
+            const msg = decodeRpcMessage(parseJson(rawJson));
 
-            try {
-                msg = JSON.parse(rawJson) as JsonRpcMessage;
-            } catch {
-                return {};
-            }
+            if (!msg) return {};
 
             if (typeof msg.method !== 'string') return { forward: rawJson };
 
@@ -140,13 +130,9 @@ export const createIosDevtoolsTranslator = (): IosDevtoolsTranslator => {
             };
         },
         fromUpstream(rawJson: string): string | null {
-            let msg: JsonRpcMessage;
+            const msg = decodeRpcMessage(parseJson(rawJson));
 
-            try {
-                msg = JSON.parse(rawJson) as JsonRpcMessage;
-            } catch {
-                return null;
-            }
+            if (!msg) return null;
 
             if (msg.id !== undefined && internalIds.delete(msg.id)) return null;
 

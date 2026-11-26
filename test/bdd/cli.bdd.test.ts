@@ -122,6 +122,11 @@ describe('Feature: End-to-end CLI contracts and `webview-lens init` onboarding',
 
             assert.equal(badThrottle.status, 1);
             assert.match(badThrottle.stderr, /Unknown --throttle/);
+
+            const urlAsPath = runCli(['vitals', 'https://stand.example.test'], dir);
+
+            assert.equal(urlAsPath.status, 1);
+            assert.match(urlAsPath.stderr, /vitals takes paths such as \/ or \/orders/);
         });
     });
 });

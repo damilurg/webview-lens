@@ -1,7 +1,9 @@
 // A minimal Chrome DevTools Protocol client over the global WebSocket (Node 22.4+).
 
+import { parseJson } from '../shared/decode.ts';
 import { isRecord } from '../shared/utils.ts';
 import { createLogger } from './logger.ts';
+import { decodeRpcMessage } from './protocol.ts';
 
 const log = createLogger('cdp');
 
@@ -84,22 +86,17 @@ export const getVersion = async (port: string | number): Promise<Record<string, 
 };
 
 export interface Cdp {
-    /** Resolves with the command result, rejects with the protocol error. */
-    send<T = unknown>(method: string, params?: object): Promise<T>;
-    /** Subscribes to an event; returns the unsubscribe function. */
-    on<T = unknown>(method: string, listener: (params: T) => void): () => void;
-    once<T = unknown>(method: string): Promise<T>;
+    /**
+     * Resolves with the command result, rejects with the protocol error. The result is `unknown`:
+     * decode the fields you read (see `sendDecoded` and the decoders in `protocol.ts`).
+     */
+    send(method: string, params?: object): Promise<unknown>;
+    /** Subscribes to an event; returns the unsubscribe function. Params are `unknown`, see `subscribe`. */
+    on(method: string, listener: (params: unknown) => void): () => void;
+    once(method: string): Promise<unknown>;
     close(): void;
     /** Settles when the socket closes (page closed, app restarted). */
     closed: Promise<void>;
-}
-
-interface Message {
-    id?: number;
-    method?: string;
-    params?: unknown;
-    result?: unknown;
-    error?: { message: string };
 }
 
 /**
@@ -146,14 +143,10 @@ export const connectCdp = async (
     });
 
     const handleMessage = (raw: string) => {
-        let message: Message;
+        // A malformed frame must not crash the process (listener errors surface as uncaught).
+        const message = decodeRpcMessage(parseJson(raw));
 
-        try {
-            message = JSON.parse(raw) as Message;
-        } catch {
-            // A malformed frame must not crash the process (listener errors surface as uncaught).
-            return;
-        }
+        if (!message) return;
 
         if (message.id !== undefined) {
             const call = pending.get(message.id);
@@ -197,33 +190,31 @@ export const connectCdp = async (
         };
     });
 
-    const on = <T>(method: string, listener: (params: T) => void) => {
+    const on = (method: string, listener: (params: unknown) => void) => {
         const set = listeners.get(method) ?? new Set();
-        // Events carry whatever the protocol defines for `method`; the caller names the type.
-        const untyped = listener as (params: unknown) => void;
 
-        set.add(untyped);
+        set.add(listener);
         listeners.set(method, set);
 
-        return () => set.delete(untyped);
+        return () => set.delete(listener);
     };
 
     return {
-        send: <T>(method: string, params: object = {}) =>
-            new Promise<T>((resolve, reject) => {
+        send: (method: string, params: object = {}) =>
+            new Promise<unknown>((resolve, reject) => {
                 if (ws.readyState !== WebSocket.OPEN) {
                     reject(new Error('DevTools connection closed'));
 
                     return;
                 }
                 nextId += 1;
-                pending.set(nextId, { resolve: resolve as (v: unknown) => void, reject });
+                pending.set(nextId, { resolve, reject });
                 transmit(JSON.stringify({ id: nextId, method, params }));
             }),
         on,
-        once: <T>(method: string) =>
-            new Promise<T>((resolve) => {
-                const off = on<T>(method, (params) => {
+        once: (method: string) =>
+            new Promise<unknown>((resolve) => {
+                const off = on(method, (params) => {
                     off();
                     resolve(params);
                 });

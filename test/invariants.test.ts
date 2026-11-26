@@ -3,6 +3,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { describe, it } from 'node:test';
 
+import ts from 'typescript';
+
 const ROOT = path.resolve(import.meta.dirname, '..');
 
 const listTsFiles = (dir: string): string[] => {
@@ -30,7 +32,51 @@ const stripCommentsAndStrings = (source: string): string =>
         .replace(/"(?:\\.|[^"\\])*"/g, '""')
         .replace(/`(?:\\.|[^`\\])*`/g, '``');
 
+/** Type assertions in a file: `x as T` (not `as const`), `<T>x` and non-null `x!`. */
+const findTypeAssertions = (file: string): string[] => {
+    const source = ts.createSourceFile(
+        file,
+        fs.readFileSync(file, 'utf8'),
+        ts.ScriptTarget.Latest,
+        true,
+    );
+    const found: string[] = [];
+    const visit = (node: ts.Node): void => {
+        const isConstAssertion =
+            ts.isAsExpression(node) &&
+            ts.isTypeReferenceNode(node.type) &&
+            node.type.typeName.getText(source) === 'const';
+
+        if (
+            (ts.isAsExpression(node) && !isConstAssertion) ||
+            ts.isTypeAssertionExpression(node) ||
+            ts.isNonNullExpression(node)
+        ) {
+            const { line } = source.getLineAndCharacterOfPosition(node.getStart(source));
+
+            found.push(
+                `${path.relative(ROOT, file)}:${line + 1} ${node.getText(source).slice(0, 60)}`,
+            );
+        }
+        ts.forEachChild(node, visit);
+    };
+
+    visit(source);
+
+    return found;
+};
+
 describe('Repository architectural invariants', () => {
+    it('library code has no type assertions: data from outside is decoded, not cast', () => {
+        const found = listTsFiles(path.join(ROOT, 'src')).flatMap(findTypeAssertions);
+
+        assert.deepEqual(
+            found,
+            [],
+            `Decode instead of asserting (src/shared/decode.ts, src/node/protocol.ts):\n${found.join('\n')}`,
+        );
+    });
+
     it('maintains zero runtime dependencies in package.json', () => {
         const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8')) as {
             dependencies?: Record<string, string>;

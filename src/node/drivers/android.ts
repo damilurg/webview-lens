@@ -15,6 +15,7 @@ import {
 } from '../adb.ts';
 import { type Cdp, connectCdp, type DevtoolsPage, getVersion, listPages } from '../cdp.ts';
 import { diagnose, waitForPage } from '../device.ts';
+import { decodePerformanceMetrics } from '../protocol.ts';
 import { createProtocolInspectorSession } from './base-session.ts';
 import type {
     ConnectedDevice,
@@ -92,14 +93,10 @@ export const createCdpInspectorSession = (cdp: Cdp): InspectorSession => {
                     await cdp.send('Performance.enable');
                     perfEnabled = true;
                 }
-                const { metrics } = await cdp.send<{
-                    metrics?: { name: string; value: number }[];
-                }>('Performance.getMetrics');
-                const used = metrics?.find((m) => m.name === 'JSHeapUsedSize')?.value;
+                const metrics = decodePerformanceMetrics(await cdp.send('Performance.getMetrics'));
+                const used = metrics?.get('JSHeapUsedSize');
 
-                return typeof used === 'number' && Number.isFinite(used)
-                    ? Math.round((used / (1024 * 1024)) * 10) / 10
-                    : null;
+                return used === undefined ? null : Math.round((used / (1024 * 1024)) * 10) / 10;
             } catch {
                 return null;
             }
