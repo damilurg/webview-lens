@@ -238,75 +238,28 @@ npm run bench
 
 ## Частые вопросы
 
-### Как отладить WebView на Android без `chrome://inspect`?
+Ответы с кодом для каждого случая — на странице [Проблемы WebView и решения](troubleshooting.md):
 
-Запустите `npx webview-lens devtools` и откройте в Chrome `http://localhost:3300`. Это те же Chrome
-DevTools, но на адресе, который не меняется при перезапуске приложения (ссылка из `chrome://inspect`
-меняется), и в обычной вкладке, которую можно добавить в закладки. Сборка приложения должна вызывать
-`WebView.setWebContentsDebuggingEnabled(true)`.
-
-### Как отлаживать iOS WKWebView или Safari на Windows?
-
-`webview-lens devtools --platform ios` работает на Windows и macOS: находит iPhone по USB
-(`usbmuxd` из Apple Devices / iTunes), запускает `ios_webkit_debug_proxy` и переводит WebKit
-Inspector Protocol в Chrome DevTools, так что отладка идёт в Chrome на `http://localhost:3300`.
-Приложение должно выставлять `webView.isInspectable = true` (iOS 16.4+). См. [docs/ru/ios.md](ios.md).
-
-### Как открыть локальный dev-сервер (localhost) внутри WebView мобильного приложения?
-
-`npx webview-lens dev http://localhost:3000`. WebView остаётся на HTTPS-домене стенда (без
-`ERR_CLEARTEXT_NOT_PERMITTED` и без правок приложения), а на каждый запрос к этому домену отвечает
-ваш локальный сервер, с HMR. На Android это Chrome DevTools Protocol `Fetch`, на iOS — HTTPS-прокси,
-который перехватывает только хост стенда.
-
-### Как видеть `console.log` и ошибки WebView в терминале?
-
-Добавьте `--logs` к `dev` или `devtools`: сообщения консоли, необработанные исключения с местом в
-исходнике и упавшие или 4xx/5xx сетевые запросы выводятся сразу.
-
-### Как замерить Core Web Vitals внутри WebView и ронять CI при регрессиях?
-
-`npx webview-lens vitals / /catalog --runs 5 --budget lcp=2500,cls=0.1` замеряет LCP, FCP, CLS, INP,
-TTFB, Long Tasks и JS heap на реальном телефоне, пишет отчёт в Markdown и завершается с кодом 1, если
-бюджет превышен. `--throttle` и `--cpu` эмулируют медленную сеть и слабое устройство на Android.
-
-### Как мониторить производительность WebView в продакшене?
-
-Подключите `webview-lens/rum` на странице и `webview-lens/rum/server` на сервере: Web Vitals,
-кастомные тайминги и JS-ошибки с разбивкой на `android-webview` / `ios-wkwebview` / `browser`,
-перцентили p50/p75/p95 и экспорт в Prometheus. См. [docs/ru/rum.md](rum.md).
-
-### Работает ли с Capacitor, Cordova, Ionic, React Native и Flutter?
-
-Да: все они рендерят в Android WebView и iOS WKWebView. В отладочной сборке должна быть разрешена
-отладка WebView: Android включает её для debuggable-сборок, у Capacitor есть
-`webContentsDebuggingEnabled`, у React Native WebView — `webviewDebuggingEnabled`, у `webview_flutter`
-— `AndroidWebViewController.enableDebugging(true)` и `WebKitWebViewController.setInspectable(true)`.
-
-### Работает ли с SSR и SSG (Next.js, Nuxt, SvelteKit, Angular)?
-
-Да: с dev-серверами, production-сборками и статикой; `--forwarded` заставляет SSR-сервер собирать
-абсолютные URL для стенда. См. [docs/ru/ssr.md](ssr.md).
+- [WebView не видно в `chrome://inspect`](troubleshooting.md#webview-не-видно-в-chrome-inspect)
+- [DevTools отключаются при каждом перезапуске приложения](troubleshooting.md#devtools-отключаются-при-каждом-перезапуске-приложения)
+- [Отладка iOS WKWebView на Windows](troubleshooting.md#отладка-ios-wkwebview-на-windows)
+- [Открыть локальный dev-сервер внутри приложения](troubleshooting.md#открыть-локальныи-dev-сервер-внутри-приложения)
+- [Логи `console.log` из WebView в терминале](troubleshooting.md#логи-console-log-из-webview-в-терминале)
+- [Клавиатура закрывает поле ввода в WebView](troubleshooting.md#клавиатура-закрывает-поле-ввода-в-webview)
+- [Замерить Core Web Vitals внутри приложения](troubleshooting.md#замерить-core-web-vitals-внутри-приложения)
+- [Web Vitals реальных пользователей WebView-приложения](troubleshooting.md#web-vitals-реальных-пользователеи-webview-приложения)
+- [Capacitor, Cordova, Ionic, React Native, Flutter](troubleshooting.md#работает-ли-с-capacitor-cordova-ionic-react-native-и-flutter)
 
 ## Альтернативы
 
-| Задача                                           | `chrome://inspect` | Safari Web Inspector | `ios_webkit_debug_proxy` | Eruda / vConsole    | HTTP-прокси (Charles, Proxyman) | `webview-lens` |
-| ------------------------------------------------ | ------------------ | -------------------- | ------------------------ | ------------------- | ------------------------------- | -------------- |
-| Android WebView                                  | ✓                  | —                    | —                        | ✓ (скрипт в сборке) | только сеть                     | ✓              |
-| iOS WKWebView                                    | —                  | ✓                    | ✓                        | ✓ (скрипт в сборке) | только сеть                     | ✓              |
-| Отладка iOS на Windows                           | —                  | —                    | ✓ (без своего UI)        | ✓                   | только сеть                     | ✓              |
-| Полные Chrome DevTools на постоянном адресе      | —                  | —                    | —                        | —                   | —                               | ✓              |
-| Локальный dev-сервер под HTTPS-доменом стенда    | —                  | —                    | —                        | —                   | ✓ (Map Remote)                  | ✓ (с HMR)      |
-| Логи WebView в терминале                         | —                  | —                    | —                        | —                   | —                               | ✓              |
-| Лабораторные Web Vitals на телефоне + бюджеты CI | вручную            | вручную              | —                        | —                   | —                               | ✓              |
-| Продакшен-RUM + Prometheus                       | —                  | —                    | —                        | —                   | —                               | ✓              |
-
-`webview-lens` работает на тех же протоколах: `adb` и DevTools-сокет WebView на Android,
-`ios_webkit_debug_proxy` на iOS.
+Чем отличается от `chrome://inspect`, Safari Web Inspector, `ios_webkit_debug_proxy`, Eruda /
+vConsole и HTTP-прокси, и когда лучше выбрать один из них: [alternatives.md](alternatives.md).
 
 ## Документация
 
 - Быстрый старт (установка, переменные окружения, Android и iOS по шагам): [docs/ru/getting-started.md](getting-started.md) ([EN](../getting-started.md))
+- Проблемы WebView и решения: [docs/ru/troubleshooting.md](troubleshooting.md) ([EN](../troubleshooting.md)) · альтернативы: [docs/ru/alternatives.md](alternatives.md) ([EN](../alternatives.md))
+- Как каждое утверждение проверено на реальных телефонах: [docs/ru/verification.md](verification.md) ([EN](../verification.md))
 - Рецепты (клавиатура, safe areas, авторизация WebView, JS-bridge, загрузка файлов, управление webview-lens из кода): [docs/ru/recipes.md](recipes.md) ([EN](../recipes.md))
 - Как это работает: [docs/ru/how-it-works.md](how-it-works.md) ([EN](../how-it-works.md))
 - Архитектура кода и правила: [ARCHITECTURE.md](../../ARCHITECTURE.md) · участие в разработке: [CONTRIBUTING.md](../../CONTRIBUTING.md)

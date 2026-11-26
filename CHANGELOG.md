@@ -8,6 +8,7 @@ Found by end-to-end runs on real phones: Redmi Note 8 Pro (Android 11, WebView 1
 
 ### Added
 
+- Documentation site: a plain look (system fonts, neutral colours, no hero), a problem-first introduction, "WebView problems and fixes" and "Alternatives" pages (the README FAQ and comparison moved there), FAQ structured data, IndexNow pings after each deploy, and search console verification tags from repository variables.
 - **`webview-lens keyboard`:** live keyboard and viewport numbers of the WebView page on Android and iOS: keyboard height, how much of the page it covers, the visible height, whether the focused field is visible, partly hidden or hidden (and whether a fixed bar is the reason), and the `--wl-*` values. `--overlay` draws them on the phone, `--frames` prints every animation frame. It follows the app to the visible WebView when an earlier screen keeps its own.
 - `docs/verification.md`: every claim with how it was checked on the phones, the measurements, what was found and fixed, and what is not verified.
 - **`webview-lens/viewport`:** keyboard and viewport helpers for pages in Android WebView and iOS WKWebView. `watchViewport()` keeps `--wl-keyboard-inset` (how much of the page the keyboard covers: the keyboard height on iOS, 0 where the WebView resized), `--wl-keyboard-height`, `--wl-viewport-height` and `data-wl-keyboard` up to date; `keepFocusedInputVisible()` scrolls a field the keyboard covers into view. Zero dependencies, SSR-safe; checked on Android 11 with the keyboard open.

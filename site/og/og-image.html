@@ -1,90 +1,80 @@
 <!doctype html>
-<!-- Source of site/public/og-image.png (1200×630). Re-render: npm run og (in site/). -->
 <html lang="en">
     <head>
         <meta charset="utf-8" />
+        <title>webview-lens Open Graph image</title>
         <style>
+            /* Rendered to public/og-image.png by `npm run og` (1200x630). Same palette as the site. */
             html,
             body {
                 margin: 0;
                 width: 1200px;
                 height: 630px;
-                overflow: hidden;
-                font-family: -apple-system, 'Segoe UI', Inter, Helvetica, Arial, sans-serif;
-                background: #0f1117;
-                color: #e6e8ee;
+                background: #ffffff;
+                color: #1f2328;
+                font-family:
+                    -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial,
+                    sans-serif;
             }
-            .card {
+            main {
                 box-sizing: border-box;
-                width: 1200px;
-                height: 630px;
-                padding: 72px 80px;
+                height: 100%;
+                padding: 80px 88px;
                 display: flex;
                 flex-direction: column;
-                justify-content: space-between;
-                background:
-                    radial-gradient(circle at 85% 20%, rgba(111, 66, 193, 0.45), transparent 45%),
-                    radial-gradient(circle at 10% 90%, rgba(46, 164, 79, 0.25), transparent 40%);
+                border-top: 8px solid #0969da;
             }
             .name {
-                font-size: 40px;
-                font-weight: 700;
-                color: #b392f0;
-                letter-spacing: -0.5px;
+                font-size: 30px;
+                font-weight: 600;
+                color: #59636e;
             }
             h1 {
-                margin: 18px 0 0;
+                margin: 28px 0 0;
                 font-size: 60px;
-                line-height: 1.08;
-                letter-spacing: -1.5px;
-                font-weight: 800;
-                max-width: 1000px;
+                line-height: 1.15;
+                font-weight: 600;
+                letter-spacing: -0.5px;
             }
-            .tags {
-                display: flex;
-                flex-wrap: wrap;
-                gap: 14px;
+            p {
+                margin: 28px 0 0;
+                font-size: 28px;
+                line-height: 1.45;
+                color: #59636e;
+                max-width: 960px;
             }
-            .tag {
-                font-size: 26px;
-                padding: 10px 20px;
-                border-radius: 999px;
-                background: rgba(255, 255, 255, 0.08);
-                border: 1px solid rgba(255, 255, 255, 0.14);
-            }
-            .foot {
+            .command {
+                margin-top: auto;
                 display: flex;
                 justify-content: space-between;
-                align-items: flex-end;
-                font-size: 28px;
-                color: #9aa1b2;
+                align-items: baseline;
             }
             code {
-                font-family: 'SF Mono', Menlo, Consolas, monospace;
-                color: #e6e8ee;
-                background: rgba(255, 255, 255, 0.08);
-                padding: 6px 14px;
-                border-radius: 10px;
+                font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+                font-size: 30px;
+                padding: 10px 16px;
+                border: 1px solid #d1d9e0;
+                border-radius: 6px;
+                background: #f6f8fa;
+            }
+            .platforms {
+                font-size: 24px;
+                color: #59636e;
             }
         </style>
     </head>
     <body>
-        <div class="card">
-            <div>
-                <div class="name">webview-lens</div>
-                <h1>Debug Android WebView &amp; iOS WKWebView in Chrome DevTools</h1>
-            </div>
-            <div class="tags">
-                <span class="tag">Fixed DevTools URL</span>
-                <span class="tag">iOS on Windows</span>
-                <span class="tag">localhost inside the app</span>
-                <span class="tag">Web Vitals + CI budgets</span>
-                <span class="tag">RUM + Prometheus</span>
-            </div>
-            <div class="foot">
+        <main>
+            <div class="name">webview-lens</div>
+            <h1>Debug the web page inside your mobile app</h1>
+            <p>
+                Chrome DevTools for Android WebView and iOS WKWebView, your localhost inside the
+                app, logs, keyboard numbers and Web Vitals from a real phone.
+            </p>
+            <div class="command">
                 <code>npx webview-lens devtools</code>
-                <span>macOS · Windows · Linux · MIT</span>
+                <span class="platforms">macOS · Windows · Linux</span>
             </div>
-        </div>
+        </main>
     </body>
 </html>

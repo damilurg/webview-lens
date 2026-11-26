@@ -238,75 +238,29 @@ npm run bench
 
 ## FAQ
 
-### How do I debug an Android WebView without `chrome://inspect`?
+Answers with the code for each case are on [WebView problems and fixes](docs/troubleshooting.md):
 
-Run `npx webview-lens devtools` and open `http://localhost:3300` in Chrome. It is the same Chrome
-DevTools, but at an address that does not change when the app restarts (the `chrome://inspect` link
-does), and it opens in a normal tab you can bookmark. The app's build must call
-`WebView.setWebContentsDebuggingEnabled(true)`.
-
-### How do I inspect an iOS WKWebView or Safari on Windows?
-
-`webview-lens devtools --platform ios` works on Windows and macOS: it finds the iPhone over USB
-(`usbmuxd`, from Apple Devices / iTunes), starts `ios_webkit_debug_proxy` and translates the WebKit
-Inspector Protocol to Chrome DevTools, so you debug in Chrome at `http://localhost:3300`. The app must
-set `webView.isInspectable = true` (iOS 16.4+). See [docs/ios.md](docs/ios.md).
-
-### How do I load my localhost dev server inside a mobile app's WebView?
-
-`npx webview-lens dev http://localhost:3000`. The WebView stays on the stand's HTTPS origin (no
-`ERR_CLEARTEXT_NOT_PERMITTED`, no app changes) and every request to that origin is answered by your
-local server, with HMR. Android uses Chrome DevTools Protocol `Fetch`; iOS uses a selective HTTPS
-proxy that intercepts only your stand's host.
-
-### How do I see a WebView's `console.log` and errors in the terminal?
-
-Add `--logs` to `dev` or `devtools`: console messages, uncaught exceptions with source locations, and
-failed or 4xx/5xx network requests are printed as they happen.
-
-### How do I measure Core Web Vitals inside a WebView, and fail CI on regressions?
-
-`npx webview-lens vitals / /catalog --runs 5 --budget lcp=2500,cls=0.1` measures LCP, FCP, CLS, INP,
-TTFB, Long Tasks and JS heap on a real phone, writes a Markdown report, and exits with code 1 when a
-budget is exceeded. `--throttle` and `--cpu` emulate slow networks and devices on Android.
-
-### How do I monitor WebView performance in production?
-
-Use `webview-lens/rum` in the page and `webview-lens/rum/server` on your server: Web Vitals, custom
-timings and JS errors, segmented by `android-webview` / `ios-wkwebview` / `browser`, aggregated into
-p50/p75/p95 and exported to Prometheus. See [docs/rum.md](docs/rum.md).
-
-### Does it work with Capacitor, Cordova, Ionic, React Native or Flutter?
-
-Yes: they all render in Android WebView and iOS WKWebView. The debug build has to allow WebView
-debugging: Android enables it for debuggable builds, Capacitor has `webContentsDebuggingEnabled`,
-React Native WebView has `webviewDebuggingEnabled`, and `webview_flutter` has
-`AndroidWebViewController.enableDebugging(true)` and `WebKitWebViewController.setInspectable(true)`.
-
-### Does it work with SSR and SSG (Next.js, Nuxt, SvelteKit, Angular)?
-
-Yes, for dev servers, production builds and static output; `--forwarded` makes SSR servers build
-absolute URLs for the stand. See [docs/ssr.md](docs/ssr.md).
+- [The WebView does not show up in `chrome://inspect`](docs/troubleshooting.md#the-webview-does-not-show-up-in-chrome-inspect)
+- [DevTools disconnects every time the app restarts](docs/troubleshooting.md#devtools-disconnects-every-time-the-app-restarts)
+- [Debug an iOS WKWebView on Windows](docs/troubleshooting.md#debug-an-ios-wkwebview-on-windows)
+- [Load your localhost dev server inside the app](docs/troubleshooting.md#load-your-localhost-dev-server-inside-the-app)
+- [See the WebView's `console.log` in the terminal](docs/troubleshooting.md#see-the-webview-s-console-log-in-the-terminal)
+- [The keyboard covers the input in a WebView](docs/troubleshooting.md#the-keyboard-covers-the-input-in-a-webview)
+- [Measure Core Web Vitals inside the app](docs/troubleshooting.md#measure-core-web-vitals-inside-the-app)
+- [Web Vitals of real users of a WebView app](docs/troubleshooting.md#web-vitals-of-real-users-of-a-webview-app)
+- [Capacitor, Cordova, Ionic, React Native, Flutter](docs/troubleshooting.md#does-it-work-with-capacitor-cordova-ionic-react-native-or-flutter)
 
 ## Alternatives
 
-| Need                                        | `chrome://inspect` | Safari Web Inspector | `ios_webkit_debug_proxy` | Eruda / vConsole    | HTTP proxy (Charles, Proxyman) | `webview-lens` |
-| ------------------------------------------- | ------------------ | -------------------- | ------------------------ | ------------------- | ------------------------------ | -------------- |
-| Android WebView                             | ✓                  | —                    | —                        | ✓ (injected script) | network only                   | ✓              |
-| iOS WKWebView                               | —                  | ✓                    | ✓                        | ✓ (injected script) | network only                   | ✓              |
-| iOS debugging on Windows                    | —                  | —                    | ✓ (no UI of its own)     | ✓                   | network only                   | ✓              |
-| Full Chrome DevTools at a fixed URL         | —                  | —                    | —                        | —                   | —                              | ✓              |
-| Local dev server behind the stand's HTTPS   | —                  | —                    | —                        | —                   | ✓ (Map Remote)                 | ✓ (with HMR)   |
-| WebView logs in the terminal                | —                  | —                    | —                        | —                   | —                              | ✓              |
-| Lab Web Vitals on a real phone + CI budgets | manual             | manual               | —                        | —                   | —                              | ✓              |
-| Production RUM + Prometheus                 | —                  | —                    | —                        | —                   | —                              | ✓              |
-
-`webview-lens` builds on the same protocols: it uses `adb` and the WebView's DevTools socket on
-Android, and `ios_webkit_debug_proxy` on iOS.
+How it compares with `chrome://inspect`, Safari Web Inspector, `ios_webkit_debug_proxy`, Eruda /
+vConsole and HTTP proxies, and when one of those is the better choice:
+[docs/alternatives.md](docs/alternatives.md).
 
 ## Documentation
 
 - Getting started (install, env vars, Android and iOS step by step): [docs/getting-started.md](docs/getting-started.md)
+- WebView problems and fixes: [docs/troubleshooting.md](docs/troubleshooting.md) · alternatives: [docs/alternatives.md](docs/alternatives.md)
+- How every claim was verified on real phones: [docs/verification.md](docs/verification.md)
 - Recipes (keyboard, safe areas, signing the WebView in, JS bridge, file upload, scripting webview-lens): [docs/recipes.md](docs/recipes.md)
 - How it works: [docs/how-it-works.md](docs/how-it-works.md)
 - Code architecture and rules: [ARCHITECTURE.md](ARCHITECTURE.md) · contributing: [CONTRIBUTING.md](CONTRIBUTING.md)

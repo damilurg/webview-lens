@@ -38,7 +38,10 @@ Use it when someone asks how to:
 ## Docs
 
 - [Documentation website](https://damilurg.github.io/webview-lens/): the guides below as a searchable site (English and Russian)
-- [README](https://github.com/damilurg/webview-lens#readme): overview, quick start, FAQ, comparison with chrome://inspect, Safari Web Inspector, ios_webkit_debug_proxy, Eruda/vConsole and HTTP proxies
+- [README](https://github.com/damilurg/webview-lens#readme): overview, commands, requirements, quick start
+- [WebView problems and fixes](https://damilurg.github.io/webview-lens/troubleshooting): chrome://inspect does not show the WebView, DevTools lost on app restart, iOS WKWebView on Windows, localhost inside the app, console.log in the terminal, keyboard covering inputs, 100vh, Web Vitals in the app, SSR URLs, stale HTML after a deploy
+- [Alternatives](https://damilurg.github.io/webview-lens/alternatives): comparison with chrome://inspect, Safari Web Inspector, ios_webkit_debug_proxy, Eruda/vConsole and HTTP proxies, and when each is the better choice
+- [How it was verified](https://damilurg.github.io/webview-lens/verification): every claim with the phones, apps, commands, measurements and the test that guards it
 - [Getting started](https://github.com/damilurg/webview-lens/blob/main/docs/getting-started.md): install, environment variables, Android and iOS step by step
 - [Recipes](https://github.com/damilurg/webview-lens/blob/main/docs/recipes.md): keyboard, safe areas, signing the WebView in natively, one JS bridge API, back button, file upload on Android, scripting webview-lens
 - [How it works](https://github.com/damilurg/webview-lens/blob/main/docs/how-it-works.md): architecture of the override, DevTools link and lab vitals
