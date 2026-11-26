@@ -131,3 +131,25 @@ describe('findIwdp', () => {
         assert.equal(findIwdp({ env: { IWDP: exe, PATH: '' }, home, platform: 'win32' }).iwdp, exe);
     });
 });
+
+describe('usbmux device list (found on iOS 26.6)', () => {
+    it('counts an iPhone seen over USB and Wi-Fi once', () => {
+        const udid = '00008150-00086C513621401C';
+
+        assert.equal(
+            describeIosDevices(
+                {
+                    available: true,
+                    devices: [
+                        { deviceId: 1, udid, connectionType: 'USB' },
+                        { deviceId: 2, udid, connectionType: 'USB' },
+                        { deviceId: 3, udid, connectionType: 'Network' },
+                    ],
+                },
+                undefined,
+                'darwin',
+            ),
+            null,
+        );
+    });
+});

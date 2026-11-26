@@ -236,3 +236,37 @@ describe('createTimingsHandler & context validation', () => {
         assert.equal(badName.status, 400);
     });
 });
+
+describe('toNodeHandler error handling', () => {
+    it('answers 500 instead of rejecting when the callback throws', async () => {
+        const handler = toNodeHandler(
+            createVitalsHandler({
+                onMetric: () => {
+                    throw new Error('storage down');
+                },
+            }),
+        );
+        let status = 0;
+        const req: NodeIncomingMessage = {
+            method: 'POST',
+            url: '/api/vitals',
+            headers: { host: 'app.example.test', 'content-type': 'application/json' },
+            async *[Symbol.asyncIterator]() {
+                yield JSON.stringify({ name: 'LCP', value: 1200, rating: 'good', path: '/' });
+            },
+        };
+        const res: NodeServerResponse = {
+            get statusCode() {
+                return status;
+            },
+            set statusCode(code: number) {
+                status = code;
+            },
+            setHeader: () => undefined,
+            end: () => undefined,
+        };
+
+        await handler(req, res);
+        assert.equal(status, 500);
+    });
+});

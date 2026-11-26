@@ -85,6 +85,17 @@ export const getVersion = async (port: string | number): Promise<Record<string, 
     }
 };
 
+/** `once` for any `on`: resolves with the first event's params, then unsubscribes. */
+export const onceVia =
+    (on: Cdp['on']): Cdp['once'] =>
+    (method) =>
+        new Promise((resolve) => {
+            const off = on(method, (params) => {
+                off();
+                resolve(params);
+            });
+        });
+
 export interface Cdp {
     /**
      * Resolves with the command result, rejects with the protocol error. The result is `unknown`:
@@ -212,13 +223,7 @@ export const connectCdp = async (
                 transmit(JSON.stringify({ id: nextId, method, params }));
             }),
         on,
-        once: (method: string) =>
-            new Promise<unknown>((resolve) => {
-                const off = on(method, (params) => {
-                    off();
-                    resolve(params);
-                });
-            }),
+        once: onceVia(on),
         close: () => {
             wrapped?.dispose();
             ws.close();

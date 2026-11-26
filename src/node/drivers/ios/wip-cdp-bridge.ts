@@ -4,7 +4,7 @@
 
 import { rec } from '../../../shared/decode.ts';
 import { isRecord } from '../../../shared/utils.ts';
-import type { Cdp } from '../../cdp.ts';
+import { type Cdp, onceVia } from '../../cdp.ts';
 
 export interface ProtocolMessage {
     method: string;
@@ -234,13 +234,7 @@ export const createWipCdpBridge = (rawWip: Cdp): Cdp => {
             return translateWipResultToCdp(method, result);
         },
         on,
-        once: (method: string) =>
-            new Promise<unknown>((resolve) => {
-                const off = on(method, (params) => {
-                    off();
-                    resolve(params);
-                });
-            }),
+        once: onceVia(on),
         close: () => rawWip.close(),
         closed: rawWip.closed,
     };

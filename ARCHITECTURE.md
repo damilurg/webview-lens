@@ -85,14 +85,14 @@ better) and reactive streams (a handful of event streams do not pay for RxJS or 
 
 ## Tests
 
-| Kind          | Where                                                   | What it guards                                                                           |
-| ------------- | ------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
-| Unit          | `test/*.test.ts`                                        | pure functions and factories with injected doubles                                       |
-| BDD scenarios | `test/bdd/`                                             | features end to end with fake devices                                                    |
-| Contract      | `test/webkit-targets.test.ts`, `test/hardening.test.ts` | protocol behaviour as **recorded from real devices** (iOS 26 targets, Vite's `vite-hmr`) |
-| Conformance   | `test/rfc-conformance.test.ts`                          | RFC 6455, RFC 5280, ISO/IEC 18004 details                                                |
-| Invariants    | `test/invariants.test.ts`                               | zero deps, no `else`, Edge-safe browser modules, package metadata                        |
-| Benchmarks    | `test/bench/`                                           | hot paths with time budgets (`npm run bench`)                                            |
+| Kind          | Where                                                  | What it guards                                                                           |
+| ------------- | ------------------------------------------------------ | ---------------------------------------------------------------------------------------- |
+| Unit          | `test/<module>.test.ts`, `test/web/` (browser modules) | pure functions and factories with injected doubles, one file per module                  |
+| BDD scenarios | `test/bdd/`                                            | features end to end with fake devices                                                    |
+| Contract      | `test/webkit-targets.test.ts`, cases marked "found on" | protocol behaviour as **recorded from real devices** (iOS 26 targets, Vite's `vite-hmr`) |
+| Conformance   | `test/rfc-conformance.test.ts`                         | RFC 6455, RFC 5280, ISO/IEC 18004 details                                                |
+| Invariants    | `test/invariants.test.ts`                              | zero deps, no `else`, no type assertions, Edge-safe browser modules, package metadata    |
+| Benchmarks    | `test/bench/`                                          | hot paths with time budgets (`npm run bench`)                                            |
 
 **A fake must replay what a device does, not what we expect it to do.** Every bug found on real phones
 (Vite subprotocols, WebKit target routing, `Page.navigate` missing in WebKit, a 404 DevTools revision,

@@ -13,8 +13,6 @@ import {
     MAX_PATH_LENGTH,
     PATH_PATTERN,
     TIMING_NAME_PATTERN,
-    type MetricName,
-    type Rating,
 } from '../shared/thresholds.ts';
 import { isRecord } from '../shared/utils.ts';
 
@@ -31,22 +29,13 @@ export {
     toPrometheusText,
     type VitalSummary,
 } from './aggregator.ts';
+import type { TimingPayload, VitalPayload } from './context.ts';
 
-export interface VitalMetric {
-    name: MetricName;
-    value: number;
-    rating: Rating;
-    path: string;
-    navigationType?: string;
-    context?: Record<string, string>;
-}
+/** A vital as the handler hands it to `onMetric`: the shape the browser reporter sends. */
+export type VitalMetric = VitalPayload;
 
-export interface TimingMetric {
-    name: string;
-    duration: number;
-    path: string;
-    context?: Record<string, string>;
-}
+/** A custom timing as the handler hands it to `onTiming`. */
+export type TimingMetric = TimingPayload;
 
 export type RejectReason = 'method' | 'too-large' | 'invalid';
 

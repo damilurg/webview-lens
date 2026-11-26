@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import type { Cdp } from '../../src/node/cdp.ts';
+import { type Cdp, onceVia } from '../../src/node/cdp.ts';
 import { createIosDriver } from '../../src/node/drivers/ios/index.ts';
 import { resolveDriver } from '../../src/node/drivers/registry.ts';
 import type { DeviceDriver } from '../../src/node/drivers/types.ts';
@@ -36,13 +36,7 @@ const createFakeWipSocket = () => {
 
             return () => set.delete(listener);
         },
-        once: (method: string) =>
-            new Promise<unknown>((resolve) => {
-                const off = socket.on(method, (params) => {
-                    off();
-                    resolve(params);
-                });
-            }),
+        once: (method: string) => onceVia(socket.on)(method),
         close: () => resolveClosed(),
         closed,
     };

@@ -18,40 +18,39 @@ export const num: Decoder<number> = (input) =>
 
 export const bool: Decoder<boolean> = (input) => (typeof input === 'boolean' ? input : undefined);
 
+const decodeItems = <T>(
+    item: Decoder<T>,
+    input: unknown,
+    onMiss: 'fail' | 'skip',
+): T[] | undefined => {
+    if (!Array.isArray(input)) return undefined;
+
+    const out: T[] = [];
+
+    for (const entry of input) {
+        const decoded = item(entry);
+
+        if (decoded !== undefined) {
+            out.push(decoded);
+            continue;
+        }
+        if (onMiss === 'fail') return undefined;
+    }
+
+    return out;
+};
+
 /** An array whose items all decode; `undefined` if the input is not an array or any item fails. */
 export const list =
     <T>(item: Decoder<T>): Decoder<T[]> =>
-    (input) => {
-        if (!Array.isArray(input)) return undefined;
-
-        const out: T[] = [];
-
-        for (const entry of input) {
-            const decoded = item(entry);
-
-            if (decoded === undefined) return undefined;
-            out.push(decoded);
-        }
-
-        return out;
-    };
+    (input) =>
+        decodeItems(item, input, 'fail');
 
 /** An array, keeping only the items that decode (for lists where one odd entry is not fatal). */
 export const someOf =
     <T>(item: Decoder<T>): Decoder<T[]> =>
-    (input) => {
-        if (!Array.isArray(input)) return undefined;
-
-        const out: T[] = [];
-
-        for (const entry of input) {
-            const decoded = item(entry);
-
-            if (decoded !== undefined) out.push(decoded);
-        }
-
-        return out;
-    };
+    (input) =>
+        decodeItems(item, input, 'skip');
 
 /** An object whose values are all strings (HTTP headers). */
 export const stringMap: Decoder<Record<string, string>> = (input) => {
