@@ -80,26 +80,6 @@ const decodeBridgeMessage: Decoder<BridgeMessage> = (input) => {
     };
 };
 
-/** Node's WebSocket (undici) constructor: unlike the DOM one, its second argument takes headers. */
-type NodeWebSocketConstructor = new (
-    url: string,
-    init?: { protocols?: string[]; headers?: Record<string, string> },
-) => WebSocket;
-
-// The project type-checks Node and browser code together, so `WebSocket` has the DOM signature
-// here. Node's global accepts `{ protocols, headers }` (undici); check it is a constructor at runtime.
-const isNodeWebSocket = (value: unknown): value is NodeWebSocketConstructor =>
-    typeof value === 'function' && 'CLOSING' in value;
-
-const nodeWebSocket = (): NodeWebSocketConstructor => {
-    const ctor: unknown = globalThis.WebSocket;
-
-    if (!isNodeWebSocket(ctor))
-        throw new Error('webview-lens needs Node.js 22+ (global WebSocket)');
-
-    return ctor;
-};
-
 export type SsePolicy = 'fail' | 'continue';
 
 export interface OverrideLogger {
@@ -542,8 +522,8 @@ export const startOverride = async ({
             const targetOrigin = hmr ? hmr.origin : mapper.localOrigin;
             debugLog.debug(`bridge socket #${sid} → ${targetUrl}`, { protocols });
 
-            const NodeWebSocket = nodeWebSocket();
-            const socket = new NodeWebSocket(targetUrl, {
+            // Node's WebSocket (undici) takes headers in its second argument, unlike the DOM one.
+            const socket = new WebSocket(targetUrl, {
                 ...(protocols.length > 0 ? { protocols } : {}),
                 headers: { origin: targetOrigin },
             });

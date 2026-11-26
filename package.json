@@ -96,9 +96,9 @@
     "scripts": {
         "clean": "node -e \"import('node:fs').then(fs => fs.rmSync('dist', { recursive: true, force: true }))\"",
         "prebuild": "npm run clean",
-        "build": "tsc -p tsconfig.build.json",
+        "build": "tsc -p tsconfig.build.json && tsc -p tsconfig.build.web.json",
         "postbuild": "node -e \"import('node:fs').then(fs => { try { fs.chmodSync('dist/cli.js', 0o755); } catch {} })\"",
-        "check": "tsc -p tsconfig.json",
+        "check": "tsc -b",
         "format": "prettier --write .",
         "format:check": "prettier --check .",
         "test": "node --test \"test/**/*.test.ts\"",

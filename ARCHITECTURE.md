@@ -14,19 +14,34 @@ src/
                          commands/ (dev, devtools, vitals, doctor/cert/init)
   node/                  the Node library (`webview-lens`)
     adb.ts device.ts     Android: adb, socket discovery, port forwards, waiting for a page
-    cdp.ts               CDP client + TransportAdapter + page picking
+    cdp.ts               CDP client + TransportAdapter + page picking; protocol.ts decodes frames
     override.ts          `dev` on Android: CDP Fetch interception; bridge-shim.ts is the page side
     devtools-link.ts     fixed DevTools address (Android); devtools-frontend.ts serves the UI
     vitals-lab.ts        lab Web Vitals; telemetry.ts page logs; logger.ts the library's own log
     drivers/             DeviceDriver strategy: android.ts, ios/ (usbmux, iwdp, webkit-targets,
                          wip-cdp-bridge, devtools-bridge, mitm-proxy, certs), registry.ts
-  rum/                   browser RUM client + Fetch API handlers (Edge-safe)
+  rum/                   index.ts browser RUM client, context.ts its pure part, server.ts +
+                         aggregator.ts Fetch API handlers (Edge-safe)
   viewport/              browser keyboard/viewport helpers (Edge-safe)
-  shared/                code both sides use (Edge-safe)
+  shared/                code both sides use: decoders, thresholds, utils (Edge-safe)
 ```
 
 `src/rum`, `src/viewport` and `src/shared` never import `node:*`: they run in browsers, Edge workers,
 Bun and Deno. A test enforces it.
+
+Type checking is split by runtime, so each file sees only the globals it really has (`npm run check`
+is `tsc -b` over the projects listed in `tsconfig.json`):
+
+| Project                  | Files                                                                  | Globals      |
+| ------------------------ | ---------------------------------------------------------------------- | ------------ |
+| `tsconfig.node.json`     | everything in `src`, `test`, `examples`, `scripts` below               | Node, no DOM |
+| `tsconfig.web.json`      | `src/rum/index.ts`, `src/rum/context.ts`, `src/viewport`, `src/shared` | DOM, no Node |
+| `tsconfig.web-test.json` | `test/web`, `examples/recipes/keyboard.ts` and the modules they test   | DOM and Node |
+
+So `document` in Node code, or `Buffer` / `process` in code that runs in the page, is a type error,
+and Node APIs keep their own signatures (Node's `WebSocket` takes `headers`, the DOM one does not).
+Tests of the browser modules live in `test/web/`. The package is built in two passes into `dist/`
+(`tsconfig.build.json`, `tsconfig.build.web.json`).
 
 ## Rules
 
@@ -53,7 +68,7 @@ Bun and Deno. A test enforces it.
    outside (protocol frames, page scripts, JSON files, CLI flags) arrives as `unknown` and goes through
    a decoder (`src/shared/decode.ts`, `src/node/protocol.ts`) that returns the value or `undefined`.
    No `as T` (only `as const`), no `<T>x`, no non-null `!`; indexed reads use bounds-checked helpers
-   (`buffer.readUInt8`, `itemAt`). Where Node's types are narrower than the runtime (an upgrade socket
+   (`buffer.readUInt8`, `itemAt`). Where Node's types are wider than what arrives (an upgrade socket
    typed as `Duplex`), narrow with a runtime check such as `instanceof net.Socket`.
 
 ## Patterns, and where

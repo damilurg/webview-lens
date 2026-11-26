@@ -9,8 +9,8 @@ import {
     detectWebViewEnv,
     sanitizeContext,
     sanitizePath,
-} from '../src/rum/index.ts';
-import { parseVital } from '../src/rum/server.ts';
+} from '../../src/rum/index.ts';
+import { parseVital } from '../../src/rum/server.ts';
 
 const spyTransport = () => {
     const sent: { endpoint: string; body: unknown }[] = [];

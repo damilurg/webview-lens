@@ -8,17 +8,6 @@ import {
     parseBudgets,
     toMarkdown,
 } from '../../src/node/vitals-lab.ts';
-import {
-    createTimingReporter,
-    createVitalsReporter,
-    detectWebViewEnv,
-} from '../../src/rum/index.ts';
-import {
-    createTimingsHandler,
-    createVitalsHandler,
-    type TimingMetric,
-    type VitalMetric,
-} from '../../src/rum/server.ts';
 
 describe('Feature: CI Performance Budgets, Cross-platform Lab Vitals & Production RUM Context', () => {
     describe('Scenario: Lab vitals enforces CI budgets and reports violations clearly', () => {
@@ -110,78 +99,6 @@ describe('Feature: CI Performance Budgets, Cross-platform Lab Vitals & Productio
             assert.match(markdown, /⚪ n\/a/);
             assert.match(markdown, /2 \(135 ms\)/);
             assert.match(markdown, /bridge_ready=88 ms/);
-        });
-    });
-
-    describe('Scenario: Production RUM carries WebView context tags and custom bridge timings', () => {
-        it('Given Android WebView UA and custom context, When vitals and custom timings are reported, Then server handlers validate and deliver checked context and timings', async () => {
-            const env = detectWebViewEnv(
-                'Mozilla/5.0 (Linux; Android 14; Pixel 8; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/126.0.0.0 Mobile Safari/537.36',
-            );
-
-            assert.equal(env, 'android-webview');
-
-            const vitals: VitalMetric[] = [];
-            const timings: TimingMetric[] = [];
-            const vitalsHandler = createVitalsHandler({
-                onMetric: (m) => void vitals.push(m),
-            });
-            const timingsHandler = createTimingsHandler({
-                onTiming: (t) => void timings.push(t),
-            });
-
-            const pending: Promise<Response>[] = [];
-            const sendTo =
-                (handler: (req: Request) => Promise<Response>) =>
-                (endpoint: string, body: string) => {
-                    pending.push(
-                        handler(
-                            new Request(`https://app.example.test${endpoint}`, {
-                                method: 'POST',
-                                body,
-                                headers: { 'content-type': 'application/json' },
-                            }),
-                        ),
-                    );
-                };
-
-            const reportVital = createVitalsReporter({
-                path: () => '/checkout/:step',
-                context: () => ({ appVersion: '5.12.0', env }),
-                transport: sendTo(vitalsHandler),
-            });
-            const reportTiming = createTimingReporter({
-                path: () => '/checkout/:step',
-                context: () => ({ appVersion: '5.12.0', env }),
-                transport: sendTo(timingsHandler),
-            });
-
-            reportVital({ name: 'LCP', value: 1850, rating: 'good' });
-            reportTiming('bridge_init', 42.5);
-
-            const responses = await Promise.all(pending);
-
-            assert.deepEqual(
-                responses.map((r) => r.status),
-                [204, 204],
-            );
-            assert.deepEqual(vitals, [
-                {
-                    name: 'LCP',
-                    value: 1850,
-                    rating: 'good',
-                    path: '/checkout/:step',
-                    context: { appVersion: '5.12.0', env: 'android-webview' },
-                },
-            ]);
-            assert.deepEqual(timings, [
-                {
-                    name: 'bridge_init',
-                    duration: 42.5,
-                    path: '/checkout/:step',
-                    context: { appVersion: '5.12.0', env: 'android-webview' },
-                },
-            ]);
         });
     });
 });

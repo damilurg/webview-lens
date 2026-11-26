@@ -15,6 +15,7 @@ Found by end-to-end runs on real phones: Redmi Note 8 Pro (Android 11, WebView 1
 
 ### Changed
 
+- Type checking is split by runtime: Node code against Node's types without the DOM, the browser modules (`webview-lens/rum`, `webview-lens/viewport`, `src/shared`) against the DOM without Node types. `npm run check` is `tsc -b`, and the package builds in two passes. The pure part of the RUM client moved to `src/rum/context.ts`; `webview-lens/rum` re-exports it unchanged.
 - The CDP client takes a `TransportAdapter` instead of knowing about iOS; WebKit target routing is one adapter.
 - The CLI is split into one module per command over a validated `CliContext`; the WebSocket bridge shim and the proxy's pages have their own modules. No behaviour change.
 - Harmless failures go through an explicit `bestEffort()` with the reason in a comment; iOS domain enables ignore only "method not found" (`enableIfSupported`).

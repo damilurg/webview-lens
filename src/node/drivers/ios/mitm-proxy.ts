@@ -213,8 +213,7 @@ export const handleDecryptedRequest = async ({
     };
 
     if (body && body.byteLength > 0 && method !== 'GET' && method !== 'HEAD') {
-        // A copy on its own ArrayBuffer: a Buffer may sit on a shared pool, which BodyInit excludes.
-        init.body = Uint8Array.from(body);
+        init.body = body;
     }
 
     const response = await fetchImpl(targetUrl, init);

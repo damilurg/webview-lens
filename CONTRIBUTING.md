@@ -13,6 +13,9 @@ Read [ARCHITECTURE.md](ARCHITECTURE.md) first: the rules there (pure core, facto
 dependencies as parameters, early return, zero runtime dependencies) are checked in review and partly
 by tests.
 
+Node code and browser code are type-checked separately (see "Module map" in ARCHITECTURE.md): tests
+of `src/rum/index.ts` and `src/viewport` go in `test/web/`, everything else in `test/`.
+
 ## Branches and releases
 
 - Work on a branch from **`dev`**, open a pull request into `dev`. `main` only receives reviewed

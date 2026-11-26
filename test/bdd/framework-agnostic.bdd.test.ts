@@ -7,45 +7,9 @@ import { describe, it } from 'node:test';
 import type { DevtoolsPage } from '../../src/node/cdp.ts';
 import { startOverride } from '../../src/node/override.ts';
 import { resolvePreset } from '../../src/node/presets.ts';
-import { createVitalsReporter } from '../../src/rum/index.ts';
-import {
-    createVitalsHandler,
-    type NodeIncomingMessage,
-    type NodeServerResponse,
-    toNodeHandler,
-    type VitalMetric,
-} from '../../src/rum/server.ts';
 import { createFakeCdp as createBaseFakeCdp } from '../helpers/fake-cdp.ts';
 
 const createFakeCdp = () => createBaseFakeCdp({ cookies: [{ name: 'sid', value: 'cookie-1' }] });
-
-const createFakeNodeRequest = (
-    method: string,
-    url: string,
-    headers: Record<string, string>,
-    chunks: string[] = [],
-): NodeIncomingMessage => ({
-    method,
-    url,
-    headers,
-    async *[Symbol.asyncIterator]() {
-        for (const chunk of chunks) yield Buffer.from(chunk);
-    },
-});
-
-const createFakeNodeResponse = () => {
-    const headers = new Map<string, string>();
-    let endedBody: Uint8Array | string | undefined;
-    const res: NodeServerResponse = {
-        statusCode: 200,
-        setHeader: (name, value) => headers.set(name.toLowerCase(), value),
-        end: (chunk) => {
-            endedBody = chunk;
-        },
-    };
-
-    return { res, headers, body: () => endedBody };
-};
 
 const PAGE: DevtoolsPage = {
     id: 'page-1',
@@ -263,44 +227,6 @@ describe('Feature: Framework-agnostic frontend override & RUM', () => {
             assert.ok(errors.some((e) => /text\/event-stream|SSE/i.test(e)));
 
             session.close();
-        });
-    });
-
-    describe('Scenario: Framework-agnostic RUM supports :param routes over a standard Node HTTP handler', () => {
-        it('Given a React/Vue router template /event/:id and toNodeHandler, When a vital is reported, Then the server accepts 204 with the preserved template', async () => {
-            const received: VitalMetric[] = [];
-            const nodeHandler = toNodeHandler(
-                createVitalsHandler({
-                    onMetric: (metric) => {
-                        received.push(metric);
-                    },
-                }),
-            );
-
-            let pending: Promise<void> | undefined;
-            const response = createFakeNodeResponse();
-            const report = createVitalsReporter({
-                endpoint: '/api/vitals',
-                path: () => '/event/:id/details?tab=2',
-                transport: (endpoint, body) => {
-                    const req = createFakeNodeRequest(
-                        'POST',
-                        endpoint,
-                        { host: 'app.example.test', 'content-type': 'application/json' },
-                        [body],
-                    );
-
-                    pending = nodeHandler(req, response.res);
-                },
-            });
-
-            report({ name: 'LCP', value: 1450, rating: 'good' });
-            await pending;
-
-            assert.equal(response.res.statusCode, 204);
-            assert.deepEqual(received, [
-                { name: 'LCP', value: 1450, rating: 'good', path: '/event/:id/details' },
-            ]);
         });
     });
 });

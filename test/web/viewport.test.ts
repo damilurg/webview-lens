@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { computeViewport, type ViewportWindow, watchViewport } from '../src/viewport/index.ts';
+import { computeViewport, type ViewportWindow, watchViewport } from '../../src/viewport/index.ts';
 
 /** A window whose sizes the test moves, firing resize on both viewports like a browser. */
 const fakeWindow = (innerHeight: number, innerWidth = 390) => {
