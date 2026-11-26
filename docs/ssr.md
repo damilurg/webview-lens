@@ -277,6 +277,19 @@ without a preflight; the handlers parse the body whatever its Content-Type. `all
 custom `transport`. Use route templates (`path: () => '/blog/[slug]'`) so thousands of prerendered
 pages stay a handful of series.
 
+### Cache headers on prerendered HTML
+
+Send `Cache-Control: no-cache` (or a short `max-age`) with prerendered HTML. Without `Cache-Control`,
+a `Last-Modified` header lets the WebView cache the page heuristically (about a tenth of its age), so
+after a deploy the app can keep showing the old HTML. In device runs, Nuxt 4 served its prerendered
+page that way, and both the Android WebView and WKWebView kept showing it after the origin switched to
+another build. Next.js sends `s-maxage` (CDN only), SvelteKit and Angular send only an `ETag`. In
+Nuxt, `routeRules: { '/static': { prerender: true, headers: { 'cache-control': 'no-cache' } } }` fixes
+it; elsewhere set the header on the CDN or the reverse proxy.
+
+`CLS` and `LCP` are reported when the page is hidden (navigation away, app to background). Expect
+them on the collector after the user leaves a page, not while it is open.
+
 ## Measuring: `webview-lens vitals`
 
 - Run it against a **production build** (`next start`, `node .output/server/index.mjs`, a static
