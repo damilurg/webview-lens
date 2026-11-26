@@ -47,6 +47,11 @@ export const setupKeyboard = () => {
 .screen {
     height: var(--wl-viewport-height, 100dvh); /* вместо 100vh */
 }
+body {
+    /* Даёт последним полям подняться над клавиатурой: WKWebView в приложении не добавляет под неё
+       запас прокрутки (замерено), и без этого они остаются под ней. 0, если WebView сжался. */
+    padding-bottom: var(--wl-scroll-room, 0px);
+}
 ```
 
 | Переменная / атрибут   | Что значит                                                                                        |
@@ -54,6 +59,7 @@ export const setupKeyboard = () => {
 | `--wl-keyboard-inset`  | часть страницы под клавиатурой: на столько поднимать закреплённые панели (0, если WebView сжался) |
 | `--wl-keyboard-height` | высота клавиатуры (0, когда закрыта)                                                              |
 | `--wl-viewport-height` | видимая высота                                                                                    |
+| `--wl-scroll-room`     | запас в конце страницы, чтобы последние поля можно было прокрутить над клавиатуру                 |
 | `data-wl-keyboard`     | `open` / `closed` на `<html>`                                                                     |
 
 **Android (Kotlin).** Оставьте у activity `android:windowSoftInputMode="adjustResize"`. Приложения с
@@ -68,9 +74,24 @@ webView.setOnApplyWindowInsetsListener { view, insets ->
 }
 ```
 
-**Flutter.** `Scaffold(resizeToAvoidBottomInset: true)` (по умолчанию) уменьшает `WebViewWidget` на
-обеих платформах: страница видит меньший viewport, и `--wl-keyboard-inset` приходит к 0 (на iOS после
-первых ~50 мс, когда сжимается только видимая область, замерено).
+**Flutter.** На Android оставьте `Scaffold(resizeToAvoidBottomInset: true)` по умолчанию:
+`WebViewWidget` сжимается, `--wl-keyboard-inset` остаётся 0. На iOS выключите его и отдайте
+клавиатуру WKWebView, а также запретите WKWebView добавлять безопасную зону к своим отступам (у
+webview_flutter нет для этого Dart-API, нужно несколько строк Swift). Оба замерены на iPhone: со
+сжатием WKWebView прокручивал новое поле по старой геометрии; с автоматическими отступами поле в
+закреплённой панели уезжало под клавиатуру на 33 px.
+
+```dart
+Scaffold(resizeToAvoidBottomInset: !Platform.isIOS, body: WebViewWidget(controller: controller))
+
+// после первой загрузки страницы (onPageFinished), только iOS:
+const MethodChannel('app/webview_insets').invokeMethod<int>('neverAdjust');
+```
+
+```swift
+// AppDelegate: на "neverAdjust" для каждого WKWebView в окнах приложения
+webView.scrollView.contentInsetAdjustmentBehavior = .never
+```
 
 **iOS (Swift).** WKWebView не уменьшается; так и оставьте и используйте `--wl-keyboard-inset` на
 странице. С `viewport-fit=cover` уберите двойные отступы: `webView.scrollView.contentInsetAdjustmentBehavior = .never`.
@@ -91,17 +112,16 @@ npx webview-lens keyboard --overlay            # Android; для iPhone доба
 Замеры этим инструментом в тестовых приложениях (Redmi Note 8 Pro, Android 11, WebView 157;
 iPhone 17 Pro, iOS 26.6.1; 2026-11-26):
 
-| Контейнер                         | Что происходит                                                                                                                                               |
-| --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Android, Kotlin, `adjustResize`   | WebView сжимается 720 → 465 px; клавиатура 255 px, перекрывает 0 px страницы. Поле в фокусе сначала скрыто, `keepFocusedInputVisible` докручивает его.       |
-| iOS, Flutter (`webview_flutter`)  | Две фазы: ~50 мс сжимается только видимая область (клавиатура 333–369 px перекрывает до 300 px), потом Flutter сжимает WKWebView 680 → 311 px, перекрытие 0. |
-| iOS, Flutter, закреплённая панель | Панель (67 px) едет на клавиатуре и закрывает 67 px над ней: с 2026-11-26 `keepFocusedInputVisible` учитывает закреплённые (`fixed`, `sticky`) панели.       |
+| Контейнер                                     | Что происходит                                                                                                          |
+| --------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| Android, Kotlin, `adjustResize`               | WebView сжимается 720 → 465 px; клавиатура 255 px, перекрывает 0 px. Поле за панелью (72 px) поднимается за 0,2 с.      |
+| iOS, Flutter, клавиатурой управляет WKWebView | Видимая область сжимается до 311 px и сдвигается внутри 714 px; клавиатура 369–403 px. Каждое поле в итоге над панелью. |
 
-**Известное ограничение (iOS, Flutter).** При переходе фокуса на другое поле при уже открытой
-клавиатуре WKWebView прокручивает новое поле ниже видимой области и потом игнорирует прокрутку со
-страницы (`scrollIntoView`, `scrollBy`, `scrollTop`, повторный фокус: ни один не сдвинул поле,
-проверено на устройстве). Первый фокус работает. Исправление нужно на нативной стороне;
-`webview-lens keyboard` показывает, когда это происходит.
+Что инструмент нашёл на iPhone; всё исправлено в `webview-lens/viewport` и рецепте Flutter выше:
+клиентские координаты там отсчитываются от видимой области, и скрытое поле казалось видимым;
+`scrollIntoView` центрирует в layout viewport, часть которого под клавиатурой; странице не хватало
+запаса прокрутки, чтобы поднять последние поля; `innerHeight` уменьшался на 34 px, пока в фокусе
+поле закреплённой панели, и панель уходила вслед за ним под клавиатуру.
 
 ## iOS увеличивает страницу при фокусе на поле
 

@@ -10,27 +10,35 @@
 //                          bars. iOS: the keyboard height. Android adjustResize: 0 (the WebView
 //                          already shrank), so the same CSS is right on both.
 //   --wl-keyboard-height   the keyboard height itself (0 when closed)
+//   --wl-scroll-room       space to add at the end of the page (padding-bottom) so its last fields
+//                          can be scrolled above the keyboard; 0 where the WebView resized
 //   [data-wl-keyboard]     "open" | "closed" on <html>
 //
 // Zero dependencies, no globals at import time: safe to import during SSR, where it does nothing.
 
 import {
     EDITABLE,
+    layoutViewportHeight,
     measureViewport,
+    revealDelta,
     unobstructedBottom,
     type ViewportState,
     type ViewportTracker,
+    visibleBottomInClient,
 } from './compute.ts';
 
 export {
     computeViewport,
     type LayoutElement,
+    layoutViewportHeight,
     measureViewport,
+    revealDelta,
     unobstructedBottom,
     type ViewportReading,
     type ViewportSample,
     type ViewportState,
     type ViewportTracker,
+    visibleBottomInClient,
 } from './compute.ts';
 
 /** The parts of `window` this module reads (a test double in unit tests). */
@@ -40,6 +48,7 @@ export interface ViewportWindow {
     visualViewport?: {
         height: number;
         offsetTop: number;
+        pageTop?: number;
         addEventListener(type: 'resize' | 'scroll', listener: () => void): void;
         removeEventListener(type: 'resize' | 'scroll', listener: () => void): void;
     } | null;
@@ -59,6 +68,16 @@ export interface WatchViewportOptions {
     win?: ViewportWindow;
 }
 
+/** The height `position: fixed` uses (not always `innerHeight`, see layoutViewportHeight). */
+const layoutHeight = (win: ViewportWindow): number =>
+    typeof document === 'undefined'
+        ? win.innerHeight
+        : layoutViewportHeight({
+              innerHeight: win.innerHeight,
+              clientHeight: document.documentElement.clientHeight,
+              standardsMode: document.compatMode === 'CSS1Compat',
+          });
+
 /** A text field has focus, so the keyboard may be up (no focus: it is certainly down). */
 const isEditableFocused = (): boolean | undefined => {
     if (typeof document === 'undefined') return undefined;
@@ -72,7 +91,8 @@ const isSameState = (a: ViewportState, b: ViewportState): boolean =>
     a.keyboardOpen === b.keyboardOpen &&
     Math.abs(a.height - b.height) < 2 &&
     Math.abs(a.keyboardHeight - b.keyboardHeight) < 2 &&
-    Math.abs(a.keyboardInset - b.keyboardInset) < 2;
+    Math.abs(a.keyboardInset - b.keyboardInset) < 2 &&
+    Math.abs(a.scrollRoom - b.scrollRoom) < 2;
 
 const browserWindow = (): ViewportWindow | undefined =>
     typeof window === 'undefined' ? undefined : window;
@@ -101,7 +121,7 @@ export const watchViewport = ({
             tracker,
             {
                 innerWidth: win.innerWidth,
-                innerHeight: win.innerHeight,
+                innerHeight: layoutHeight(win),
                 visualHeight: viewport?.height ?? win.innerHeight,
                 offsetTop: viewport?.offsetTop ?? 0,
                 editableFocused: isEditableFocused(),
@@ -119,6 +139,7 @@ export const watchViewport = ({
         element?.style.setProperty('--wl-viewport-height', `${state.height}px`);
         element?.style.setProperty('--wl-keyboard-height', `${state.keyboardHeight}px`);
         element?.style.setProperty('--wl-keyboard-inset', `${state.keyboardInset}px`);
+        element?.style.setProperty('--wl-scroll-room', `${state.scrollRoom}px`);
         element?.setAttribute('data-wl-keyboard', state.keyboardOpen ? 'open' : 'closed');
         onChange?.(state);
     };
@@ -160,28 +181,47 @@ export const keepFocusedInputVisible = ({
         if (!(field instanceof HTMLElement) || !field.matches(EDITABLE)) return;
 
         const viewport = win.visualViewport;
+        const visualHeight = viewport?.height ?? win.innerHeight;
+        const visibleBottom = visibleBottomInClient({
+            offsetTop: viewport?.offsetTop ?? 0,
+            visualHeight,
+            documentTop: document.documentElement.getBoundingClientRect().top,
+            pageTop: viewport?.pageTop ?? window.scrollY,
+        });
         // A fixed bar on the keyboard (a composer) hides what is right above the keyboard too.
         const bottom = unobstructedBottom<Element>(
             field,
-            {
-                width: win.innerWidth,
-                visibleBottom: (viewport?.offsetTop ?? 0) + (viewport?.height ?? win.innerHeight),
-            },
+            { width: win.innerWidth, visibleBottom },
             (x, y) => document.elementFromPoint(x, y),
             (element) => getComputedStyle(element).position,
         );
+        const rect = field.getBoundingClientRect();
+        const delta = revealDelta({
+            top: rect.top,
+            bottom: rect.bottom,
+            visibleTop: visibleBottom - visualHeight,
+            visibleBottom: bottom,
+            margin,
+        });
 
-        if (field.getBoundingClientRect().bottom + margin <= bottom) return;
-        field.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        if (delta !== 0) window.scrollBy({ top: delta, behavior: 'smooth' });
     };
-    // The keyboard animates in after focus: check again once it has settled.
+    let settle: ReturnType<typeof setTimeout> | undefined;
+    // iOS keeps panning the visual viewport for up to a second after focus: check once it is still.
+    const onSettled = () => {
+        clearTimeout(settle);
+        settle = setTimeout(check, 200);
+    };
     const onFocus = () => setTimeout(check, 350);
 
     document.addEventListener('focusin', onFocus);
-    win.visualViewport?.addEventListener('resize', check);
+    win.visualViewport?.addEventListener('resize', onSettled);
+    win.visualViewport?.addEventListener('scroll', onSettled);
 
     return () => {
+        clearTimeout(settle);
         document.removeEventListener('focusin', onFocus);
-        win.visualViewport?.removeEventListener('resize', check);
+        win.visualViewport?.removeEventListener('resize', onSettled);
+        win.visualViewport?.removeEventListener('scroll', onSettled);
     };
 };

@@ -27,6 +27,7 @@ const sample = (over: Partial<KeyboardSample> = {}): KeyboardSample => ({
     hidden: false,
     pageVisible: true,
     barHeight: 0,
+    atEnd: false,
     cssVars: {},
     metaViewport: 'width=device-width',
     ...over,
@@ -85,6 +86,10 @@ describe('webview-lens keyboard probe', () => {
         assert.match(
             formatKeyboardSample(hidden, partly) ?? '',
             /focus input#message HIDDEN under the keyboard/,
+        );
+        assert.match(
+            formatKeyboardSample({ ...partly, atEnd: true, barHeight: 67 }, undefined) ?? '',
+            /fixed bar\); the page is at its end and cannot scroll it up: add padding-bottom: var\(--wl-scroll-room\)/,
         );
         assert.match(
             describeKeyboardSetup(sample({ cssVars: { '--wl-keyboard-inset': '0px' } })),

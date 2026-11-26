@@ -8,9 +8,11 @@ import { isRecord, sleep, withTimeout } from '../shared/utils.ts';
 import {
     computeViewport,
     EDITABLE,
+    layoutViewportHeight,
     measureViewport,
     nextBaseline,
     unobstructedBottom,
+    visibleBottomInClient,
 } from '../viewport/compute.ts';
 import type { InspectorSession } from './drivers/types.ts';
 
@@ -38,6 +40,8 @@ export interface KeyboardSample {
     pageVisible: boolean;
     /** Height of fixed/sticky bars at the visible bottom (a composer on the keyboard), CSS px. */
     barHeight: number;
+    /** The document is scrolled to its end: a hidden field cannot be scrolled up any more. */
+    atEnd: boolean;
     /** `--wl-*` custom properties on <html>, set when the page uses webview-lens/viewport. */
     cssVars: Record<string, string>;
     /** `<meta name="viewport">` content (`interactive-widget=` changes Android behaviour). */
@@ -46,7 +50,7 @@ export interface KeyboardSample {
 
 const PROBE_GLOBAL = '__webviewLensKeyboard';
 /** Bumped when the page side changes: a probe of another version is disposed and replaced. */
-const PROBE_VERSION = 5;
+const PROBE_VERSION = 9;
 
 /**
  * The page side: listeners on visualViewport, window and focus, a ring buffer of samples and an
@@ -63,7 +67,9 @@ export const keyboardProbeScript = ({ overlay = false }: { overlay?: boolean } =
     const measureViewport = ${measureViewport.toString()};
     const EDITABLE = ${JSON.stringify(EDITABLE)};
     const unobstructedBottom = ${unobstructedBottom.toString()};
-    const VARS = ['--wl-viewport-height', '--wl-keyboard-inset', '--wl-keyboard-height'];
+    const visibleBottomInClient = ${visibleBottomInClient.toString()};
+    const layoutViewportHeight = ${layoutViewportHeight.toString()};
+    const VARS = ['--wl-viewport-height', '--wl-keyboard-inset', '--wl-keyboard-height', '--wl-scroll-room'];
     const buffer = [];
     let tracker = { width: innerWidth, baseline: innerHeight };
     let showOverlay = ${overlay};
@@ -104,7 +110,9 @@ export const keyboardProbeScript = ({ overlay = false }: { overlay?: boolean } =
         const offsetTop = vv ? vv.offsetTop : 0;
         const active = document.activeElement;
         const editableFocused = !!(active && active.matches && active.matches(EDITABLE));
-        const measured = measureViewport(tracker, { innerWidth, innerHeight, visualHeight, offsetTop, editableFocused });
+        const layoutHeight = layoutViewportHeight({ innerHeight,
+            clientHeight: document.documentElement.clientHeight, standardsMode: document.compatMode === 'CSS1Compat' });
+        const measured = measureViewport(tracker, { innerWidth, innerHeight: layoutHeight, visualHeight, offsetTop, editableFocused });
         const state = measured.state;
         const baseline = measured.tracker.baseline;
         tracker = measured.tracker;
@@ -113,7 +121,8 @@ export const keyboardProbeScript = ({ overlay = false }: { overlay?: boolean } =
         let covered = null, hidden = false, barHeight = 0;
         if (focus && el.getBoundingClientRect) {
             const rect = el.getBoundingClientRect();
-            const visibleBottom = offsetTop + visualHeight;
+            const visibleBottom = visibleBottomInClient({ offsetTop, visualHeight,
+                documentTop: document.documentElement.getBoundingClientRect().top, pageTop: vv ? vv.pageTop : window.scrollY });
             const bottom = unobstructedBottom(el, { width: innerWidth, visibleBottom },
                 (x, y) => document.elementFromPoint(x, y), (e) => getComputedStyle(e).position);
             barHeight = Math.max(0, Math.round(visibleBottom - bottom));
@@ -125,10 +134,10 @@ export const keyboardProbeScript = ({ overlay = false }: { overlay?: boolean } =
         for (const name of VARS) { const v = style.getPropertyValue(name).trim(); if (v) cssVars[name] = v; }
         const meta = document.querySelector('meta[name=viewport]');
         const s = {
-            t: Math.round(performance.now()), reason, innerWidth, innerHeight,
+            t: Math.round(performance.now()), reason, innerWidth, innerHeight: layoutHeight,
             visualHeight: Math.round(visualHeight), offsetTop: Math.round(offsetTop), baseline,
             keyboardOpen: state.keyboardOpen, keyboardHeight: state.keyboardHeight, keyboardInset: state.keyboardInset,
-            focus, covered, hidden, barHeight, pageVisible: document.visibilityState === 'visible', cssVars, metaViewport: meta ? meta.getAttribute('content') : null,
+            focus, covered, hidden, barHeight, atEnd: (() => { const se = document.scrollingElement; return !!se && se.scrollTop >= se.scrollHeight - se.clientHeight - 1; })(), pageVisible: document.visibilityState === 'visible', cssVars, metaViewport: meta ? meta.getAttribute('content') : null,
         };
         buffer.push(s);
         if (buffer.length > 300) buffer.shift();
@@ -227,6 +236,7 @@ export const decodeKeyboardSample: Decoder<KeyboardSample> = (input) => {
         hidden: bool(input.hidden) ?? false,
         pageVisible: bool(input.pageVisible) ?? true,
         barHeight: num(input.barHeight) ?? 0,
+        atEnd: bool(input.atEnd) ?? false,
         cssVars: decodeCssVars(input.cssVars),
         metaViewport: str(input.metaViewport) ?? null,
     };
@@ -239,12 +249,16 @@ export const decodeKeyboardDrain = (raw: unknown): KeyboardSample[] => {
     return text === undefined ? [] : (someOf(decodeKeyboardSample)(parseJson(text)) ?? []);
 };
 
-const focusVisibility = ({ hidden, covered, barHeight }: KeyboardSample): string => {
+const focusVisibility = ({ hidden, covered, barHeight, atEnd }: KeyboardSample): string => {
     // A fixed bar (composer) above the keyboard hides fields as well as the keyboard does.
     const behind = barHeight > 0 ? ` (keyboard + a ${barHeight}px fixed bar)` : '';
+    // WKWebView in an app adds no scroll room for the keyboard: the page has to.
+    const stuck = atEnd
+        ? '; the page is at its end and cannot scroll it up: add padding-bottom: var(--wl-scroll-room)'
+        : '';
 
-    if (hidden) return `HIDDEN${behind || ' under the keyboard'}`;
-    if (covered) return `partly hidden, bottom ${covered}px below${behind}`;
+    if (hidden) return `HIDDEN${behind || ' under the keyboard'}${stuck}`;
+    if (covered) return `partly hidden, bottom ${covered}px below${behind}${stuck}`;
 
     return 'visible';
 };

@@ -9,6 +9,12 @@ export interface ViewportState {
     keyboardHeight: number;
     /** Part of the page (layout viewport) under the keyboard: 0 where the WebView resized. */
     keyboardInset: number;
+    /**
+     * Extra space the document needs at its end so its last fields can be scrolled above the
+     * keyboard: the layout viewport under the keyboard (iOS: the keyboard, Android adjustResize: 0).
+     * A WKWebView in an app does not add it itself, so without it the page cannot scroll there.
+     */
+    scrollRoom: number;
     keyboardOpen: boolean;
 }
 
@@ -34,10 +40,8 @@ export const computeViewport = (
 ): ViewportState => {
     // iOS overscroll ("rubber band") makes offsetTop negative for a moment: not a keyboard.
     const scrolled = Math.max(0, offsetTop);
-    const keyboard = Math.max(
-        0,
-        Math.round(Math.max(baseline, innerHeight) - visualHeight - scrolled),
-    );
+    // Panning the visual viewport inside the page (iOS) moves what is covered, not the keyboard.
+    const keyboard = Math.max(0, Math.round(Math.max(baseline, innerHeight) - visualHeight));
     const covered = Math.max(0, Math.round(innerHeight - visualHeight - scrolled));
     // A few px left after the WebView resized (Flutter, adjustResize) is rounding, not keyboard.
     const overlap = covered < 4 ? 0 : covered;
@@ -47,6 +51,7 @@ export const computeViewport = (
         height: Math.round(visualHeight),
         keyboardHeight: keyboardOpen ? keyboard : 0,
         keyboardInset: keyboardOpen ? overlap : 0,
+        scrollRoom: keyboardOpen ? Math.max(0, Math.round(innerHeight - visualHeight)) : 0,
         keyboardOpen,
     };
 };
@@ -150,3 +155,74 @@ export const unobstructedBottom = <E extends LayoutElement<E>>(
 
     return bottom;
 };
+
+/**
+ * The visible bottom in client coordinates (what `getBoundingClientRect` and `elementFromPoint`
+ * use). Browsers disagree on what those are relative to: the layout viewport (then the visible
+ * bottom is `offsetTop + visualHeight`) or the visual one (then it is `visualHeight`); WKWebView in
+ * an iOS app measured as the latter. The document's own rect tells which: its top is minus the
+ * layout scroll (`pageTop - offsetTop`) in layout coordinates, and `offsetTop` further up in visual
+ * ones. (`scrollY` cannot tell: on iOS it already follows the visual viewport.)
+ */
+export const visibleBottomInClient = ({
+    offsetTop,
+    visualHeight,
+    documentTop,
+    pageTop,
+}: {
+    offsetTop: number;
+    visualHeight: number;
+    /** `document.documentElement.getBoundingClientRect().top` */
+    documentTop: number;
+    /** `visualViewport.pageTop` */
+    pageTop: number;
+}): number => {
+    const scrolled = Math.max(0, offsetTop);
+    // How far client coordinates are shifted from the layout viewport: 0 or offsetTop.
+    const shift = Math.min(scrolled, Math.max(0, -(documentTop + pageTop - offsetTop)));
+
+    return scrolled + visualHeight - shift;
+};
+
+/**
+ * How far to scroll (CSS px, positive: down) to show a field inside the visible, unobstructed band
+ * `[visibleTop, visibleBottom]` (client coordinates): 0 when it already fits with `margin` around
+ * it, the middle of the band when it fits, its top edge when it is taller than the band.
+ * `scrollIntoView` cannot do this on iOS: it centres in the layout viewport, part of which is
+ * under the keyboard.
+ */
+export const revealDelta = ({
+    top,
+    bottom,
+    visibleTop,
+    visibleBottom,
+    margin,
+}: {
+    top: number;
+    bottom: number;
+    visibleTop: number;
+    visibleBottom: number;
+    margin: number;
+}): number => {
+    if (top - margin >= visibleTop && bottom + margin <= visibleBottom) return 0;
+    if (bottom - top + 2 * margin > visibleBottom - visibleTop)
+        return Math.round(top - visibleTop - margin);
+
+    return Math.round((top + bottom) / 2 - (visibleTop + visibleBottom) / 2);
+};
+
+/**
+ * The layout viewport height that `position: fixed` uses. In standards mode that is the root's
+ * `clientHeight`; `innerHeight` can differ: WKWebView in an app shrank it 714 → 680 px while a
+ * field in a fixed bar was focused, and a bar placed from it landed 33 px under the keyboard. In
+ * quirks mode `clientHeight` is the document height, so `innerHeight` is all there is.
+ */
+export const layoutViewportHeight = ({
+    innerHeight,
+    clientHeight,
+    standardsMode,
+}: {
+    innerHeight: number;
+    clientHeight: number;
+    standardsMode: boolean;
+}): number => (standardsMode && clientHeight > 0 ? clientHeight : innerHeight);

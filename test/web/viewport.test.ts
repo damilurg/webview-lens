@@ -3,9 +3,12 @@ import { describe, it } from 'node:test';
 
 import {
     computeViewport,
+    layoutViewportHeight,
     measureViewport,
+    revealDelta,
     unobstructedBottom,
     type ViewportWindow,
+    visibleBottomInClient,
     watchViewport,
 } from '../../src/viewport/index.ts';
 
@@ -57,6 +60,7 @@ describe('webview-lens/viewport', () => {
                 height: 508,
                 keyboardHeight: 336,
                 keyboardInset: 336,
+                scrollRoom: 336,
                 keyboardOpen: true,
             },
         );
@@ -64,7 +68,13 @@ describe('webview-lens/viewport', () => {
         // (the WebView resized), so fixed bars need no offset.
         assert.deepEqual(
             computeViewport({ innerHeight: 470, visualHeight: 470, offsetTop: 0, baseline: 780 }),
-            { height: 470, keyboardHeight: 310, keyboardInset: 0, keyboardOpen: true },
+            {
+                height: 470,
+                keyboardHeight: 310,
+                keyboardInset: 0,
+                scrollRoom: 0,
+                keyboardOpen: true,
+            },
         );
         // A 40 px toolbar change is not a keyboard.
         assert.equal(
@@ -256,6 +266,93 @@ describe('unobstructedBottom (found on iPhone 17 Pro: a composer bar hid the com
         assert.equal(
             unobstructedBottom(comment, { width: 402, visibleBottom: 311 }, () => body, positionOf),
             311,
+        );
+    });
+});
+
+describe('visibleBottomInClient (found on iPhone 17 Pro: client coordinates follow the visual viewport)', () => {
+    it('WKWebView in an app: client coordinates start at the visual viewport', () => {
+        // Measured: a fixed top:0 element at client y -202, the comment field at 279–369 under the
+        // keyboard; scrollY and pageTop were both 960 (layout scroll 758 + offsetTop 202).
+        assert.equal(
+            visibleBottomInClient({
+                offsetTop: 202,
+                visualHeight: 311,
+                documentTop: -960,
+                pageTop: 960,
+            }),
+            311,
+        );
+    });
+
+    it('layout-relative client coordinates (Android, desktop) keep offsetTop', () => {
+        assert.equal(
+            visibleBottomInClient({
+                offsetTop: 199,
+                visualHeight: 311,
+                documentTop: -1031,
+                pageTop: 1230,
+            }),
+            510,
+        );
+        assert.equal(
+            visibleBottomInClient({
+                offsetTop: 0,
+                visualHeight: 465,
+                documentTop: -300,
+                pageTop: 300,
+            }),
+            465,
+        );
+    });
+
+    it('ignores the overscroll bounce', () => {
+        assert.equal(
+            visibleBottomInClient({
+                offsetTop: -6,
+                visualHeight: 311,
+                documentTop: -100,
+                pageTop: 94,
+            }),
+            311,
+        );
+    });
+});
+
+describe('revealDelta (found on iPhone 17 Pro: scrollIntoView centred in the layout viewport)', () => {
+    it('scrolls the comment field into the middle of the band above the composer', () => {
+        // Measured: field 279–369, visible band 0–311 with a composer from 243, margin 16.
+        assert.equal(
+            revealDelta({ top: 279, bottom: 369, visibleTop: 0, visibleBottom: 243, margin: 16 }),
+            203,
+        );
+    });
+
+    it('leaves a field alone when it fits, and aligns a tall field to the top', () => {
+        assert.equal(
+            revealDelta({ top: 40, bottom: 80, visibleTop: 0, visibleBottom: 243, margin: 16 }),
+            0,
+        );
+        assert.equal(
+            revealDelta({ top: 300, bottom: 700, visibleTop: 0, visibleBottom: 243, margin: 16 }),
+            284,
+        );
+    });
+});
+
+describe('layoutViewportHeight (found on iPhone 17 Pro: innerHeight shrank under a focused fixed bar)', () => {
+    it('follows the fixed containing block in standards mode', () => {
+        // Measured: innerHeight 680, a fixed top:0;bottom:0 box and the root clientHeight both 714.
+        assert.equal(
+            layoutViewportHeight({ innerHeight: 680, clientHeight: 714, standardsMode: true }),
+            714,
+        );
+    });
+
+    it('keeps innerHeight in quirks mode, where clientHeight is the document height', () => {
+        assert.equal(
+            layoutViewportHeight({ innerHeight: 680, clientHeight: 2400, standardsMode: false }),
+            680,
         );
     });
 });

@@ -47,6 +47,11 @@ export const setupKeyboard = () => {
 .screen {
     height: var(--wl-viewport-height, 100dvh); /* instead of 100vh */
 }
+body {
+    /* Lets the last fields scroll above the keyboard: a WKWebView in an app adds no scroll room
+       for it (measured), so without this they stay under it. 0 where the WebView resized. */
+    padding-bottom: var(--wl-scroll-room, 0px);
+}
 ```
 
 | Variable / attribute   | Meaning                                                                                       |
@@ -54,6 +59,7 @@ export const setupKeyboard = () => {
 | `--wl-keyboard-inset`  | part of the page under the keyboard: what fixed bars move up by (0 where the WebView resized) |
 | `--wl-keyboard-height` | keyboard height (0 when closed)                                                               |
 | `--wl-viewport-height` | visible height                                                                                |
+| `--wl-scroll-room`     | room to add at the end of the page so its last fields can scroll above the keyboard           |
 | `data-wl-keyboard`     | `open` / `closed` on `<html>`                                                                 |
 
 **Android (Kotlin).** Keep `android:windowSoftInputMode="adjustResize"` on the activity. Apps that
@@ -68,9 +74,24 @@ webView.setOnApplyWindowInsetsListener { view, insets ->
 }
 ```
 
-**Flutter.** `Scaffold(resizeToAvoidBottomInset: true)` (the default) resizes the `WebViewWidget`
-on both platforms, so the page sees a smaller viewport and `--wl-keyboard-inset` settles at 0 (on iOS
-after a first ~50 ms in which only the visual viewport shrank, measured).
+**Flutter.** On Android keep the default `Scaffold(resizeToAvoidBottomInset: true)`: the
+`WebViewWidget` shrinks and `--wl-keyboard-inset` stays 0. On iOS turn it off and let WKWebView
+handle the keyboard, and stop WKWebView adding the safe area to its insets (webview_flutter has no
+Dart API for it, so it takes a few lines of Swift). Both measured on an iPhone: with the resize,
+WKWebView scrolled a newly focused field by the old geometry; with the automatic insets, a focused
+field in a fixed bar moved 33 px under the keyboard.
+
+```dart
+Scaffold(resizeToAvoidBottomInset: !Platform.isIOS, body: WebViewWidget(controller: controller))
+
+// after the first page load (onPageFinished), iOS only:
+const MethodChannel('app/webview_insets').invokeMethod<int>('neverAdjust');
+```
+
+```swift
+// AppDelegate: on "neverAdjust", for every WKWebView in the app's windows
+webView.scrollView.contentInsetAdjustmentBehavior = .never
+```
 
 **iOS (Swift).** WKWebView is not resized; leave it so and use `--wl-keyboard-inset` on the page.
 With `viewport-fit=cover`, avoid double insets: `webView.scrollView.contentInsetAdjustmentBehavior = .never`.
@@ -91,16 +112,16 @@ The numbers come from the same `measureViewport` the library uses.
 Measured with it on the test apps (Redmi Note 8 Pro, Android 11, WebView 157; iPhone 17 Pro,
 iOS 26.6.1; 2026-11-26):
 
-| Container                        | What happens                                                                                                                                                 |
-| -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Android, Kotlin, `adjustResize`  | The WebView shrinks 720 → 465 px; keyboard 255 px, covers 0 px of the page. The focused field starts hidden and `keepFocusedInputVisible` scrolls it up.     |
-| iOS, Flutter (`webview_flutter`) | Two phases: for ~50 ms only the visual viewport shrinks (keyboard 333–369 px covers up to 300 px), then Flutter resizes the WKWebView 680 → 311 px, cover 0. |
-| iOS, Flutter, a fixed bottom bar | The bar (67 px) rides on the keyboard and hides the 67 px above it: `keepFocusedInputVisible` counts fixed and sticky bars since 2026-11-26.                 |
+| Container                          | What happens                                                                                                                       |
+| ---------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| Android, Kotlin, `adjustResize`    | The WebView shrinks 720 → 465 px; keyboard 255 px, covers 0 px. A field hidden behind the 72 px composer is scrolled up in 0.2 s.  |
+| iOS, Flutter, WKWebView handles it | The visual viewport shrinks to 311 px and pans inside the 714 px layout; keyboard 369–403 px. Every field ends above the composer. |
 
-**Known limitation (iOS, Flutter).** Moving focus to another field while the keyboard is already
-open, WKWebView scrolls the new field below the visible area and then ignores scrolling from the
-page (`scrollIntoView`, `scrollBy`, `scrollTop`, re-focusing: none moved it, tried on the device).
-The first focus works. A fix needs the native side; `webview-lens keyboard` shows when it happens.
+What it found on the iPhone, all fixed in `webview-lens/viewport` and the Flutter recipe above: client
+coordinates there follow the visual viewport, so a hidden field looked visible; `scrollIntoView`
+centres in the layout viewport, part of which is under the keyboard; the page had no scroll room to
+lift its last fields; `innerHeight` shrank by 34 px while a fixed bar's field was focused, and the bar
+followed it under the keyboard.
 
 ## iOS zooms in when an input gets focus
 
