@@ -78,7 +78,7 @@ export interface ViewportReading {
      * height is the keyboard-free one even if it got smaller (native chrome around the WebView
      * grew). Unknown (undefined): the baseline only grows.
      */
-    editableFocused?: boolean;
+    editableFocused?: boolean | undefined;
 }
 
 export const nextBaseline = (

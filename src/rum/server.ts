@@ -14,6 +14,7 @@ import {
     PATH_PATTERN,
     TIMING_NAME_PATTERN,
 } from '../shared/thresholds.ts';
+import { parseJson } from '../shared/decode.ts';
 import { isRecord } from '../shared/utils.ts';
 
 export {
@@ -77,14 +78,6 @@ export async function readLimitedText(request: Request, maxBytes: number): Promi
 
     return new TextDecoder().decode(all);
 }
-
-const parseJson = (text: string): unknown => {
-    try {
-        return JSON.parse(text);
-    } catch {
-        return null;
-    }
-};
 
 const isValidPath = (value: unknown): value is string =>
     typeof value === 'string' && value.length <= MAX_PATH_LENGTH && PATH_PATTERN.test(value);
@@ -355,8 +348,9 @@ export const createClientLogHandler = ({
 
 /** Structural subset of Node's `http.IncomingMessage` so this module stays Edge-runtime safe. */
 export interface NodeIncomingMessage extends AsyncIterable<Uint8Array | string> {
-    method?: string;
-    url?: string;
+    // `| undefined` as in Node's own types, so an http.IncomingMessage fits as it is.
+    method?: string | undefined;
+    url?: string | undefined;
     headers: Record<string, string | string[] | undefined>;
 }
 

@@ -112,6 +112,106 @@ describe('Repository architectural invariants', () => {
         );
     });
 
+    it('JSON is parsed in one place, into unknown (no JSON.parse or response.json() elsewhere)', () => {
+        const found = listTsFiles(path.join(ROOT, 'src'))
+            .filter(
+                (file) =>
+                    path.relative(ROOT, file).split(path.sep).join('/') !== 'src/shared/decode.ts',
+            )
+            .flatMap((file) => {
+                const source = ts.createSourceFile(
+                    file,
+                    fs.readFileSync(file, 'utf8'),
+                    ts.ScriptTarget.Latest,
+                    true,
+                );
+                const hits: string[] = [];
+                const visit = (node: ts.Node): void => {
+                    const isJsonParse =
+                        ts.isPropertyAccessExpression(node) &&
+                        ts.isIdentifier(node.expression) &&
+                        node.expression.text === 'JSON' &&
+                        node.name.text === 'parse';
+                    const isResponseJson =
+                        ts.isCallExpression(node) &&
+                        ts.isPropertyAccessExpression(node.expression) &&
+                        node.expression.name.text === 'json' &&
+                        node.arguments.length === 0;
+
+                    if (isJsonParse || isResponseJson)
+                        hits.push(`${path.relative(ROOT, file)}: ${node.getText(source)}`);
+                    ts.forEachChild(node, visit);
+                };
+
+                visit(source);
+
+                return hits;
+            });
+
+        assert.deepEqual(
+            found,
+            [],
+            `Use readJson / parseJson from src/shared/decode.ts:\n${found.join('\n')}`,
+        );
+    });
+
+    it('options objects are destructured: no `options.field` reads of an *Options parameter', () => {
+        const findReads = (file: string): string[] => {
+            const source = ts.createSourceFile(
+                file,
+                fs.readFileSync(file, 'utf8'),
+                ts.ScriptTarget.Latest,
+                true,
+            );
+            const hits: string[] = [];
+            const visit = (node: ts.Node): void => {
+                if (ts.isFunctionLike(node) && 'body' in node && node.body) {
+                    for (const parameter of node.parameters) {
+                        const isOptions =
+                            ts.isIdentifier(parameter.name) &&
+                            parameter.type &&
+                            ts.isTypeReferenceNode(parameter.type) &&
+                            /Options$/.test(parameter.type.typeName.getText(source));
+
+                        if (!isOptions || !ts.isIdentifier(parameter.name)) continue;
+
+                        const name = parameter.name.text;
+                        const scan = (inner: ts.Node): void => {
+                            if (
+                                ts.isPropertyAccessExpression(inner) &&
+                                ts.isIdentifier(inner.expression) &&
+                                inner.expression.text === name
+                            ) {
+                                const { line } = source.getLineAndCharacterOfPosition(
+                                    inner.getStart(source),
+                                );
+
+                                hits.push(
+                                    `${path.relative(ROOT, file)}:${line + 1} ${inner.getText(source)}`,
+                                );
+                            }
+                            ts.forEachChild(inner, scan);
+                        };
+
+                        scan(node.body);
+                    }
+                }
+                ts.forEachChild(node, visit);
+            };
+
+            visit(source);
+
+            return hits;
+        };
+        const found = listTsFiles(path.join(ROOT, 'src')).flatMap(findReads);
+
+        assert.deepEqual(
+            found,
+            [],
+            `Destructure the options in the signature (or first line, when passed on):\n${found.join('\n')}`,
+        );
+    });
+
     it('the console check finds console calls, and ignores them inside strings', () => {
         const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wvl-console-'));
         const file = path.join(dir, 'probe.ts');
@@ -204,29 +304,50 @@ describe('Repository architectural invariants', () => {
         }
     });
 
-    it('keeps core helpers single-sourced (no duplicate utility definitions across src/)', () => {
-        const singleSourceRules: readonly { pattern: RegExp; owner: string }[] = [
-            { pattern: /\bconst\s+isRecord\s*=/, owner: 'src/shared/utils.ts' },
-            { pattern: /\bconst\s+errorMessage\s*=/, owner: 'src/shared/utils.ts' },
-            { pattern: /\bconst\s+sleep\s*=/, owner: 'src/shared/utils.ts' },
-            { pattern: /\bconst\s+waitWithTimeout\s*=/, owner: 'src/shared/utils.ts' },
-            { pattern: /\bconst\s+isFile\s*=/, owner: 'src/node/fs-utils.ts' },
-            { pattern: /\bconst\s+listDirs\s*=/, owner: 'src/node/fs-utils.ts' },
-            { pattern: /spawnSync\(\s*['"]taskkill['"]/, owner: 'src/node/fs-utils.ts' },
-        ];
-        const violations: string[] = [];
+    it('keeps helpers single-sourced: no top-level function name is defined in two src files', () => {
+        const owners = new Map<string, string[]>();
 
         for (const file of listTsFiles(path.join(ROOT, 'src'))) {
-            const rel = path.relative(ROOT, file).replace(/\\/g, '/');
-            const source = fs.readFileSync(file, 'utf8');
+            const rel = path.relative(ROOT, file).split(path.sep).join('/');
+            const source = ts.createSourceFile(
+                file,
+                fs.readFileSync(file, 'utf8'),
+                ts.ScriptTarget.Latest,
+                true,
+            );
 
-            for (const rule of singleSourceRules) {
-                if (rel !== rule.owner && rule.pattern.test(source)) {
-                    violations.push(`${rel} duplicates helper owned by ${rule.owner}`);
-                }
+            for (const statement of source.statements) {
+                const names =
+                    ts.isFunctionDeclaration(statement) && statement.name
+                        ? [statement.name.text]
+                        : ts.isVariableStatement(statement)
+                          ? statement.declarationList.declarations.flatMap((declaration) =>
+                                ts.isIdentifier(declaration.name) &&
+                                declaration.initializer &&
+                                (ts.isArrowFunction(declaration.initializer) ||
+                                    ts.isFunctionExpression(declaration.initializer))
+                                    ? [declaration.name.text]
+                                    : [],
+                            )
+                          : [];
+
+                for (const name of names) owners.set(name, [...(owners.get(name) ?? []), rel]);
             }
         }
 
-        assert.deepEqual(violations, []);
+        const duplicates = [...owners]
+            .filter(([, files]) => files.length > 1)
+            .map(([name, files]) => `${name}: ${files.join(', ')}`);
+
+        assert.deepEqual(duplicates, []);
+
+        // Killing a process tree on Windows has one owner too.
+        const taskkill = listTsFiles(path.join(ROOT, 'src')).filter(
+            (file) =>
+                !file.endsWith(path.join('node', 'fs-utils.ts')) &&
+                /spawnSync\(\s*['"]taskkill['"]/.test(fs.readFileSync(file, 'utf8')),
+        );
+
+        assert.deepEqual(taskkill, []);
     });
 });

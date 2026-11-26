@@ -18,6 +18,7 @@ Found by end-to-end runs on real phones: Redmi Note 8 Pro (Android 11, WebView 1
 
 ### Changed
 
+- Stricter type checking: `exactOptionalPropertyTypes`, `noImplicitReturns`, `noFallthroughCasesInSwitch`, `noUnusedLocals`, `noUnusedParameters`. JSON is parsed in one place (`readJson` / `parseJson` in `src/shared/decode.ts`, always `unknown`), options objects are destructured, and no helper is defined twice; tests on the TypeScript AST enforce all three.
 - Output is centralised: the CLI prints only through `src/cli/output.ts`; library functions (`measureVitals`, `startOverride`, `attachTelemetry`, `waitForPage`, `ensureServer`, the iOS proxy and DevTools links…) no longer write to the console by default: their `log` callbacks default to the library logger (silent until `--verbose` or `configureLogging`). Pass `log` / `logger` to show their output. A listener that throws inside the CDP client becomes a Node warning. A test on the TypeScript AST keeps `console` out of the rest of `src`.
 - Type checking is split by runtime: Node code against Node's types without the DOM, the browser modules (`webview-lens/rum`, `webview-lens/viewport`, `src/shared`) against the DOM without Node types. `npm run check` is `tsc -b`, and the package builds in two passes. The pure part of the RUM client moved to `src/rum/context.ts`; `webview-lens/rum` re-exports it unchanged.
 - The CDP client takes a `TransportAdapter` instead of knowing about iOS; WebKit target routing is one adapter.

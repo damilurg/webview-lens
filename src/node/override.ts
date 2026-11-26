@@ -418,7 +418,9 @@ export const startOverride = async ({
                     mapper.toLocal,
                     forwardedHeaders ? forwarded : undefined,
                 ),
-                body: body === undefined || typeof body === 'string' ? body : new Uint8Array(body),
+                ...(body === undefined
+                    ? {}
+                    : { body: typeof body === 'string' ? body : new Uint8Array(body) }),
                 redirect: 'manual',
             });
 

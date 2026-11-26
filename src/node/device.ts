@@ -37,12 +37,12 @@ export interface DiagnoseOptions {
 export const diagnose = (
     port: string | number,
     run: AdbRunner = runAdb,
-    options: DiagnoseOptions = {},
+    { serial, app }: DiagnoseOptions = {},
 ): string => {
-    const deviceRun = createAdbRunner(options.serial, run);
+    const deviceRun = createAdbRunner(serial, run);
 
     try {
-        const devicesProblem = describeDevices(run(['devices']), options.serial);
+        const devicesProblem = describeDevices(run(['devices']), serial);
 
         if (devicesProblem) return devicesProblem;
     } catch (error) {
@@ -60,13 +60,13 @@ export const diagnose = (
         return 'The phone screen is locked: unlock it, a locked WebView does not render';
     }
 
-    const socket = forwardWebView(port, deviceRun, options.app ? { app: options.app } : {});
+    const socket = forwardWebView(port, deviceRun, app ? { app } : {});
 
     if (socket) {
         return `Port ${port} → ${socket}. Waiting for the page: open the WebView screen in the app`;
     }
-    if (options.app) {
-        return `No debuggable WebView for app "${options.app}": open its WebView screen (must call WebView.setWebContentsDebuggingEnabled(true))`;
+    if (app) {
+        return `No debuggable WebView for app "${app}": open its WebView screen (must call WebView.setWebContentsDebuggingEnabled(true))`;
     }
 
     return 'No debuggable WebView: open the WebView screen in the app (its build must call WebView.setWebContentsDebuggingEnabled(true))';

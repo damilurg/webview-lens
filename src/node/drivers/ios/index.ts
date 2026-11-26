@@ -127,19 +127,19 @@ export const createIosDriver = (deps: IosDriverDeps = {}): DeviceDriver => {
         }));
     };
 
-    const listTargets = async (
-        options: DriverTargetOptions = {},
-    ): Promise<InspectableTarget[] | null> => {
-        const { port } = options.port
-            ? { port: String(options.port) }
-            : await resolveIwdpDevice(options.serial);
+    const listTargets = async ({
+        port: explicitPort,
+        serial,
+        app,
+    }: DriverTargetOptions = {}): Promise<InspectableTarget[] | null> => {
+        const { port } = explicitPort
+            ? { port: String(explicitPort) }
+            : await resolveIwdpDevice(serial);
         const pages = await listIwdpPagesFn(port);
 
         if (!pages) return null;
 
-        const filtered = options.app
-            ? pages.filter((p) => !p.appId || p.appId === options.app)
-            : pages;
+        const filtered = app ? pages.filter((p) => !p.appId || p.appId === app) : pages;
 
         return filtered
             .filter((p) => Boolean(p.webSocketDebuggerUrl))
@@ -147,8 +147,9 @@ export const createIosDriver = (deps: IosDriverDeps = {}): DeviceDriver => {
     };
 
     const diagnose = async (options: DriverTargetOptions = {}): Promise<string> => {
+        const { serial } = options;
         const status = await listIosDevicesFn({ platform: hostPlatform });
-        const problem = describeIosDevices(status, options.serial, hostPlatform);
+        const problem = describeIosDevices(status, serial, hostPlatform);
 
         if (problem) return problem;
 
@@ -173,9 +174,10 @@ export const createIosDriver = (deps: IosDriverDeps = {}): DeviceDriver => {
         isAvailable: async () => (await listDevices()).length > 0,
         diagnose,
         async doctor(options: DriverTargetOptions = {}): Promise<DoctorReport> {
+            const { serial } = options;
             const checks: DoctorCheck[] = [];
             const status = await listIosDevicesFn({ platform: hostPlatform });
-            const usbProblem = describeIosDevices(status, options.serial, hostPlatform);
+            const usbProblem = describeIosDevices(status, serial, hostPlatform);
 
             checks.push({
                 ok: !usbProblem,
@@ -213,12 +215,11 @@ export const createIosDriver = (deps: IosDriverDeps = {}): DeviceDriver => {
             predicate: TargetPredicate,
             options: DriverTargetOptions = {},
         ): Promise<InspectableTarget> {
-            const log = options.log ?? iosLog.info;
-            const intervalMs = options.intervalMs ?? 2000;
+            const { log = iosLog.info, intervalMs = 2000, signal } = options;
             let lastHint = '';
 
             for (;;) {
-                options.signal?.throwIfAborted();
+                signal?.throwIfAborted();
 
                 const target = (await listTargets(options))?.find(predicate);
 
@@ -231,8 +232,8 @@ export const createIosDriver = (deps: IosDriverDeps = {}): DeviceDriver => {
                 await sleep(intervalMs);
             }
         },
-        async getDeviceDescription(options: DriverTargetOptions = {}): Promise<string> {
-            const { entry } = await resolveIwdpDevice(options.serial);
+        async getDeviceDescription({ serial }: DriverTargetOptions = {}): Promise<string> {
+            const { entry } = await resolveIwdpDevice(serial);
 
             return entry?.deviceName
                 ? `${entry.deviceName} (iOS WKWebView)`

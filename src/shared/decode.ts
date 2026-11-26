@@ -72,11 +72,25 @@ export const oneOf =
     (input) =>
         values.find((value) => value === input);
 
+/**
+ * The only place the library parses JSON (a test enforces it): the value is `unknown`, never `any`,
+ * so every reader has to decode it. `error` is the parser's message, for a config file's diagnostics.
+ */
+export const readJson = (
+    raw: string,
+): { ok: true; value: unknown } | { ok: false; error: string } => {
+    try {
+        const value: unknown = JSON.parse(raw);
+
+        return { ok: true, value };
+    } catch (error) {
+        return { ok: false, error: error instanceof Error ? error.message : String(error) };
+    }
+};
+
 /** `JSON.parse` that returns `undefined` for malformed input instead of throwing. */
 export const parseJson = (raw: string): unknown => {
-    try {
-        return JSON.parse(raw);
-    } catch {
-        return undefined;
-    }
+    const parsed = readJson(raw);
+
+    return parsed.ok ? parsed.value : undefined;
 };

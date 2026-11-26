@@ -1,6 +1,6 @@
 // A minimal Chrome DevTools Protocol client over the global WebSocket (Node 22.4+).
 
-import { parseJson } from '../shared/decode.ts';
+import { parseJson, rec } from '../shared/decode.ts';
 import { errorMessage, isRecord } from '../shared/utils.ts';
 import { createLogger } from './logger.ts';
 import { decodeRpcMessage } from './protocol.ts';
@@ -22,13 +22,9 @@ export type PagePredicate = (page: DevtoolsPage) => boolean;
 
 /** Whether an Android WebView page is the one on screen (`"attached": true` in its description). */
 export const isPageOnScreen = (page: Pick<DevtoolsPage, 'description'>): boolean => {
-    try {
-        const info: unknown = JSON.parse(page.description ?? '');
+    const info = rec(parseJson(page.description ?? ''));
 
-        return isRecord(info) && info.attached === true;
-    } catch {
-        return false;
-    }
+    return info?.attached === true;
 };
 
 /**
@@ -63,7 +59,7 @@ export const listPages = async (port: string | number): Promise<DevtoolsPage[] |
 
         if (!response.ok) return null;
 
-        const data: unknown = await response.json();
+        const data = parseJson(await response.text());
 
         return Array.isArray(data) ? data.filter(isDevtoolsPage) : null;
     } catch {
@@ -77,9 +73,7 @@ export const getVersion = async (port: string | number): Promise<Record<string, 
         const response = await fetch(`http://localhost:${port}/json/version`, {
             signal: AbortSignal.timeout(HTTP_TIMEOUT_MS),
         });
-        const data: unknown = await response.json();
-
-        return isRecord(data) ? data : {};
+        return rec(parseJson(await response.text())) ?? {};
     } catch {
         return {};
     }

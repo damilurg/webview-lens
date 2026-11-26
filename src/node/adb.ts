@@ -227,7 +227,7 @@ const lastForward = new Map<string, string>();
 export const forwardWebView = (
     port: string | number,
     run: AdbRunner = runAdb,
-    options: ForwardWebViewOptions = {},
+    { app }: ForwardWebViewOptions = {},
 ): string | null => {
     const sockets = parseWebViewSockets(run(['shell', 'cat', '/proc/net/unix']));
 
@@ -235,20 +235,20 @@ export const forwardWebView = (
 
     const socket = pickWebViewSocket(
         sockets,
-        options.app ? undefined : parseFocusedPackage(run(['shell', 'dumpsys', 'window'])),
+        app ? undefined : parseFocusedPackage(run(['shell', 'dumpsys', 'window'])),
         readPackagesByPid(run),
-        options.app,
+        app,
     );
 
     if (!socket) {
-        log.debug('no WebView socket matches', { sockets, app: options.app });
+        log.debug('no WebView socket matches', { sockets, app: app });
 
         return null;
     }
 
     run(['forward', `tcp:${port}`, `localabstract:${socket}`]);
     if (lastForward.get(String(port)) !== socket) {
-        log.info(`forward tcp:${port} → ${socket}`, { app: options.app });
+        log.info(`forward tcp:${port} → ${socket}`, { app: app });
         lastForward.set(String(port), socket);
     }
 

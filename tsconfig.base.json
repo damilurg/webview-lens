@@ -10,6 +10,11 @@
         "erasableSyntaxOnly": true,
         "rewriteRelativeImportExtensions": true,
         "skipLibCheck": true,
-        "noEmit": true
+        "noEmit": true,
+        "exactOptionalPropertyTypes": true,
+        "noImplicitReturns": true,
+        "noFallthroughCasesInSwitch": true,
+        "noUnusedLocals": true,
+        "noUnusedParameters": true
     }
 }

@@ -4,6 +4,7 @@
 // replies and events come back inside `Target.dispatchMessageFromTarget`. This router hides that,
 // so the CDP translator and the Chrome DevTools UI keep speaking plain protocol messages.
 
+import { parseJson, rec } from '../../../shared/decode.ts';
 import { isRecord } from '../../../shared/utils.ts';
 import { type Cdp, connectCdp } from '../../cdp.ts';
 import { createLogger } from '../../logger.ts';
@@ -35,15 +36,7 @@ export interface WebKitTargetRouter {
 /** Ids of the wrapper commands; far above the ids of the clients they carry. */
 const WRAPPER_ID_BASE = 2_000_000_000;
 
-const parse = (raw: string): Record<string, unknown> | undefined => {
-    try {
-        const value: unknown = JSON.parse(raw);
-
-        return isRecord(value) ? value : undefined;
-    } catch {
-        return undefined;
-    }
-};
+const parse = (raw: string): Record<string, unknown> | undefined => rec(parseJson(raw));
 
 export const createWebKitTargetRouter = ({
     sendUpstream,

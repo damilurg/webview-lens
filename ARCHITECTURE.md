@@ -55,7 +55,7 @@ Tests of the browser modules live in `test/web/`. The package is built in two pa
    configuration (`configureLogging`), set by the entry point.
 3. **Dependencies as parameters.** Anything that touches the outside world can be replaced: `runAdb`,
    `fetchImpl`, `connect`, `listPages`, `win` (viewport), driver `deps`. Tests run without a phone.
-4. **Options objects with defaults**, destructured in the signature. Optional fields are spread only
+4. **Options objects with defaults**, destructured in the signature (in the first line when the object is also passed on; enforced by a test). Optional fields are spread only
    when set (`...(serial ? { serial } : {})`).
 5. **Early return, no `else`** (enforced by a test). Guard clauses first, the main path last.
 6. **Errors.** Throw `Error` with a message a person can act on (what failed and what to do). User

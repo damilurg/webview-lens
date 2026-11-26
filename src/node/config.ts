@@ -1,9 +1,10 @@
 // Project configuration loader (`webview-lens.config.json`) with strict validation and CLI merging.
 
+import { readJson } from '../shared/decode.ts';
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { errorMessage, isRecord } from '../shared/utils.ts';
+import { isRecord } from '../shared/utils.ts';
 import {
     isPlatformSelection,
     type NetworkThrottlePreset,
@@ -220,15 +221,11 @@ export const loadProjectConfig = ({
     }
 
     const rawText = fs.readFileSync(resolved, 'utf8');
-    let parsed: unknown;
+    const parsed = readJson(rawText);
 
-    try {
-        parsed = JSON.parse(rawText);
-    } catch (error) {
-        throw new Error(`Invalid JSON in ${resolved}: ${errorMessage(error)}`);
-    }
+    if (!parsed.ok) throw new Error(`Invalid JSON in ${resolved}: ${parsed.error}`);
 
-    return { path: resolved, config: validateProjectConfig(parsed) };
+    return { path: resolved, config: validateProjectConfig(parsed.value) };
 };
 
 /** Every field of `ProjectConfig`, checked by the compiler in both directions. */
@@ -260,7 +257,10 @@ const CONFIG_KEYS = [
 
 // A new ProjectConfig field without an entry above fails to compile here.
 type ExpectNever<T extends never> = T;
-type MissingConfigKeys = ExpectNever<Exclude<keyof ProjectConfig, (typeof CONFIG_KEYS)[number]>>;
+/** Compile-time check only: `never` while every ProjectConfig field is in CONFIG_KEYS. */
+export type MissingConfigKeys = ExpectNever<
+    Exclude<keyof ProjectConfig, (typeof CONFIG_KEYS)[number]>
+>;
 
 /** Copies one field when the source gives it (`undefined` means "not given"). */
 const copyGiven = <K extends keyof ProjectConfig>(
@@ -338,12 +338,11 @@ export const buildStarterConfig = ({
 
 /** Writes `webview-lens.config.json` in `cwd` (refusing to overwrite unless `force: true`). */
 export const writeStarterConfig = (options: StarterConfigOptions = {}): string => {
-    const cwd = options.cwd ?? process.cwd();
-    const target = options.configPath
-        ? path.resolve(cwd, options.configPath)
-        : path.join(cwd, DEFAULT_CONFIG_FILE);
+    // Read here, and passed on whole to buildStarterConfig.
+    const { cwd = process.cwd(), configPath, force } = options;
+    const target = configPath ? path.resolve(cwd, configPath) : path.join(cwd, DEFAULT_CONFIG_FILE);
 
-    if (fs.existsSync(target) && !options.force) {
+    if (fs.existsSync(target) && !force) {
         throw new Error(`Config already exists at ${target} (pass --force to overwrite)`);
     }
 
