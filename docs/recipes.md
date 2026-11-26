@@ -301,6 +301,10 @@ export const runVitals = async () => {
         paths: ['/', '/orders'],
         runs: 3,
         cold: true,
+        // Progress and what blocks it ("No phone found: …") in the job log; the library is silent otherwise.
+        log: console.log,
+        // A job must not hang forever when the phone is not there.
+        wait: { signal: AbortSignal.timeout(5 * 60_000) },
     });
 
     fs.writeFileSync('webview-vitals.md', toMarkdown(result));
@@ -422,6 +426,11 @@ export const inspectPage = async (port = 9223) => {
 <!-- /example -->
 
 ### webview-lens' own logs in your logger
+
+Library functions print nothing by themselves. Pass `log` (or `logger` for `startOverride` and the iOS
+proxy) to see their progress, for example `measureVitals({ …, log: console.log })`. To see everything
+without code changes, run your script with `WEBVIEW_LENS_DEBUG=1` (stderr) or
+`WEBVIEW_LENS_LOG_FILE=wvl.jsonl`. To send it to your own logger:
 
 <!-- example: examples/recipes/library-logs.ts -->
 

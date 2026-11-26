@@ -301,6 +301,10 @@ export const runVitals = async () => {
         paths: ['/', '/orders'],
         runs: 3,
         cold: true,
+        // Progress and what blocks it ("No phone found: …") in the job log; the library is silent otherwise.
+        log: console.log,
+        // A job must not hang forever when the phone is not there.
+        wait: { signal: AbortSignal.timeout(5 * 60_000) },
     });
 
     fs.writeFileSync('webview-vitals.md', toMarkdown(result));
@@ -422,6 +426,11 @@ export const inspectPage = async (port = 9223) => {
 <!-- /example -->
 
 ### Собственные логи webview-lens в вашем логгере
+
+Функции библиотеки сами ничего не печатают. Передайте `log` (или `logger` для `startOverride` и
+iOS-прокси), чтобы видеть их прогресс, например `measureVitals({ …, log: console.log })`. Чтобы
+увидеть всё без правки кода, запустите скрипт с `WEBVIEW_LENS_DEBUG=1` (stderr) или
+`WEBVIEW_LENS_LOG_FILE=wvl.jsonl`. Чтобы отправить их в свой логгер:
 
 <!-- example: examples/recipes/library-logs.ts -->
 

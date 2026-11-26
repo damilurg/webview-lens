@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -80,5 +81,35 @@ describe('library logger', () => {
             },
         );
         assert.deepEqual(loggingFromEnv({}), { verbose: false });
+    });
+});
+
+describe('logging from the environment in your own scripts', () => {
+    const run = (env: Record<string, string>) =>
+        spawnSync(
+            process.execPath,
+            [
+                '--input-type=module',
+                '-e',
+                `import { createLogger } from ${JSON.stringify(new URL('../src/node/logger.ts', import.meta.url).href)};
+                 createLogger('probe').info('hello from a script');`,
+            ],
+            {
+                env: { ...process.env, WEBVIEW_LENS_DEBUG: '', WEBVIEW_LENS_LOG_FILE: '', ...env },
+                encoding: 'utf8',
+            },
+        );
+
+    it('WEBVIEW_LENS_DEBUG=1 shows library lines without any configureLogging call', () => {
+        assert.match(
+            run({ WEBVIEW_LENS_DEBUG: '1' }).stderr,
+            /info {2}\[webview-lens:probe\] hello from a script/,
+        );
+    });
+
+    it('stays silent without it, and for values that do not mean yes', () => {
+        assert.equal(run({}).stderr, '');
+        assert.equal(run({ WEBVIEW_LENS_DEBUG: '0' }).stderr, '');
+        assert.match(run({ WEBVIEW_LENS_DEBUG: 'TRUE' }).stderr, /hello from a script/);
     });
 });
