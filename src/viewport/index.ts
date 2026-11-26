@@ -48,7 +48,9 @@ export const computeViewport = (
         0,
         Math.round(Math.max(baseline, innerHeight) - visualHeight - offsetTop),
     );
-    const overlap = Math.max(0, Math.round(innerHeight - visualHeight - offsetTop));
+    const covered = Math.max(0, Math.round(innerHeight - visualHeight - offsetTop));
+    // A few px left after the WebView resized (Flutter, adjustResize) is rounding, not keyboard.
+    const overlap = covered < 4 ? 0 : covered;
     const keyboardOpen = keyboard > threshold;
 
     return {
@@ -85,6 +87,12 @@ export interface WatchViewportOptions {
     win?: ViewportWindow;
 }
 
+const isSameState = (a: ViewportState, b: ViewportState): boolean =>
+    a.keyboardOpen === b.keyboardOpen &&
+    Math.abs(a.height - b.height) < 2 &&
+    Math.abs(a.keyboardHeight - b.keyboardHeight) < 2 &&
+    Math.abs(a.keyboardInset - b.keyboardInset) < 2;
+
 const browserWindow = (): ViewportWindow | undefined =>
     typeof window === 'undefined' ? undefined : (window as unknown as ViewportWindow);
 
@@ -105,7 +113,7 @@ export const watchViewport = ({
         target ?? (typeof document === 'undefined' ? undefined : document.documentElement);
     let baseline = win.innerHeight;
     let width = win.innerWidth;
-    let last = '';
+    let last: ViewportState | undefined;
 
     const update = () => {
         // A rotation changes the height without a keyboard: start the baseline over.
@@ -127,10 +135,10 @@ export const watchViewport = ({
 
         if (!state.keyboardOpen) baseline = Math.max(baseline, win.innerHeight);
 
-        const key = `${state.height}|${state.keyboardHeight}|${state.keyboardInset}`;
-
-        if (key === last) return;
-        last = key;
+        // The keyboard animates over several frames: report it open/closed and when a size moves
+        // by 2px or more, not every 1px step.
+        if (last && isSameState(last, state)) return;
+        last = state;
         element?.style.setProperty('--wl-viewport-height', `${state.height}px`);
         element?.style.setProperty('--wl-keyboard-height', `${state.keyboardHeight}px`);
         element?.style.setProperty('--wl-keyboard-inset', `${state.keyboardInset}px`);

@@ -91,6 +91,22 @@ describe('webview-lens/viewport', () => {
         assert.equal(listeners.size, 0);
     });
 
+    it('ignores 1px jitter while the keyboard animates and rounding left after a resize', () => {
+        const { win, resize } = fakeWindow(800);
+        const { target } = fakeTarget();
+        const insets: number[] = [];
+
+        watchViewport({ win, target, onChange: (s) => insets.push(s.keyboardInset) });
+        // Flutter on iOS: the WebView shrinks with the keyboard, leaving 0–2 px of rounding.
+        resize(430, 430);
+        resize(430, 429);
+        resize(430, 430);
+        resize(430, 429);
+        assert.deepEqual(insets, [0, 0], 'closed, then one open state; no 1px updates');
+        resize(430, 426);
+        assert.equal(insets.length, 3, 'a 4px move is reported');
+    });
+
     it('starts the baseline over after a rotation', () => {
         const { win, resize } = fakeWindow(800, 390);
         const { vars, target } = fakeTarget();
