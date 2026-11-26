@@ -83,6 +83,13 @@ export const PAGES: readonly Page[] = [
             'Collect Core Web Vitals, custom timings and JS errors from WebView users and export p50/p75/p95 to Prometheus with zero-dependency Fetch API handlers.',
     },
     {
+        source: 'docs/verification.md',
+        route: '/verification',
+        title: 'How webview-lens was verified on real phones',
+        description:
+            'Every claim of webview-lens with how it was checked on an Android phone and an iPhone, what was measured, what was found and fixed, and what is not verified.',
+    },
+    {
         source: 'docs/standards.md',
         route: '/standards',
         title: 'Standards conformance',
@@ -122,6 +129,13 @@ export const PAGES: readonly Page[] = [
         title: 'Рецепты WebView: клавиатура, safe areas, авторизация, JS-bridge, файлы',
         description:
             'Решения проблем WebView на Kotlin, Flutter и Swift: клавиатура закрывает поле, зум iOS при фокусе, safe areas, нативный вход через cookie, единый JS-bridge, кнопка «Назад», загрузка файлов на Android.',
+    },
+    {
+        source: 'docs/ru/verification.md',
+        route: '/ru/verification',
+        title: 'Как webview-lens проверен на реальных телефонах',
+        description:
+            'Каждое утверждение webview-lens: как проверено на Android и iPhone, что замерено, что найдено и исправлено, что не проверено.',
     },
     {
         source: 'ARCHITECTURE.md',

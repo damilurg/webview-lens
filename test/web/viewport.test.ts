@@ -1,7 +1,13 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { computeViewport, type ViewportWindow, watchViewport } from '../../src/viewport/index.ts';
+import {
+    computeViewport,
+    measureViewport,
+    unobstructedBottom,
+    type ViewportWindow,
+    watchViewport,
+} from '../../src/viewport/index.ts';
 
 /** A window whose sizes the test moves, firing resize on both viewports like a browser. */
 const fakeWindow = (innerHeight: number, innerWidth = 390) => {
@@ -119,5 +125,137 @@ describe('webview-lens/viewport', () => {
 
     it('does nothing on the server', () => {
         assert.doesNotThrow(() => watchViewport()());
+    });
+});
+
+describe('measureViewport (found on iPhone 17 Pro, Flutter WKWebView)', () => {
+    it('keeps the keyboard open when the WebView shrinks below its width', () => {
+        // Flutter resizes the WKWebView with the keyboard: 402×697 becomes 402×385. Height alone
+        // would look like a rotation to landscape and reset the baseline.
+        const open = measureViewport(
+            { width: 402, baseline: 697 },
+            { innerWidth: 402, innerHeight: 385, visualHeight: 328, offsetTop: 0 },
+        );
+
+        assert.equal(open.state.keyboardOpen, true);
+        assert.equal(open.state.keyboardHeight, 369);
+        assert.deepEqual(open.tracker, { width: 402, baseline: 697 });
+    });
+
+    it('starts the baseline over on a real rotation', () => {
+        const rotated = measureViewport(
+            { width: 402, baseline: 697 },
+            { innerWidth: 874, innerHeight: 380, visualHeight: 380, offsetTop: 0 },
+        );
+
+        assert.equal(rotated.state.keyboardOpen, false);
+        assert.deepEqual(rotated.tracker, { width: 874, baseline: 380 });
+    });
+
+    it('follows a WebView that got shorter while no field was focused (native chrome grew)', () => {
+        // iPhone 17 Pro: the Flutter screen grew a 17px status line, the WebView went 697 → 680.
+        const settled = measureViewport(
+            { width: 402, baseline: 697 },
+            {
+                innerWidth: 402,
+                innerHeight: 680,
+                visualHeight: 680,
+                offsetTop: 0,
+                editableFocused: false,
+            },
+        );
+        const open = measureViewport(settled.tracker, {
+            innerWidth: 402,
+            innerHeight: 311,
+            visualHeight: 311,
+            offsetTop: 0,
+            editableFocused: true,
+        });
+
+        assert.equal(settled.tracker.baseline, 680);
+        assert.equal(open.state.keyboardHeight, 369);
+    });
+
+    it('does not lower the baseline while a field is focused and the keyboard is still opening', () => {
+        const opening = measureViewport(
+            { width: 392, baseline: 720 },
+            {
+                innerWidth: 392,
+                innerHeight: 690,
+                visualHeight: 690,
+                offsetTop: 0,
+                editableFocused: true,
+            },
+        );
+
+        assert.equal(opening.state.keyboardOpen, false);
+        assert.equal(opening.tracker.baseline, 720);
+    });
+});
+
+describe('unobstructedBottom (found on iPhone 17 Pro: a composer bar hid the comment field)', () => {
+    interface FakeElement {
+        name: string;
+        top: number;
+        position: string;
+        parentElement: FakeElement | null;
+        contains(other: FakeElement | null): boolean;
+        getBoundingClientRect(): { top: number };
+    }
+
+    const element = (
+        name: string,
+        top: number,
+        position: string,
+        parent: FakeElement | null = null,
+    ): FakeElement => {
+        const self: FakeElement = {
+            name,
+            top,
+            position,
+            parentElement: parent,
+            contains: (other) => {
+                for (let node = other; node; node = node.parentElement)
+                    if (node === self) return true;
+
+                return false;
+            },
+            getBoundingClientRect: () => ({ top }),
+        };
+
+        return self;
+    };
+
+    const body = element('body', 0, 'static');
+    const composer = element('div.composer', 244, 'fixed', body);
+    const composerInput = element('input#message', 252, 'static', composer);
+    const comment = element('textarea#comment', 208, 'static', body);
+    const positionOf = (e: FakeElement) => e.position;
+
+    it('raises the visible bottom above a fixed bar on the keyboard', () => {
+        const bottom = unobstructedBottom(
+            comment,
+            { width: 402, visibleBottom: 311 },
+            () => composer,
+            positionOf,
+        );
+
+        assert.equal(bottom, 244);
+    });
+
+    it('ignores the bar for a field inside it, and pages without bars', () => {
+        assert.equal(
+            unobstructedBottom(
+                composerInput,
+                { width: 402, visibleBottom: 311 },
+                () => composerInput,
+                positionOf,
+            ),
+            311,
+        );
+        assert.equal(
+            unobstructedBottom(comment, { width: 402, visibleBottom: 311 }, () => body, positionOf),
+            311,
+        );
     });
 });

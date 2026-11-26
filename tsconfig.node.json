@@ -9,5 +9,10 @@
         "types": ["node"]
     },
     "include": ["src", "test", "examples", "scripts"],
-    "exclude": ["src/rum/index.ts", "src/viewport", "test/web", "examples/recipes/keyboard.ts"]
+    "exclude": [
+        "src/rum/index.ts",
+        "src/viewport/index.ts",
+        "test/web",
+        "examples/recipes/keyboard.ts"
+    ]
 }

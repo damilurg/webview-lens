@@ -8,6 +8,8 @@ Found by end-to-end runs on real phones: Redmi Note 8 Pro (Android 11, WebView 1
 
 ### Added
 
+- **`webview-lens keyboard`:** live keyboard and viewport numbers of the WebView page on Android and iOS: keyboard height, how much of the page it covers, the visible height, whether the focused field is visible, partly hidden or hidden (and whether a fixed bar is the reason), and the `--wl-*` values. `--overlay` draws them on the phone, `--frames` prints every animation frame. It follows the app to the visible WebView when an earlier screen keeps its own.
+- `docs/verification.md`: every claim with how it was checked on the phones, the measurements, what was found and fixed, and what is not verified.
 - **`webview-lens/viewport`:** keyboard and viewport helpers for pages in Android WebView and iOS WKWebView. `watchViewport()` keeps `--wl-keyboard-inset` (how much of the page the keyboard covers: the keyboard height on iOS, 0 where the WebView resized), `--wl-keyboard-height`, `--wl-viewport-height` and `data-wl-keyboard` up to date; `keepFocusedInputVisible()` scrolls a field the keyboard covers into view. Zero dependencies, SSR-safe; checked on Android 11 with the keyboard open.
 - **Library logger:** `--verbose` (or `WEBVIEW_LENS_DEBUG=1`) shows what webview-lens itself does — adb calls with timings, port forwards, CDP sockets, WebKit target switches, proxy decisions — on stderr; `--log-file` (or `WEBVIEW_LENS_LOG_FILE`) writes JSON Lines for bug reports. `configureLogging` / `createLogger` for your own sinks.
 - **Docs:** Getting started (install, debuggable WebView per stack, Android and iOS step by step, environment variables, config), Recipes (keyboard, iOS input zoom, safe areas, native sign-in cookies, one JS bridge API, back button, Android file upload, debug CA), runnable recipes in `examples/recipes/` copied into the docs, `ARCHITECTURE.md` and `CONTRIBUTING.md`; all on the website.
@@ -28,6 +30,8 @@ Found by end-to-end runs on real phones: Redmi Note 8 Pro (Android 11, WebView 1
 
 ### Fixed
 
+- `webview-lens/viewport`, found with `webview-lens keyboard` on an iPhone (Flutter): `--wl-keyboard-height` stayed 17 px too high after the WebView got shorter (the baseline now resets while no field is focused); iOS overscroll added its negative `offsetTop` to the keyboard height; `keepFocusedInputVisible` counted a field as visible while a fixed bar on the keyboard (a composer) covered it, and now keeps it above fixed and sticky bars.
+- The iOS waiting hint names the usual cause first (the app is not on the WebView screen) before Web Inspector settings.
 - `vitals` with a URL instead of a path (`vitals https://…`) fails with a clear message. On Android it failed with "Cannot navigate to invalid URL", and on iOS it printed a row of dashes.
 - `--platform`, `--preset`, `--sse` and `--throttle` are narrowed where they are checked; before, the flag object was cast to the config type after a separate check.
 - The `angular` preset bridges the HMR WebSocket of Angular 17+ (`@angular/build` on Vite, `wss://host/?token=…`). It pointed at `/ng-cli-ws`, the webpack dev server's path, so `ng serve` edits never reached the WebView.

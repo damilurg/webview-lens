@@ -5,6 +5,7 @@
 import { cert, doctor, init } from './cli/commands/setup.ts';
 import { dev } from './cli/commands/dev.ts';
 import { devtools } from './cli/commands/devtools.ts';
+import { keyboard } from './cli/commands/keyboard.ts';
 import { vitals } from './cli/commands/vitals.ts';
 import { buildCliContext, type CliContext, parseCliArgs } from './cli/context.ts';
 import { HELP } from './cli/help.ts';
@@ -26,6 +27,7 @@ const COMMANDS: Readonly<Record<string, (ctx: CliContext) => Promise<void>>> = {
     dev,
     devtools,
     vitals,
+    keyboard,
     cert,
     doctor,
 };

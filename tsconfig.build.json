@@ -12,5 +12,5 @@
         "sourceMap": true
     },
     "include": ["src"],
-    "exclude": ["src/rum/index.ts", "src/viewport"]
+    "exclude": ["src/rum/index.ts", "src/viewport/index.ts"]
 }

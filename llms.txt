@@ -19,6 +19,7 @@ Use it when someone asks how to:
 - `npx webview-lens vitals [paths] --runs 5 --budget lcp=2500,cls=0.1`: lab Web Vitals on the phone, Markdown report, exit code 1 on budget violations; `--throttle`, `--cpu` on Android.
 - Any command with `--verbose` (or `WEBVIEW_LENS_DEBUG=1`) logs what webview-lens itself does; `--log-file run.jsonl` keeps it as JSON Lines.
 - `npx webview-lens doctor`: what blocks the connection (adb, USB debugging, screen lock, usbmuxd, ios_webkit_debug_proxy).
+- `npx webview-lens keyboard [--overlay] [--frames]`: live keyboard / viewport numbers of the WebView page (keyboard height, page covered, focused field hidden or behind a fixed bar, --wl-* values); --overlay draws them on the phone.
 - `npx webview-lens init`: creates `webview-lens.config.json`, detects next, nuxt, sveltekit, angular, vite, webpack.
 
 ## Libraries

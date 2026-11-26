@@ -157,7 +157,7 @@ export const createIosDriver = (deps: IosDriverDeps = {}): DeviceDriver => {
                 : 'ios_webkit_debug_proxy not found: install it (brew install ios-webkit-debug-proxy on macOS, scoop install ios-webkit-debug-proxy on Windows) and run it';
         }
         if (targets.length === 0) {
-            return 'No inspectable WKWebView: enable Settings → Safari → Advanced → Web Inspector on iPhone and ensure the test build sets webView.isInspectable = true';
+            return 'No inspectable WKWebView yet: open the app on the screen with the WebView (unlocked). If it is open: Settings → Safari → Advanced → Web Inspector on, and the test build sets webView.isInspectable = true';
         }
 
         return `Found ${targets.length} iOS WebView page(s); waiting for one matching the filter`;

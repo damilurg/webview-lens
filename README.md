@@ -36,18 +36,21 @@ server) behind the real stand's HTTPS origin with zero changes to your frontend 
 Capacitor, Cordova / Ionic, React Native WebView, Flutter `webview_flutter`, and in-app browsers of
 super-apps, as long as the test build enables WebView debugging.
 
-| Piece                     | What it does                                                                                                                                                   |
-| ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `webview-lens init`       | Detects your bundler (`next`, `nuxt`, `sveltekit`, `angular`, `vite`, `webpack`) and creates `webview-lens.config.json`                                        |
-| `webview-lens dev`        | Serves the stand's HTTPS origin from your local dev server (Android: CDP `Fetch`; iOS: selective HTTPS MITM) with HMR and `--logs`                             |
-| `webview-lens devtools`   | Full Chrome DevTools at a **fixed** `http://localhost:3300` (survives app restarts; bridges iOS WIP ↔ CDP on Windows & macOS)                                  |
-| `webview-lens cert`       | Generates a local X.509 v3 Root CA and prints a terminal QR code to install `.mobileconfig` on a test iPhone                                                   |
-| `webview-lens vitals`     | Lab LCP, FCP, CLS, INP, TTFB, Long Tasks, JS Heap and marks from a real phone + `--throttle`, `--cpu`, and CI `--budget`                                       |
-| `webview-lens doctor`     | Diagnoses everything blocking the connection (`adb`, `usbmuxd`, `ios_webkit_debug_proxy`, screen lock, debuggable WebViews)                                    |
-| `webview-lens/rum`        | Browser client (0 `node:*` imports): Web Vitals, custom timings, global errors, `detectWebViewEnv`, context tags                                               |
-| `webview-lens/rum/server` | Edge-safe Fetch API handlers (`Request → Response`), Express/Node `toNodeHandler`, bounded `createRumAggregator` (`p50`/`p75`/`p95`) and Prometheus `/metrics` |
-| `webview-lens/viewport`   | Browser helpers for the on-screen keyboard: `--wl-keyboard-inset` / `--wl-viewport-height` CSS variables and focused fields kept visible, Android and iOS      |
-| `--verbose`, `--log-file` | What webview-lens itself does (adb calls, forwards, sockets, proxy decisions), on stderr or as JSON Lines; the page's own console stays in DevTools            |
+| Piece                     | What it does                                                                                                                                                      |
+| ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `webview-lens init`       | Detects your bundler (`next`, `nuxt`, `sveltekit`, `angular`, `vite`, `webpack`) and creates `webview-lens.config.json`                                           |
+| `webview-lens dev`        | Serves the stand's HTTPS origin from your local dev server (Android: CDP `Fetch`; iOS: selective HTTPS MITM) with HMR and `--logs`                                |
+| `webview-lens devtools`   | Full Chrome DevTools at a **fixed** `http://localhost:3300` (survives app restarts; bridges iOS WIP ↔ CDP on Windows & macOS)                                     |
+| `webview-lens cert`       | Generates a local X.509 v3 Root CA and prints a terminal QR code to install `.mobileconfig` on a test iPhone                                                      |
+| `webview-lens vitals`     | Lab LCP, FCP, CLS, INP, TTFB, Long Tasks, JS Heap and marks from a real phone + `--throttle`, `--cpu`, and CI `--budget`                                          |
+| `webview-lens doctor`     | Diagnoses everything blocking the connection (`adb`, `usbmuxd`, `ios_webkit_debug_proxy`, screen lock, debuggable WebViews)                                       |
+| `webview-lens keyboard`   | Live keyboard numbers of the WebView page (height, how much of the page it covers, the focused field hidden or not, `--wl-*` values) and `--overlay` on the phone |
+| `webview-lens/rum`        | Browser client (0 `node:*` imports): Web Vitals, custom timings, global errors, `detectWebViewEnv`, context tags                                                  |
+| `webview-lens/rum/server` | Edge-safe Fetch API handlers (`Request → Response`), Express/Node `toNodeHandler`, bounded `createRumAggregator` (`p50`/`p75`/`p95`) and Prometheus `/metrics`    |
+| `webview-lens/viewport`   | Browser helpers for the on-screen keyboard: `--wl-keyboard-inset` / `--wl-viewport-height` CSS variables and focused fields kept visible, Android and iOS         |
+| `--verbose`, `--log-file` | What webview-lens itself does (adb calls, forwards, sockets, proxy decisions), on stderr or as JSON Lines; the page's own console stays in DevTools               |
+
+**How it was verified:** every claim with the phones, apps, commands, measurements and the test that guards it: [docs/verification.md](docs/verification.md).
 
 ## Requirements
 

@@ -14,52 +14,24 @@
 //
 // Zero dependencies, no globals at import time: safe to import during SSR, where it does nothing.
 
-export interface ViewportState {
-    /** Visible height in CSS px (visual viewport). */
-    height: number;
-    /** Height of the on-screen keyboard, 0 when it is closed. */
-    keyboardHeight: number;
-    /** Part of the page (layout viewport) under the keyboard: 0 where the WebView resized. */
-    keyboardInset: number;
-    keyboardOpen: boolean;
-}
+import {
+    EDITABLE,
+    measureViewport,
+    unobstructedBottom,
+    type ViewportState,
+    type ViewportTracker,
+} from './compute.ts';
 
-export interface ViewportSample {
-    /** `window.innerHeight` (layout viewport). */
-    innerHeight: number;
-    /** `visualViewport.height`, or innerHeight where visualViewport is missing. */
-    visualHeight: number;
-    /** `visualViewport.offsetTop`: how far the visual viewport scrolled inside the layout one. */
-    offsetTop: number;
-    /** Tallest layout height seen in this orientation: the height without the keyboard. */
-    baseline: number;
-}
-
-/**
- * Keyboard state from one measurement. Covers both platforms: on Android the layout viewport
- * shrinks with the keyboard (baseline - innerHeight), on iOS only the visual one does
- * (innerHeight - visualHeight - offsetTop). Smaller gaps (toolbars, rounding) are not a keyboard.
- */
-export const computeViewport = (
-    { innerHeight, visualHeight, offsetTop, baseline }: ViewportSample,
-    threshold = 120,
-): ViewportState => {
-    const keyboard = Math.max(
-        0,
-        Math.round(Math.max(baseline, innerHeight) - visualHeight - offsetTop),
-    );
-    const covered = Math.max(0, Math.round(innerHeight - visualHeight - offsetTop));
-    // A few px left after the WebView resized (Flutter, adjustResize) is rounding, not keyboard.
-    const overlap = covered < 4 ? 0 : covered;
-    const keyboardOpen = keyboard > threshold;
-
-    return {
-        height: Math.round(visualHeight),
-        keyboardHeight: keyboardOpen ? keyboard : 0,
-        keyboardInset: keyboardOpen ? overlap : 0,
-        keyboardOpen,
-    };
-};
+export {
+    computeViewport,
+    type LayoutElement,
+    measureViewport,
+    unobstructedBottom,
+    type ViewportReading,
+    type ViewportSample,
+    type ViewportState,
+    type ViewportTracker,
+} from './compute.ts';
 
 /** The parts of `window` this module reads (a test double in unit tests). */
 export interface ViewportWindow {
@@ -87,6 +59,15 @@ export interface WatchViewportOptions {
     win?: ViewportWindow;
 }
 
+/** A text field has focus, so the keyboard may be up (no focus: it is certainly down). */
+const isEditableFocused = (): boolean | undefined => {
+    if (typeof document === 'undefined') return undefined;
+
+    const field = document.activeElement;
+
+    return field instanceof HTMLElement && field.matches(EDITABLE);
+};
+
 const isSameState = (a: ViewportState, b: ViewportState): boolean =>
     a.keyboardOpen === b.keyboardOpen &&
     Math.abs(a.height - b.height) < 2 &&
@@ -111,29 +92,25 @@ export const watchViewport = ({
 
     const element =
         target ?? (typeof document === 'undefined' ? undefined : document.documentElement);
-    let baseline = win.innerHeight;
-    let width = win.innerWidth;
+    let tracker: ViewportTracker = { width: win.innerWidth, baseline: win.innerHeight };
     let last: ViewportState | undefined;
 
     const update = () => {
-        // A rotation changes the height without a keyboard: start the baseline over.
-        if (Math.abs(win.innerWidth - width) > 50) {
-            width = win.innerWidth;
-            baseline = win.innerHeight;
-        }
-
         const viewport = win.visualViewport;
-        const state = computeViewport(
+        const measured = measureViewport(
+            tracker,
             {
+                innerWidth: win.innerWidth,
                 innerHeight: win.innerHeight,
                 visualHeight: viewport?.height ?? win.innerHeight,
                 offsetTop: viewport?.offsetTop ?? 0,
-                baseline,
+                editableFocused: isEditableFocused(),
             },
             threshold,
         );
+        const { state } = measured;
 
-        if (!state.keyboardOpen) baseline = Math.max(baseline, win.innerHeight);
+        tracker = measured.tracker;
 
         // The keyboard animates over several frames: report it open/closed and when a size moves
         // by 2px or more, not every 1px step.
@@ -160,11 +137,8 @@ export const watchViewport = ({
     };
 };
 
-const EDITABLE =
-    'input:not([type=checkbox]):not([type=radio]):not([type=button]):not([type=submit]), textarea, select, [contenteditable=""], [contenteditable="true"]';
-
 export interface KeepFocusedVisibleOptions {
-    /** Space to keep between the field and the keyboard, CSS px. Default 16. */
+    /** Space to keep between the field and the keyboard (or a fixed bar on it), CSS px. Default 16. */
     margin?: number;
     win?: ViewportWindow;
 }
@@ -186,9 +160,18 @@ export const keepFocusedInputVisible = ({
         if (!(field instanceof HTMLElement) || !field.matches(EDITABLE)) return;
 
         const viewport = win.visualViewport;
-        const visibleBottom = (viewport?.offsetTop ?? 0) + (viewport?.height ?? win.innerHeight);
+        // A fixed bar on the keyboard (a composer) hides what is right above the keyboard too.
+        const bottom = unobstructedBottom<Element>(
+            field,
+            {
+                width: win.innerWidth,
+                visibleBottom: (viewport?.offsetTop ?? 0) + (viewport?.height ?? win.innerHeight),
+            },
+            (x, y) => document.elementFromPoint(x, y),
+            (element) => getComputedStyle(element).position,
+        );
 
-        if (field.getBoundingClientRect().bottom + margin <= visibleBottom) return;
+        if (field.getBoundingClientRect().bottom + margin <= bottom) return;
         field.scrollIntoView({ block: 'center', behavior: 'smooth' });
     };
     // The keyboard animates in after focus: check again once it has settled.
