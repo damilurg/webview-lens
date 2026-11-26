@@ -14,6 +14,7 @@ import {
 import { METRIC_NAMES } from '../../shared/thresholds.ts';
 import type { CliContext } from '../context.ts';
 import { ensureIosProxy, logAdbPath } from '../runtime.ts';
+import { terminal } from '../output.ts';
 
 export const vitals = async (ctx: CliContext): Promise<void> => {
     const { cfg, values } = ctx;
@@ -42,6 +43,7 @@ export const vitals = async (ctx: CliContext): Promise<void> => {
 
     const result = await measureVitals({
         driver,
+        log: terminal.line,
         ...(devtoolsPort ? { devtoolsPort } : {}),
         paths,
         runs: Number(values.runs),
@@ -56,7 +58,7 @@ export const vitals = async (ctx: CliContext): Promise<void> => {
             (!cfg.match || page.url.includes(cfg.match)),
     });
 
-    console.table(
+    terminal.table(
         Object.fromEntries(
             result.rows.map((row) => [
                 row.path,
@@ -67,21 +69,21 @@ export const vitals = async (ctx: CliContext): Promise<void> => {
 
     fs.mkdirSync(path.dirname(path.resolve(values.out)), { recursive: true });
     fs.writeFileSync(values.out, toMarkdown(result));
-    console.log(`Report: ${path.resolve(values.out)}`);
+    terminal.line(`Report: ${path.resolve(values.out)}`);
 
     if (!budgets) return;
 
     const violations = checkBudgets(result, budgets);
 
     if (violations.length === 0) {
-        console.log('✓ All performance budgets passed');
+        terminal.line('✓ All performance budgets passed');
 
         return;
     }
 
-    console.error('Performance budget exceeded:');
+    terminal.error('Performance budget exceeded:');
     for (const v of violations) {
-        console.error(
+        terminal.error(
             `  ✗ ${v.path} ${v.metric}: ${formatMetric(v.metric, v.actual)} > ${formatMetric(v.metric, v.limit)}`,
         );
     }

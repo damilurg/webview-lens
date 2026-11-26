@@ -23,6 +23,10 @@ import {
 } from '../shared/thresholds.ts';
 import { type Decoder, list, num, parseJson, rec, str } from '../shared/decode.ts';
 import { bestEffort, isRecord, sleep } from '../shared/utils.ts';
+import { createLogger } from './logger.ts';
+
+// Silent unless logging is configured (--verbose); callers pass their own callbacks to show it.
+const vitalsLog = createLogger('vitals');
 
 /** In-page collector, installed before the app's scripts on every load. */
 export const COLLECTOR = `(() => {
@@ -235,7 +239,7 @@ export const measureVitals = async ({
     cpu = 1,
     settleMs = 4000,
     isTarget = (target) => target.type === 'page' && /^https?:/.test(target.url),
-    log = console.log,
+    log = vitalsLog.info,
     wait,
 }: LabOptions): Promise<LabResult> => {
     const activeDriver =

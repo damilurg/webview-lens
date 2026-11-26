@@ -376,7 +376,7 @@ export const startIosMitmProxy = async ({
     ca,
     certDir,
     fetchImpl = fetch,
-    logger = { request: console.log, error: console.error },
+    logger = { request: debugLog.info, error: debugLog.error },
 }: IosMitmProxyOptions): Promise<IosMitmProxy> => {
     const mapper = createUrlMapper({ remote, local, remoteBase, localBase });
     const targetHost = new URL(mapper.remoteOrigin).hostname;

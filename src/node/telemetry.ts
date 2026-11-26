@@ -10,6 +10,10 @@ import {
     decodeResponseReceived,
     subscribe,
 } from './protocol.ts';
+import { createLogger } from './logger.ts';
+
+// Silent unless logging is configured (--verbose); callers pass their own callbacks to show it.
+const pageLog = createLogger('telemetry');
 
 export interface RemoteObjectPreviewProperty {
     name: string;
@@ -161,8 +165,8 @@ export const attachTelemetry = (
     {
         levels,
         networkErrors = true,
-        log = console.log,
-        error = console.error,
+        log = pageLog.info,
+        error = pageLog.error,
     }: TelemetryOptions = {},
 ): (() => void) => {
     const allowedLevels = levels ? new Set(levels.map(normalizeConsoleLevel)) : null;

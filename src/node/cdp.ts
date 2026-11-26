@@ -1,7 +1,7 @@
 // A minimal Chrome DevTools Protocol client over the global WebSocket (Node 22.4+).
 
 import { parseJson } from '../shared/decode.ts';
-import { isRecord } from '../shared/utils.ts';
+import { errorMessage, isRecord } from '../shared/utils.ts';
 import { createLogger } from './logger.ts';
 import { decodeRpcMessage } from './protocol.ts';
 
@@ -177,7 +177,12 @@ export const connectCdp = async (
             try {
                 listener(message.params);
             } catch (error) {
-                console.error(`CDP listener for ${message.method} failed:`, error);
+                // A bug in a caller's listener must not stop the others, nor vanish: a Node warning
+                // (stderr unless the process handles 'warning' events) plus the library log.
+                log.error(`listener for ${message.method} failed`, { error: errorMessage(error) });
+                process.emitWarning(
+                    `CDP listener for ${message.method} failed: ${errorMessage(error)}`,
+                );
             }
         }
     };

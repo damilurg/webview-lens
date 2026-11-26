@@ -186,7 +186,7 @@ export const ensureIwdp = async ({
     findIwdp: findFn = findIwdp,
     listIwdpDevices: listFn = listIwdpDevices,
     spawnIwdp = defaultSpawnIwdp,
-    log = console.log,
+    log = debugLog.info,
 }: EnsureIwdpOptions = {}): Promise<StartedIwdp | undefined> => {
     if ((await listFn(controlPort)) !== null) {
         debugLog.debug(`already answering on :${controlPort}`);

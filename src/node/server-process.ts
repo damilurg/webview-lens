@@ -5,6 +5,7 @@ import readline from 'node:readline';
 
 import { sleep } from '../shared/utils.ts';
 import { killProcessTree } from './fs-utils.ts';
+import { createLogger } from './logger.ts';
 
 export const isServerUp = (url: string): Promise<boolean> =>
     // A server that accepts but never answers (stuck compile, half-open port) counts as down.
@@ -18,12 +19,14 @@ export interface StartedServer {
     stop(): void;
 }
 
+const serverLog = createLogger('server');
+
 /** Runs a shell command, prefixing its output; `stop` kills the whole process tree. */
 export const spawnServer = (
     command: string,
     {
         prefix = '[server]',
-        log = console.log,
+        log = serverLog.info,
     }: { prefix?: string; log?: (line: string) => void } = {},
 ): StartedServer => {
     const child = spawn(command, { shell: true, stdio: ['ignore', 'pipe', 'pipe'] });
@@ -51,7 +54,7 @@ export interface EnsureServerOptions {
  */
 export const ensureServer = async (
     url: string,
-    { command, log = console.log }: EnsureServerOptions = {},
+    { command, log = serverLog.info }: EnsureServerOptions = {},
 ): Promise<StartedServer | undefined> => {
     if (await isServerUp(url)) return undefined;
 

@@ -6,6 +6,7 @@ import type { ProjectConfig } from '../node/config.ts';
 import { ensureIwdp } from '../node/drivers/ios/iwdp.ts';
 import { fromGitBashPath } from '../node/paths.ts';
 import { errorMessage, sleep } from '../shared/utils.ts';
+import { terminal } from './output.ts';
 
 /** Runs `cleanup` once on exit, Ctrl+C or SIGTERM. */
 export const registerCleanup = (cleanup: () => void): void => {
@@ -64,11 +65,11 @@ export const runTelemetryLoop = async <T extends { url: string; title?: string }
         try {
             const { closed, detach } = await attach(target);
 
-            console.log(`Live logs attached to ${target.url}`);
+            terminal.line(`Live logs attached to ${target.url}`);
             await closed;
             detach();
         } catch (error) {
-            console.error(errorMessage(error));
+            terminal.error(errorMessage(error));
             await sleep(2000);
         }
     }
@@ -78,7 +79,7 @@ export const logAdbPath = (): void => {
     try {
         // Driver selection may have resolved adb already, so print the path rather than rely on
         // resolveAdb's first-time callback.
-        console.log(`adb: ${resolveAdb()}`);
+        terminal.line(`adb: ${resolveAdb()}`);
     } catch {
         // waitForPage prints where it looked.
     }
@@ -86,7 +87,7 @@ export const logAdbPath = (): void => {
 
 /** iOS: every command that talks to the page needs ios_webkit_debug_proxy; start it if it is down. */
 export const ensureIosProxy = async (): Promise<void> => {
-    const iwdpProc = await ensureIwdp();
+    const iwdpProc = await ensureIwdp({ log: terminal.line });
 
     if (iwdpProc) registerCleanup(iwdpProc.stop);
 };

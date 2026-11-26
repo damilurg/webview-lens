@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { describe, it } from 'node:test';
 
@@ -66,7 +67,61 @@ const findTypeAssertions = (file: string): string[] => {
     return found;
 };
 
+/** `console.*` calls in executable code (not in strings: page scripts are strings). */
+const findConsoleCalls = (file: string): string[] => {
+    const source = ts.createSourceFile(
+        file,
+        fs.readFileSync(file, 'utf8'),
+        ts.ScriptTarget.Latest,
+        true,
+    );
+    const found: string[] = [];
+    const visit = (node: ts.Node): void => {
+        if (
+            ts.isPropertyAccessExpression(node) &&
+            ts.isIdentifier(node.expression) &&
+            node.expression.text === 'console'
+        ) {
+            const { line } = source.getLineAndCharacterOfPosition(node.getStart(source));
+
+            found.push(`${path.relative(ROOT, file)}:${line + 1} ${node.getText(source)}`);
+        }
+        ts.forEachChild(node, visit);
+    };
+
+    visit(source);
+
+    return found;
+};
+
+/** The only places allowed to print: the CLI's terminal output and RUM's opt-in `debug` in the page. */
+const CONSOLE_ALLOWED = new Set(['src/cli/output.ts', 'src/rum/index.ts']);
+
 describe('Repository architectural invariants', () => {
+    it('only the CLI output module prints; the library logs through createLogger or callbacks', () => {
+        const found = listTsFiles(path.join(ROOT, 'src'))
+            .filter(
+                (file) => !CONSOLE_ALLOWED.has(path.relative(ROOT, file).split(path.sep).join('/')),
+            )
+            .flatMap(findConsoleCalls);
+
+        assert.deepEqual(
+            found,
+            [],
+            `Use terminal (src/cli/output.ts), a log callback or createLogger:\n${found.join('\n')}`,
+        );
+    });
+
+    it('the console check finds console calls, and ignores them inside strings', () => {
+        const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wvl-console-'));
+        const file = path.join(dir, 'probe.ts');
+
+        fs.writeFileSync(file, "const page = 'console.log(1)';\nconsole.error('x');\n");
+        assert.deepEqual(
+            findConsoleCalls(file).map((hit) => hit.split(' ').pop()),
+            ['console.error'],
+        );
+    });
     it('library code has no type assertions: data from outside is decoded, not cast', () => {
         const found = listTsFiles(path.join(ROOT, 'src')).flatMap(findTypeAssertions);
 

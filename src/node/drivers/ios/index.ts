@@ -24,6 +24,10 @@ import {
 import { describeIosDevices, listIosDevices } from './usbmux.ts';
 import { connectWebKitInspector } from './webkit-targets.ts';
 import { createWipCdpBridge } from './wip-cdp-bridge.ts';
+import { createLogger } from '../../logger.ts';
+
+// Silent unless logging is configured (--verbose); callers pass their own callbacks to show it.
+const iosLog = createLogger('ios');
 
 /**
  * Enables a WebKit domain when this iOS has it. Only "'…' was not found" is ignored: a closed socket
@@ -209,7 +213,7 @@ export const createIosDriver = (deps: IosDriverDeps = {}): DeviceDriver => {
             predicate: TargetPredicate,
             options: DriverTargetOptions = {},
         ): Promise<InspectableTarget> {
-            const log = options.log ?? console.log;
+            const log = options.log ?? iosLog.info;
             const intervalMs = options.intervalMs ?? 2000;
             let lastHint = '';
 

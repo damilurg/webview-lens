@@ -6,6 +6,7 @@ import { str } from '../../shared/decode.ts';
 import { errorMessage, sleep, withTimeout } from '../../shared/utils.ts';
 import type { CliContext } from '../context.ts';
 import { ensureIosProxy, logAdbPath } from '../runtime.ts';
+import { terminal } from '../output.ts';
 
 const END_MESSAGES: Readonly<Record<KeyboardWatchEnd, string>> = {
     closed: 'The page closed, waiting for it again…',
@@ -79,7 +80,7 @@ export const keyboard = async (ctx: CliContext): Promise<void> => {
         try {
             const session = await driver.connectInspector(target);
 
-            console.log(
+            terminal.line(
                 `Watching the keyboard in ${target.url}. Tap a field on the phone; Ctrl+C exits.`,
             );
 
@@ -87,13 +88,14 @@ export const keyboard = async (ctx: CliContext): Promise<void> => {
                 session,
                 overlay: Boolean(ctx.values.overlay),
                 frames: Boolean(ctx.values.frames),
+                log: terminal.line,
             });
 
             session.close();
-            console.log(END_MESSAGES[end]);
+            terminal.line(END_MESSAGES[end]);
             await sleep(1000);
         } catch (error) {
-            console.error(errorMessage(error));
+            terminal.error(errorMessage(error));
             await sleep(2000);
         }
     }

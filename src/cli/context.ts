@@ -20,6 +20,7 @@ import {
 import type { SsePolicy } from '../node/override.ts';
 import { isPresetSelection, PRESET_SELECTIONS } from '../node/presets.ts';
 import { isNetworkThrottlePreset, NETWORK_THROTTLE_PRESETS } from '../node/vitals-lab.ts';
+import { terminal } from './output.ts';
 
 export const parseCliArgs = (argv: string[] = process.argv.slice(2)) =>
     parseArgs({
@@ -78,7 +79,8 @@ export interface CliContext {
     proxyPort: number;
     serial: string | undefined;
     logsEnabled: boolean;
-    targetOptions: { serial?: string; app?: string };
+    /** Device filters, and where waiting hints go (the terminal). */
+    targetOptions: { serial?: string; app?: string; log: (line: string) => void };
     remoteOrigin: string | undefined;
     /** Android page filter: --match, else any page with --remote, else any https page. */
     isTarget: PagePredicate;
@@ -226,6 +228,7 @@ export const buildCliContext = (
         targetOptions: {
             ...(serial ? { serial } : {}),
             ...(cfg.app ? { app: cfg.app } : {}),
+            log: terminal.line,
         },
         remoteOrigin,
         isTarget: (page) => {

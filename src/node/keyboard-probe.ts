@@ -15,6 +15,10 @@ import {
     visibleBottomInClient,
 } from '../viewport/compute.ts';
 import type { InspectorSession } from './drivers/types.ts';
+import { createLogger } from './logger.ts';
+
+// Silent unless logging is configured; the CLI passes its terminal output.
+const keyboardLog = createLogger('keyboard');
 
 /** One measurement from the page. Lengths are CSS px. */
 export interface KeyboardSample {
@@ -372,7 +376,7 @@ export const watchKeyboard = async ({
     frames = false,
     intervalMs = 150,
     timeoutMs = 3000,
-    log = console.log,
+    log = keyboardLog.info,
     signal,
 }: WatchKeyboardOptions): Promise<KeyboardWatchEnd> => {
     const probe = keyboardProbeScript({ overlay });

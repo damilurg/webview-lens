@@ -5,6 +5,10 @@ import http from 'node:http';
 import net from 'node:net';
 
 import { errorMessage } from '../shared/utils.ts';
+import { createLogger } from './logger.ts';
+
+// Silent unless logging is configured (--verbose); callers pass their own callbacks to show it.
+const frontendLog = createLogger('devtools');
 
 export const DEFAULT_FRONTEND_ORIGIN = 'https://chrome-devtools-frontend.appspot.com';
 
@@ -85,7 +89,7 @@ export const startDevtoolsHttpServer = ({
     resolveRedirectPath,
     onUpgrade,
     loadFrontendFile = sharedFrontendLoader,
-    log = console.error,
+    log = frontendLog.warn,
 }: DevtoolsHttpServerOptions): DevtoolsServerHandle => {
     const server = http.createServer(async (request, response) => {
         const url = new URL(request.url ?? '/', 'http://localhost');

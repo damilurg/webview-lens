@@ -17,6 +17,10 @@ import {
     type PagePredicate,
     pickPage,
 } from './cdp.ts';
+import { createLogger } from './logger.ts';
+
+// Silent unless logging is configured (--verbose); callers pass their own callbacks to show it.
+const deviceLog = createLogger('device');
 
 const firstLine = (error: unknown) => errorMessage(error).split('\n')[0] ?? '';
 
@@ -84,7 +88,7 @@ export const waitForPage = async (
     port: string | number,
     predicate: PagePredicate = isAnyPage,
     {
-        log = console.log,
+        log = deviceLog.info,
         intervalMs = 2000,
         run = runAdb,
         listPages: listPagesFn = listPages,

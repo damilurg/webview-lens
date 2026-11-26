@@ -22,6 +22,7 @@ import {
     registerCleanup,
     runTelemetryLoop,
 } from '../runtime.ts';
+import { pageLog, requestLog, terminal } from '../output.ts';
 
 interface DevSettings {
     local: string;
@@ -43,6 +44,10 @@ const devSettings = ({ cfg }: CliContext): DevSettings => {
     };
 };
 
+/** The local server is started (when needed) with its output in the terminal. */
+const serverOptions = (command: string | undefined) =>
+    command ? { command, log: terminal.line } : { log: terminal.line };
+
 const devIos = async (ctx: CliContext, driver: DeviceDriver, settings: DevSettings) => {
     const { cfg, remoteOrigin } = ctx;
 
@@ -52,7 +57,7 @@ const devIos = async (ctx: CliContext, driver: DeviceDriver, settings: DevSettin
         );
     }
 
-    const server = await ensureServer(settings.local, cfg.cmd ? { command: cfg.cmd } : {});
+    const server = await ensureServer(settings.local, serverOptions(cfg.cmd));
     const proxy = await startIosMitmProxy({
         remote: remoteOrigin,
         local: settings.local,
@@ -60,6 +65,7 @@ const devIos = async (ctx: CliContext, driver: DeviceDriver, settings: DevSettin
         port: ctx.proxyPort,
         quietPrefixes: settings.quietPrefixes,
         forwardedHeaders: Boolean(cfg.forwarded),
+        logger: requestLog,
     });
 
     registerCleanup(() => {
@@ -69,13 +75,13 @@ const devIos = async (ctx: CliContext, driver: DeviceDriver, settings: DevSettin
 
     const lanIp = detectLanAddresses()[0] ?? 'localhost';
 
-    console.log(`iOS selective MITM proxy listening on ${lanIp}:${proxy.port}`);
-    console.log(
+    terminal.line(`iOS selective MITM proxy listening on ${lanIp}:${proxy.port}`);
+    terminal.line(
         `Intercepting ONLY ${proxy.targetHost} → ${settings.local} (other domains pass through)`,
     );
-    console.log(`Install CA on iPhone (once): http://${lanIp}:${proxy.port}/`);
-    console.log(renderQrTerminal(`http://${lanIp}:${proxy.port}/webview-lens.mobileconfig`));
-    console.log(
+    terminal.line(`Install CA on iPhone (once): http://${lanIp}:${proxy.port}/`);
+    terminal.line(renderQrTerminal(`http://${lanIp}:${proxy.port}/webview-lens.mobileconfig`));
+    terminal.line(
         `Set iPhone Wi-Fi HTTP Proxy → Manual: Server ${lanIp}, Port ${proxy.port}. Ctrl+C exits.`,
     );
 
@@ -94,7 +100,7 @@ const devIos = async (ctx: CliContext, driver: DeviceDriver, settings: DevSettin
             ),
         attach: async (target) => {
             const session = await driver.connectInspector(target);
-            const detach = (await session.attachTelemetry?.()) ?? (() => undefined);
+            const detach = (await session.attachTelemetry?.(pageLog)) ?? (() => undefined);
 
             return { closed: session.closed, detach };
         },
@@ -137,7 +143,7 @@ const createHmrReverser = (serial: string | undefined, hmrPorts: readonly number
 
 const devAndroid = async (ctx: CliContext, settings: DevSettings) => {
     const { cfg, port, isTarget, remoteOrigin } = ctx;
-    const server = await ensureServer(settings.local, cfg.cmd ? { command: cfg.cmd } : {});
+    const server = await ensureServer(settings.local, serverOptions(cfg.cmd));
     const hmr = createHmrReverser(ctx.serial, settings.hmrPorts);
 
     if (server || settings.hmrPorts.length > 0) {
@@ -148,14 +154,19 @@ const devAndroid = async (ctx: CliContext, settings: DevSettings) => {
     }
 
     logAdbPath();
-    console.log(`Preset: ${settings.presetName} (ws: ${settings.wsPrefixes.join(', ')})`);
+    terminal.line(`Preset: ${settings.presetName} (ws: ${settings.wsPrefixes.join(', ')})`);
 
-    const link = startDevtoolsLink({ port: ctx.linkPort, devtoolsPort: port, isTarget });
+    const link = startDevtoolsLink({
+        port: ctx.linkPort,
+        devtoolsPort: port,
+        isTarget,
+        log: terminal.error,
+    });
     let session: OverrideSession | undefined;
 
     readline.createInterface({ input: process.stdin }).on('line', () => {
         session?.reload().catch((error: unknown) => {
-            console.error(`Reload failed: ${errorMessage(error)}`);
+            terminal.error(`Reload failed: ${errorMessage(error)}`);
         });
     });
 
@@ -164,8 +175,8 @@ const devAndroid = async (ctx: CliContext, settings: DevSettings) => {
         const remote = remoteOrigin ?? new URL(page.url).origin;
 
         hmr.reverseAll();
-        console.log(`WebView: ${page.title} (${remote})`);
-        console.log(`DevTools of the phone: ${link.url}, open it in Chrome`);
+        terminal.line(`WebView: ${page.title} (${remote})`);
+        terminal.line(`DevTools of the phone: ${link.url}, open it in Chrome`);
         try {
             session = await startOverride({
                 page,
@@ -177,9 +188,10 @@ const devAndroid = async (ctx: CliContext, settings: DevSettings) => {
                 ...(settings.hmrPorts.length ? { hmrPorts: settings.hmrPorts } : {}),
                 ssePolicy: cfg.sse ?? 'fail',
                 forwardedHeaders: Boolean(cfg.forwarded),
-                telemetry: ctx.logsEnabled,
+                telemetry: ctx.logsEnabled ? pageLog : false,
+                logger: requestLog,
             });
-            console.log(
+            terminal.line(
                 `Override on: ${remote} → ${settings.local}. Enter reloads the page, Ctrl+C exits.`,
             );
             // Follow the app: a WebView recreated on rotation or a new screen takes over, and the
@@ -199,14 +211,14 @@ const devAndroid = async (ctx: CliContext, settings: DevSettings) => {
 
             session.close();
             session = undefined;
-            console.log(
+            terminal.line(
                 outcome === 'closed'
                     ? 'The WebView page closed, waiting for a new one…'
                     : `Another WebView is on screen now (${outcome.url}), switching to it…`,
             );
         } catch (error) {
             session = undefined;
-            console.error(errorMessage(error));
+            terminal.error(errorMessage(error));
             await sleep(2000);
         }
     }
@@ -216,7 +228,7 @@ export const dev = async (ctx: CliContext): Promise<void> => {
     const driver = await ctx.selectDriver();
     const settings = devSettings(ctx);
 
-    if (ctx.loadedConfig.path) console.log(`Config: ${ctx.loadedConfig.path}`);
+    if (ctx.loadedConfig.path) terminal.line(`Config: ${ctx.loadedConfig.path}`);
     if (driver.platform === 'ios') return devIos(ctx, driver, settings);
 
     return devAndroid(ctx, settings);

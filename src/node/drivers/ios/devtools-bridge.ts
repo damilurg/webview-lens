@@ -25,6 +25,10 @@ import {
     translateWipResultToCdp,
 } from './wip-cdp-bridge.ts';
 import { createWebKitTargetRouter } from './webkit-targets.ts';
+import { createLogger } from '../../logger.ts';
+
+// Silent unless logging is configured (--verbose); callers pass their own callbacks to show it.
+const bridgeLog = createLogger('ios-devtools');
 
 /**
  * Chrome DevTools frontend revision served for iOS (WebKit has no Chromium revision of its own).
@@ -187,7 +191,7 @@ export const startIosDevtoolsLink = ({
     port,
     resolveTarget,
     revision = defaultRevision(),
-    log = console.error,
+    log = bridgeLog.warn,
 }: IosDevtoolsLinkOptions): DevtoolsLink => {
     const activeTargets = new Map<string, InspectableTarget>();
 

@@ -17,6 +17,10 @@ import {
     stripCspMeta,
 } from './devtools-frontend.ts';
 import { connectAndPipe } from './fs-utils.ts';
+import { createLogger } from './logger.ts';
+
+// Silent unless logging is configured (--verbose); callers pass their own callbacks to show it.
+const linkLog = createLogger('devtools-link');
 
 export { stripCspMeta };
 
@@ -81,7 +85,7 @@ export const startDevtoolsLink = ({
     port,
     devtoolsPort,
     isTarget,
-    log = console.error,
+    log = linkLog.warn,
 }: DevtoolsLinkOptions): DevtoolsLink =>
     startDevtoolsHttpServer({
         port,

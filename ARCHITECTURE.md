@@ -61,8 +61,10 @@ Tests of the browser modules live in `test/web/`. The package is built in two pa
 6. **Errors.** Throw `Error` with a message a person can act on (what failed and what to do). User
    errors reach the CLI as one line, no stack trace. A failure that is expected and harmless goes
    through `bestEffort()` with a comment saying why; anything else surfaces.
-7. **Logging.** The page's console belongs to DevTools and `--logs`. What webview-lens itself does goes
-   through `createLogger(scope)`: silent by default, `--verbose` / `--log-file` to see it.
+7. **Logging and output.** Only `src/cli/output.ts` writes to the terminal (enforced by a test). Library
+   code reports what the caller asked to see through callbacks (`log`, `logger`), which the CLI sets
+   to that output, and its own diagnostics through `createLogger(scope)`: silent by default,
+   `--verbose` / `--log-file` to see it. The page's console belongs to DevTools and `--logs`.
 8. **Zero runtime dependencies** (enforced by a test). Dev tooling only: TypeScript, Prettier.
 9. **Decode, don't cast** (enforced by a test that walks the TypeScript AST of `src`). Data from
    outside (protocol frames, page scripts, JSON files, CLI flags) arrives as `unknown` and goes through
