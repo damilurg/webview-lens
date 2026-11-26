@@ -10,10 +10,22 @@ import {
     decodeResponseReceived,
     subscribe,
 } from './protocol.ts';
-import { createLogger } from './logger.ts';
 
-// Silent unless logging is configured (--verbose); callers pass their own callbacks to show it.
-const pageLog = createLogger('telemetry');
+// The page's console is what attachTelemetry is called for, so by default it is printed (unlike the
+// library's own diagnostics, which stay in the logger until asked for). Pass log / error to redirect.
+const printLine = (line: string): void => {
+    process.stdout.write(`${line}\n`);
+};
+const printError = (line: string): void => {
+    process.stderr.write(`${line}\n`);
+};
+
+/**
+ * On enable, WebKit and V8 resend the messages already in the page's console, so a second attach to
+ * the same page would show them again as new. Older than this before the attach: history.
+ * (Device and computer clocks were 0.2 s apart on the test iPhone; this keeps a wide margin.)
+ */
+const EARLIER_MARGIN_MS = 2000;
 
 export interface RemoteObjectPreviewProperty {
     name: string;
@@ -45,6 +57,8 @@ export interface ConsoleEvent {
     type: string;
     args: readonly RemoteObject[];
     stackTrace?: StackTrace;
+    /** Milliseconds since the epoch, by the device's clock. */
+    timestamp?: number;
 }
 
 export interface ExceptionEvent {
@@ -71,8 +85,16 @@ export interface TelemetryOptions {
     levels?: readonly string[];
     /** Report failed requests and HTTP >= 400 responses. Default: true. */
     networkErrors?: boolean;
+    /** Console lines and network errors. Default: stdout and stderr. */
     log?: (line: string) => void;
     error?: (line: string) => void;
+    /**
+     * Messages that were in the page's console before the attach (resent on enable): `mark` prints
+     * them with `(earlier)`, `skip` drops them. Default: `mark`.
+     */
+    earlier?: 'mark' | 'skip';
+    /** Clock for telling earlier messages apart (tests). Default: Date.now. */
+    now?: () => number;
 }
 
 const normalizeConsoleLevel = (type: string): string => (type === 'warning' ? 'warn' : type);
@@ -123,13 +145,16 @@ export const formatLocation = (
     return `${label}:${line}`;
 };
 
-export const formatConsoleEvent = (event: ConsoleEvent): string => {
+export const formatConsoleEvent = (
+    event: ConsoleEvent,
+    { earlier = false }: { earlier?: boolean } = {},
+): string => {
     const level = normalizeConsoleLevel(event.type);
     const text = event.args.map(formatRemoteObject).join(' ');
     const frame = event.stackTrace?.callFrames?.[0];
     const location = formatLocation(frame?.url, frame?.lineNumber, frame?.columnNumber);
 
-    return `[console.${level}] ${text}${location ? ` (${location})` : ''}`;
+    return `[console.${level}]${earlier ? ' (earlier)' : ''} ${text}${location ? ` (${location})` : ''}`;
 };
 
 export const formatExceptionEvent = ({ exceptionDetails }: ExceptionEvent): string => {
@@ -165,10 +190,13 @@ export const attachTelemetry = (
     {
         levels,
         networkErrors = true,
-        log = pageLog.info,
-        error = pageLog.error,
+        log = printLine,
+        error = printError,
+        earlier = 'mark',
+        now = Date.now,
     }: TelemetryOptions = {},
 ): (() => void) => {
+    const attachedAt = now();
     const allowedLevels = levels ? new Set(levels.map(normalizeConsoleLevel)) : null;
     const requests = new Map<string, { url: string; method?: string }>();
     const unsubs: (() => void)[] = [];
@@ -179,7 +207,12 @@ export const attachTelemetry = (
 
             if (allowedLevels && !allowedLevels.has(level)) return;
 
-            const line = formatConsoleEvent(event);
+            const isEarlier =
+                event.timestamp !== undefined && event.timestamp < attachedAt - EARLIER_MARGIN_MS;
+
+            if (isEarlier && earlier === 'skip') return;
+
+            const line = formatConsoleEvent(event, { earlier: isEarlier });
 
             if (level === 'error' || level === 'assert') {
                 error(line);

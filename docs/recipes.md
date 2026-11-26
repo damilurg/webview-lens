@@ -427,7 +427,7 @@ export const inspectPage = async (port = 9223) => {
 
 ### webview-lens' own logs in your logger
 
-Library functions print nothing by themselves. Pass `log` (or `logger` for `startOverride` and the iOS
+Library functions print nothing by themselves, except `attachTelemetry`, which prints the page's console to stdout / stderr unless you pass `log` / `error`; lines the page logged before the attach are marked `(earlier)` (`earlier: 'skip'` drops them). Pass `log` (or `logger` for `startOverride` and the iOS
 proxy) to see their progress, for example `measureVitals({ …, log: console.log })`. To see everything
 without code changes, run your script with `WEBVIEW_LENS_DEBUG=1` (stderr) or
 `WEBVIEW_LENS_LOG_FILE=wvl.jsonl`. To send it to your own logger:

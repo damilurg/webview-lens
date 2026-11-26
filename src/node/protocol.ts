@@ -138,8 +138,14 @@ export const decodeConsoleEvent: Decoder<ConsoleEvent> = (input) => {
     if (type === undefined || args === undefined) return undefined;
 
     const stackTrace = decodeStackTrace(input.stackTrace);
+    const timestamp = num(input.timestamp);
 
-    return stackTrace ? { type, args, stackTrace } : { type, args };
+    return {
+        type,
+        args,
+        ...(stackTrace ? { stackTrace } : {}),
+        ...(timestamp !== undefined ? { timestamp } : {}),
+    };
 };
 
 export const decodeExceptionEvent: Decoder<ExceptionEvent> = (input) => {

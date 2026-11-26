@@ -155,3 +155,86 @@ describe('attachTelemetry', () => {
         assert.deepEqual(errors, []);
     });
 });
+
+describe('attachTelemetry: what the page logged before the attach, and the default output', () => {
+    const fakeCdp = () => {
+        const listeners = new Map<string, Set<(params: unknown) => void>>();
+        const cdp = {
+            on: <T>(method: string, listener: (params: T) => void) => {
+                const set = listeners.get(method) ?? new Set();
+                const fn = listener as (params: unknown) => void;
+
+                set.add(fn);
+                listeners.set(method, set);
+
+                return () => set.delete(fn);
+            },
+        } as Pick<Cdp, 'on'> as Cdp;
+        const log = (text: string, timestamp?: number) => {
+            for (const fn of listeners.get('Runtime.consoleAPICalled') ?? []) {
+                fn({
+                    type: 'log',
+                    args: [{ type: 'string', value: text }],
+                    ...(timestamp ? { timestamp } : {}),
+                });
+            }
+        };
+
+        return { cdp, log };
+    };
+    const ATTACH = 1_000_000;
+
+    it('marks messages resent from the console history (older than 2 s), not fresh or undated ones', () => {
+        const { cdp, log } = fakeCdp();
+        const lines: string[] = [];
+
+        attachTelemetry(cdp, { log: (l) => lines.push(l), now: () => ATTACH });
+        log('an hour ago', ATTACH - 3_600_000);
+        log('just over the margin', ATTACH - 2001);
+        log('within the margin (device clock may run ahead)', ATTACH - 1999);
+        log('after the attach', ATTACH + 50);
+        log('no timestamp');
+
+        assert.deepEqual(lines, [
+            '[console.log] (earlier) an hour ago',
+            '[console.log] (earlier) just over the margin',
+            '[console.log] within the margin (device clock may run ahead)',
+            '[console.log] after the attach',
+            '[console.log] no timestamp',
+        ]);
+    });
+
+    it("earlier: 'skip' drops the history and keeps the rest", () => {
+        const { cdp, log } = fakeCdp();
+        const lines: string[] = [];
+
+        attachTelemetry(cdp, { log: (l) => lines.push(l), earlier: 'skip', now: () => ATTACH });
+        log('old', ATTACH - 10_000);
+        log('new', ATTACH + 1);
+
+        assert.deepEqual(lines, ['[console.log] new']);
+    });
+
+    it('prints to stdout when no log is passed (the page console is what it is called for)', () => {
+        const { cdp, log } = fakeCdp();
+        const written: string[] = [];
+        const original = process.stdout.write.bind(process.stdout);
+
+        process.stdout.write = ((chunk: string) => {
+            written.push(chunk);
+
+            return true;
+        }) as typeof process.stdout.write;
+        try {
+            const detach = attachTelemetry(cdp);
+
+            log('hello');
+            detach();
+            log('after detach');
+        } finally {
+            process.stdout.write = original;
+        }
+
+        assert.deepEqual(written, ['[console.log] hello\n']);
+    });
+});
