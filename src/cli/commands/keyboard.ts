@@ -1,6 +1,6 @@
 // `webview-lens keyboard`: live keyboard and viewport numbers from the page in the app's WebView.
 
-import type { DeviceDriver, InspectableTarget } from '../../node/drivers/types.ts';
+import type { InspectableTarget, InspectorSession } from '../../node/drivers/types.ts';
 import { type KeyboardWatchEnd, watchKeyboard } from '../../node/keyboard-probe.ts';
 import { str } from '../../shared/decode.ts';
 import { errorMessage, sleep, withTimeout } from '../../shared/utils.ts';
@@ -18,14 +18,19 @@ const END_MESSAGES: Readonly<Record<KeyboardWatchEnd, string>> = {
  * Among several matching WebViews (an app keeps earlier screens alive), the one on screen. iOS lets
  * one inspector attach to a page at a time, so each is asked briefly and released.
  */
-const pickVisibleTarget = async (
-    driver: DeviceDriver,
+export const pickVisibleTarget = async (
+    driver: {
+        connectInspector(
+            target: InspectableTarget,
+        ): Promise<Pick<InspectorSession, 'evaluate' | 'close'>>;
+    },
     candidates: readonly InspectableTarget[],
+    timeoutMs = 2000,
 ): Promise<InspectableTarget | undefined> => {
     for (const candidate of candidates) {
         try {
             const connecting = driver.connectInspector(candidate);
-            const connected = await withTimeout(connecting, 2000);
+            const connected = await withTimeout(connecting, timeoutMs);
 
             // A stale iOS target may never answer: release it if it connects later after all.
             if (connected.timedOut) {
@@ -34,7 +39,10 @@ const pickVisibleTarget = async (
             }
 
             const session = connected.value;
-            const answer = await withTimeout(session.evaluate('document.visibilityState'), 2000);
+            const answer = await withTimeout(
+                session.evaluate('document.visibilityState'),
+                timeoutMs,
+            );
 
             session.close();
             if (!answer.timedOut && str(answer.value) === 'visible') return candidate;

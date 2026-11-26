@@ -36,19 +36,19 @@ CI и даёт **RUM + Prometheus** для продакшена. **Ноль runt
 (Swift/Objective-C), Capacitor, Cordova / Ionic, React Native WebView, Flutter `webview_flutter`,
 встроенные браузеры супер-приложений, если в тестовой сборке включена отладка WebView.
 
-| Компонент                 | Назначение                                                                                                                                                                   |
-| ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `webview-lens init`       | Определяет сборщик (`next`, `nuxt`, `sveltekit`, `angular`, `vite`, `webpack`) и создаёт `webview-lens.config.json`                                                          |
-| `webview-lens dev`        | Подменяет HTTPS-домен стенда вашим локальным dev-сервером (Android: CDP `Fetch`; iOS: selective HTTPS MITM) с HMR и `--logs`                                                 |
-| `webview-lens devtools`   | Полноценный Chrome DevTools на **постоянном** `http://localhost:3300` (переживает перезапуски приложения; на iOS работает через WIP ↔ CDP мост на Windows и macOS)           |
-| `webview-lens cert`       | Генерирует локальный X.509 v3 Root CA и выводит QR-код в терминал для установки `.mobileconfig` на тестовый iPhone                                                           |
-| `webview-lens vitals`     | Лабораторные LCP, FCP, CLS, INP, TTFB, Long Tasks, JS Heap и `performance.mark` на реальном телефоне + `--throttle`, `--cpu` и CI-флаг `--budget`                            |
-| `webview-lens doctor`     | Пошаговая диагностика подключения (`adb`, `usbmuxd`, `ios_webkit_debug_proxy`, экран блокировки, доступные WebView)                                                          |
-| `webview-lens keyboard`   | Клавиатура страницы в WebView в реальном времени: высота, сколько страницы перекрыто, скрыто ли поле в фокусе, значения `--wl-*`; `--overlay` рисует это на телефоне         |
-| `webview-lens/rum`        | Браузерный клиент (0 `node:*` импортов): Web Vitals, кастомные тайминги, глобальные ошибки, `detectWebViewEnv`, контекстные теги                                             |
-| `webview-lens/rum/server` | Edge-safe Fetch API хендлеры (`Request → Response`), адаптер `toNodeHandler` для Express/NestJS, агрегатор `createRumAggregator` (`p50`/`p75`/`p95`) и Prometheus `/metrics` |
-| `webview-lens/viewport`   | Браузерные помощники для экранной клавиатуры: CSS-переменные `--wl-keyboard-inset` / `--wl-viewport-height` и поле в фокусе всегда на виду, Android и iOS                    |
-| `--verbose`, `--log-file` | Что делает сам webview-lens (вызовы adb, port forward, сокеты, решения прокси), в stderr или в JSON Lines; консоль страницы остаётся в DevTools                              |
+| Компонент                 | Назначение                                                                                                                                                                                             |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `webview-lens init`       | Определяет сборщик (`next`, `nuxt`, `sveltekit`, `angular`, `vite`, `webpack`) и создаёт `webview-lens.config.json`                                                                                    |
+| `webview-lens dev`        | Подменяет HTTPS-домен стенда вашим локальным dev-сервером (Android: CDP `Fetch`; iOS: selective HTTPS MITM) с HMR и `--logs`                                                                           |
+| `webview-lens devtools`   | Полноценный Chrome DevTools на **постоянном** `http://localhost:3300` (переживает перезапуски приложения; на iOS работает через WIP ↔ CDP мост на Windows и macOS)                                     |
+| `webview-lens cert`       | Генерирует локальный X.509 v3 Root CA и выводит QR-код в терминал для установки `.mobileconfig` на тестовый iPhone                                                                                     |
+| `webview-lens vitals`     | Лабораторные LCP, FCP, CLS, INP, TTFB, Long Tasks, JS Heap и `performance.mark` на реальном телефоне + `--throttle`, `--cpu` и CI-флаг `--budget`                                                      |
+| `webview-lens doctor`     | Пошаговая диагностика подключения (`adb`, `usbmuxd`, `ios_webkit_debug_proxy`, экран блокировки, доступные WebView)                                                                                    |
+| `webview-lens keyboard`   | Клавиатура страницы в WebView в реальном времени: высота, сколько страницы перекрыто, скрыто ли поле в фокусе, значения `--wl-*`; `--overlay` рисует это на телефоне                                   |
+| `webview-lens/rum`        | Браузерный клиент (0 `node:*` импортов): Web Vitals, кастомные тайминги, глобальные ошибки, `detectWebViewEnv`, контекстные теги                                                                       |
+| `webview-lens/rum/server` | Edge-safe Fetch API хендлеры (`Request → Response`), адаптер `toNodeHandler` для Express/NestJS, агрегатор `createRumAggregator` (`p50`/`p75`/`p95`) и Prometheus `/metrics`                           |
+| `webview-lens/viewport`   | Браузерные помощники для экранной клавиатуры: CSS-переменные `--wl-keyboard-inset`, `--wl-viewport-height`, `--wl-scroll-room` и поле в фокусе над клавиатурой и закреплёнными панелями, Android и iOS |
+| `--verbose`, `--log-file` | Что делает сам webview-lens (вызовы adb, port forward, сокеты, решения прокси), в stderr или в JSON Lines; консоль страницы остаётся в DevTools                                                        |
 
 **Как проверено:** каждое утверждение с телефонами, приложениями, командами, замерами и тестом, который его охраняет: [verification.md](verification.md).
 

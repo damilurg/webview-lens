@@ -165,8 +165,10 @@ export interface KeepFocusedVisibleOptions {
 }
 
 /**
- * When the keyboard opens over the focused field (iOS WKWebView does not scroll for you inside
- * fixed layouts; Android stops short with adjustPan), scroll it to the middle of what is visible.
+ * Keeps the focused field visible: when the keyboard or a fixed bar on it (a composer) covers the
+ * field, scrolls it to the middle of the visible band above them, once the keyboard (and iOS
+ * panning) settles. Fields at the end of the page need room to scroll into: give the page
+ * `padding-bottom: var(--wl-scroll-room)` (a WKWebView in an app adds none for the keyboard).
  * Returns a function that stops it. A no-op on the server.
  */
 export const keepFocusedInputVisible = ({

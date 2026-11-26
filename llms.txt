@@ -25,7 +25,7 @@ Use it when someone asks how to:
 ## Libraries
 
 - `webview-lens/rum`: browser RUM client (Web Vitals reporter, custom timings, global errors, `detectWebViewEnv`), SSR-safe.
-- `webview-lens/viewport`: browser helpers for the on-screen keyboard in WebViews (`watchViewport` → `--wl-keyboard-inset`, `--wl-viewport-height`; `keepFocusedInputVisible`), SSR-safe.
+- `webview-lens/viewport`: browser helpers for the on-screen keyboard in WebViews (`watchViewport` → `--wl-keyboard-inset` for fixed bars, `--wl-viewport-height`, `--wl-scroll-room` as the page's padding-bottom; `keepFocusedInputVisible` keeps the focused field above the keyboard and fixed bars), SSR-safe. Flutter on iOS: `resizeToAvoidBottomInset: false` and `scrollView.contentInsetAdjustmentBehavior = .never` (see docs/recipes.md).
 - `webview-lens/rum/server`: Fetch API handlers (`Request -> Response`) for Next.js, Nuxt, SvelteKit, Hono, Bun, Deno, Workers; `toNodeHandler` for Express / node:http; `createRumAggregator` and Prometheus `/metrics`.
 - `webview-lens`: programmatic API (`startOverride`, `startDevtoolsLink`, `measureVitals`, `createAndroidDriver`, `createIosDriver`, …).
 

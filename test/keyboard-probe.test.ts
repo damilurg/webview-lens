@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
+import { pickVisibleTarget } from '../src/cli/commands/keyboard.ts';
+import type { InspectableTarget } from '../src/node/drivers/types.ts';
+
 import {
     decodeKeyboardDrain,
     describeKeyboardSetup,
@@ -212,5 +215,58 @@ describe('webview-lens keyboard probe', () => {
 
         createKeyboardPrinter({ frames: true, log: (line) => every.push(line) })(frames);
         assert.equal(every.length, frames.length);
+    });
+});
+
+describe('webview-lens keyboard: the visible WebView among several', () => {
+    const target = (id: string): InspectableTarget => ({
+        id,
+        platform: 'ios',
+        type: 'page',
+        url: 'https://stand.test/',
+        title: '',
+        debuggerUrl: `ws://x/${id}`,
+    });
+    const session = (visibility: string) => {
+        let closed = false;
+
+        return {
+            closedFlag: () => closed,
+            value: {
+                evaluate: async () => visibility,
+                close: () => {
+                    closed = true;
+                },
+            },
+        };
+    };
+
+    it('skips a stale target that never connects and one behind another screen', async () => {
+        const hidden = session('hidden');
+        const visible = session('visible');
+        const driver = {
+            connectInspector: (t: InspectableTarget) => {
+                if (t.id === 'stale') return new Promise<never>(() => undefined);
+
+                return Promise.resolve((t.id === 'behind' ? hidden : visible).value);
+            },
+        };
+        const picked = await pickVisibleTarget(
+            driver,
+            [target('stale'), target('behind'), target('front')],
+            20,
+        );
+
+        assert.equal(picked?.id, 'front');
+        assert.equal(hidden.closedFlag(), true);
+        assert.equal(visible.closedFlag(), true);
+    });
+
+    it('returns undefined when none answers visible', async () => {
+        const driver = {
+            connectInspector: async () => session('hidden').value,
+        };
+
+        assert.equal(await pickVisibleTarget(driver, [target('a')], 20), undefined);
     });
 });
