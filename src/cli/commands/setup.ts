@@ -2,7 +2,8 @@
 
 import { defaultCertDir, ensureRootCa } from '../../node/drivers/ios/certs.ts';
 import { writeStarterConfig } from '../../node/config.ts';
-import { detectLanAddresses, startIosMitmProxy } from '../../node/drivers/ios/mitm-proxy.ts';
+import { startIosMitmProxy } from '../../node/drivers/ios/mitm-proxy.ts';
+import { detectLanAddresses } from '../../node/drivers/ios/network.ts';
 import { renderQrTerminal } from '../../node/qr.ts';
 import type { CliContext } from '../context.ts';
 import { forever, registerCleanup } from '../runtime.ts';

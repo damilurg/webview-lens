@@ -203,6 +203,30 @@ export const decodeEvaluateResult: Decoder<EvaluateResult> = (input) => {
     };
 };
 
+/** `Runtime.evaluate` result by reference: a handle to await or read, or the exception text. */
+export interface EvaluateHandle {
+    objectId?: string;
+    /** Chrome marks a promise with `subtype`, WebKit only with `className`. */
+    isPromise: boolean;
+    value: unknown;
+    exception?: string;
+}
+
+export const decodeEvaluateHandle: Decoder<EvaluateHandle> = (input) => {
+    const evaluated = decodeEvaluateResult(input);
+
+    if (!evaluated || !isRecord(input)) return undefined;
+    if (evaluated.exception !== undefined) {
+        return { isPromise: false, value: undefined, exception: evaluated.exception };
+    }
+
+    const result = rec(input.result);
+    const objectId = str(result?.objectId);
+    const isPromise = str(result?.subtype) === 'promise' || str(result?.className) === 'Promise';
+
+    return { ...(objectId !== undefined ? { objectId } : {}), isPromise, value: result?.value };
+};
+
 // --- Network / Fetch --------------------------------------------------------------------------
 
 export interface RequestWillBeSent {

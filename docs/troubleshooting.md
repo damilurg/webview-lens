@@ -52,6 +52,46 @@ Add `--logs` to `dev` or `devtools`: console messages with their source location
 exceptions and requests that failed or returned 4xx/5xx are printed as they happen. To feed them to
 your own tooling as JSON lines, see [Recipes](recipes.md#page-logs-as-json-lines-for-your-tooling-checked-on-android).
 
+## The phone cannot reach your computer: keep them on one network
+
+What goes over the cable and what over Wi-Fi:
+
+| What                                                                                    | Android                                                                           | iPhone                                                                                      |
+| --------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| `devtools`, `--logs`, `vitals`, `keyboard`, `doctor`                                    | USB (`adb`)                                                                       | USB (`usbmuxd`)                                                                             |
+| `dev`: the page from your local server                                                  | USB: the requests are answered over CDP, the phone needs no route to the computer | **Wi-Fi**: the iPhone sends its traffic to the proxy on the computer (`<computer-ip>:8888`) |
+| A server on the computer that the app opens by its address (`https://192.168.x.x:8443`) | Wi-Fi (or `adb reverse` and `localhost`)                                          | Wi-Fi                                                                                       |
+
+So for iOS `dev`, and for any app that opens your computer by its IP, the phone and the computer must
+be on the same network, and that network must let devices reach each other. When they cannot, the
+WebView stays blank or "loading" and the app's own requests time out or fail (`SocketException` in
+Flutter), while debugging over USB keeps working, which makes it look like the page is broken.
+
+| Cause                                                              | How it shows                                                                                                          | Fix                                                                                                |
+| ------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| The phone is on another Wi-Fi or on cellular                       | `dev` prints "No device has connected to the proxy at … in 30 s"                                                      | Settings → Wi-Fi: the computer's network                                                           |
+| A guest, office or hotspot network that isolates devices           | the same network name, still no connection; Safari on the phone cannot open `http://<computer-ip>:8888/`              | a network without client isolation (a home router), or ask for it to be turned off                 |
+| The computer's address changed (another network, a new DHCP lease) | `dev` prints "This computer's network address changed: A → B"; `doctor --platform ios` flags a page that still uses A | Configure Proxy → Server B; the new address in the app; a certificate issued for A needs a new one |
+| A VPN on the phone                                                 | the traffic goes into the tunnel                                                                                      | turn it off while testing                                                                          |
+| A firewall on the computer                                         | Safari on the phone cannot open `http://<computer-ip>:8888/`                                                          | allow incoming connections for Node                                                                |
+
+`npx webview-lens doctor --platform ios` prints the computer's local address and every app page that
+points at a local IP which is not this computer. Met on the test iPhone: the computer moved from
+192.168.94.216 to 192.168.86.130 while the app kept the old address; the WebView hung on "loading" and
+the native sign-in failed with `SocketException`, with USB debugging working all along.
+
+## The same console lines again, marked `(earlier)`
+
+When an inspector attaches, WebKit and Chrome resend the messages already in the page's console.
+webview-lens prints them with `(earlier)`, so a second session, or a script run twice, does not look
+as if the page logged them again. `earlier: 'skip'` in `attachTelemetry` drops them.
+
+## Only one debugger at a time on an iOS page
+
+WebKit lets one inspector attach to a WKWebView page. A second one (Safari Web Inspector, another
+`webview-lens devtools`, a script with `connectInspector`) takes the page over, and the first one stops
+getting events without an error. Close the other one; run one webview-lens command per page.
+
 ## The keyboard covers the input in a WebView
 
 Android with `adjustResize` shrinks the WebView; iOS WKWebView keeps its size and only the visible

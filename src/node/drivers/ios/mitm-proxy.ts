@@ -4,7 +4,6 @@
 
 import http from 'node:http';
 import net from 'node:net';
-import os from 'node:os';
 import tls from 'node:tls';
 
 import { errorMessage, unbracketHost } from '../../../shared/utils.ts';
@@ -19,6 +18,7 @@ import {
     type UrlMapper,
 } from '../../override.ts';
 import { buildIosMobileConfig, type CertPair, ensureRootCa, generateLeafCert } from './certs.ts';
+import { detectLanAddresses } from './network.ts';
 import { certLandingPage, INTERCEPT_CHECK_PATH, page, PROXY_CHECK_HOST } from './mitm-pages.ts';
 
 export { INTERCEPT_CHECK_PATH, PROXY_CHECK_HOST };
@@ -266,17 +266,6 @@ export const buildWsUpgradeHandshake = (request: UpgradeRequestLike, mapper: Url
 };
 
 /** Returns non-internal IPv4 LAN addresses of this machine for iPhone Wi-Fi Proxy setup. */
-export const detectLanAddresses = (): string[] => {
-    const result: string[] = [];
-
-    for (const entries of Object.values(os.networkInterfaces())) {
-        for (const info of entries ?? []) {
-            if (info.family === 'IPv4' && !info.internal) result.push(info.address);
-        }
-    }
-
-    return result;
-};
 
 export interface IosMitmProxyOptions {
     /** Stand origin to intercept, e.g. `https://stand.example.com`. */
@@ -308,6 +297,8 @@ export interface IosMitmProxy {
     readonly port: number;
     readonly ca: CertPair;
     readonly targetHost: string;
+    /** Client connections accepted so far (none means the phone is not reaching this computer). */
+    connections(): number;
     close(): Promise<void>;
 }
 
@@ -522,8 +513,14 @@ export const startIosMitmProxy = async ({
         res.end(certLandingPage(hostHint, port, mapper.remoteOrigin));
     });
 
+    let connections = 0;
+
     proxyServer.on('connection', (socket: net.Socket) => {
-        if (allowClient(socket.remoteAddress)) return;
+        if (allowClient(socket.remoteAddress)) {
+            connections += 1;
+
+            return;
+        }
         logger.error(
             `Proxy refused client ${socket.remoteAddress ?? 'unknown'} (not a private network)`,
         );
@@ -596,6 +593,7 @@ export const startIosMitmProxy = async ({
         port: listeningPort,
         ca: rootCa,
         targetHost,
+        connections: () => connections,
         close: () =>
             new Promise<void>((resolve) => {
                 decryptedServer.close();

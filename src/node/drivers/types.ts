@@ -77,8 +77,12 @@ export interface NetworkThrottleProfile {
 export interface InspectorSession {
     readonly platform: Platform;
     readonly capabilities: InspectorCapabilities;
-    /** The expression's value (by value), or `undefined` if it threw; decode what you read. */
-    evaluate(expression: string): Promise<unknown>;
+    /**
+     * The expression's value (by value), or `undefined` if it threw (or the promise rejected);
+     * decode what you read. With `awaitPromise`, a promise is awaited first:
+     * `await session.evaluate("fetch('/').then((r) => r.status)", { awaitPromise: true })`.
+     */
+    evaluate(expression: string, options?: EvaluateOptions): Promise<unknown>;
     addInitScript(source: string): Promise<void>;
     navigate(url: string, options?: NavigateOptions): Promise<void>;
     reload(options?: { ignoreCache?: boolean }): Promise<void>;
@@ -89,6 +93,11 @@ export interface InspectorSession {
     attachTelemetry?(options?: TelemetryOptions): Promise<() => void>;
     close(): void;
     readonly closed: Promise<void>;
+}
+
+export interface EvaluateOptions {
+    /** Wait for a returned promise and give its value. Default: false (a promise comes back as `{}`). */
+    awaitPromise?: boolean;
 }
 
 export interface DeviceDriver {

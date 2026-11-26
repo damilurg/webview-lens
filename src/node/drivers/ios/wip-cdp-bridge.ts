@@ -52,9 +52,16 @@ export const translateCdpToWip = (
     return { method, params };
 };
 
+const THROWING_METHODS = new Set([
+    'Runtime.evaluate',
+    'Runtime.awaitPromise',
+    'Runtime.callFunctionOn',
+]);
+
 /** Translates a WebKit Inspector Protocol command result into CDP shape. */
 export const translateWipResultToCdp = (method: string, result: unknown): unknown => {
-    if (method === 'Runtime.evaluate' && isRecord(result) && result.wasThrown === true) {
+    // WebKit reports a throw (or a rejected promise) with `wasThrown`, CDP with `exceptionDetails`.
+    if (THROWING_METHODS.has(method) && isRecord(result) && result.wasThrown === true) {
         const exception = isRecord(result.result) ? result.result : undefined;
         const text =
             typeof exception?.description === 'string'

@@ -425,6 +425,20 @@ export const inspectPage = async (port = 9223) => {
 
 <!-- /example -->
 
+### A value from a promise: `evaluate` with `awaitPromise`
+
+`session.evaluate()` returns a value by value, and a promise has none: it comes back as `{}`. Ask for
+it to be awaited:
+
+```ts
+const status = await session.evaluate("fetch('/api/health').then((r) => r.status)", {
+    awaitPromise: true,
+});
+```
+
+A rejected promise gives `undefined`, like a thrown error. Checked on the iPhone (WebKit) and covered
+for Chrome's shape by `test/base-session.test.ts`.
+
 ### webview-lens' own logs in your logger
 
 Library functions print nothing by themselves, except `attachTelemetry`, which prints the page's console to stdout / stderr unless you pass `log` / `error`; lines the page logged before the attach are marked `(earlier)` (`earlier: 'skip'` drops them). Pass `log` (or `logger` for `startOverride` and the iOS

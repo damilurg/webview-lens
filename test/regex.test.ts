@@ -316,6 +316,22 @@ const REGISTRY: Readonly<Record<string, Entry>> = {
             yes('<key>Properties</key><dict>a\nb</dict>', { count: 1 }),
         ],
     },
+    [String.raw`node/drivers/ios/network.ts /^(utun|ipsec|ppp|tun|tap|wg)/`]: {
+        purpose: 'a VPN or tunnel interface (the phone cannot reach its address)',
+        positive: [
+            yes('utun4', { groups: ['utun'] }),
+            yes('wg0', { groups: ['wg'] }),
+            yes('ppp0', { groups: ['ppp'] }),
+        ],
+        negative: [no('en0'), no('eth0'), no('Wi-Fi')],
+        edge: [no('xutun0'), yes('tun', { groups: ['tun'] }), no('')],
+    },
+    [String.raw`node/drivers/ios/network.ts /^169\.254\./`]: {
+        purpose: 'a link-local address (a cable or adapter with no network behind it)',
+        positive: [yes('169.254.30.97'), yes('169.254.0.1')],
+        negative: [no('192.168.86.130'), no('10.0.0.1')],
+        edge: [no('169.2541.0.1'), no('1169.254.0.1'), no('169-254-0-1')],
+    },
     [String.raw`node/override.ts /^text\/event-stream\b/i`]: {
         purpose: 'a Server-Sent Events response (CDP Fetch cannot stream it)',
         positive: [yes('text/event-stream'), yes('text/event-stream; charset=utf-8')],

@@ -39,6 +39,7 @@ export {
     decodeBindingCall,
     decodeConsoleEvent,
     decodeCookies,
+    decodeEvaluateHandle,
     decodeEvaluateResult,
     decodeExceptionEvent,
     decodeLoadingFailed,
@@ -124,7 +125,6 @@ export {
     type ConnectTarget,
     type DecryptedRequestInput,
     type DecryptedResponseOutput,
-    detectLanAddresses,
     handleDecryptedRequest,
     type IosMitmProxy,
     type IosMitmProxyOptions,
@@ -132,6 +132,12 @@ export {
     shouldInterceptHost,
     startIosMitmProxy,
 } from './drivers/ios/mitm-proxy.ts';
+export {
+    detectLanAddresses,
+    NO_CLIENT_AFTER_MS,
+    type NetworkWatchState,
+    networkHints,
+} from './drivers/ios/network.ts';
 export {
     ensureIwdp,
     type EnsureIwdpOptions,
@@ -171,6 +177,7 @@ export {
     type DoctorReport,
     type DriverTargetOptions,
     type InspectableTarget,
+    type EvaluateOptions,
     type InspectorCapabilities,
     type InspectorSession,
     isPlatformSelection,

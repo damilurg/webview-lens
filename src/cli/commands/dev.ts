@@ -6,7 +6,12 @@ import readline from 'node:readline';
 import { createAdbRunner, removeReversePort, reversePort } from '../../node/adb.ts';
 import { waitForOtherPageOnScreen, waitForPage } from '../../node/device.ts';
 import { startDevtoolsLink } from '../../node/devtools-link.ts';
-import { detectLanAddresses, startIosMitmProxy } from '../../node/drivers/ios/mitm-proxy.ts';
+import { startIosMitmProxy } from '../../node/drivers/ios/mitm-proxy.ts';
+import {
+    detectLanAddresses,
+    type NetworkWatchState,
+    networkHints,
+} from '../../node/drivers/ios/network.ts';
 import type { DeviceDriver } from '../../node/drivers/types.ts';
 import { type OverrideSession, startOverride } from '../../node/override.ts';
 import { resolvePreset } from '../../node/presets.ts';
@@ -48,6 +53,30 @@ const devSettings = ({ cfg }: CliContext): DevSettings => {
 const serverOptions = (command: string | undefined) =>
     command ? { command, log: terminal.line } : { log: terminal.line };
 
+/** Says in the terminal when the phone cannot be reaching the proxy (see network.ts). */
+const watchNetwork = (announced: string, proxy: { port: number; connections(): number }) => {
+    const startedAt = Date.now();
+    let state: NetworkWatchState = {
+        announced,
+        port: proxy.port,
+        connections: 0,
+        elapsedMs: 0,
+        hintedNoClient: false,
+    };
+    const timer = setInterval(() => {
+        const next = networkHints(
+            { ...state, connections: proxy.connections(), elapsedMs: Date.now() - startedAt },
+            detectLanAddresses(),
+        );
+
+        for (const line of next.lines) terminal.error(line);
+        state = next.state;
+    }, 5000);
+
+    timer.unref();
+    registerCleanup(() => clearInterval(timer));
+};
+
 const devIos = async (ctx: CliContext, driver: DeviceDriver, settings: DevSettings) => {
     const { cfg, remoteOrigin } = ctx;
 
@@ -84,6 +113,10 @@ const devIos = async (ctx: CliContext, driver: DeviceDriver, settings: DevSettin
     terminal.line(
         `Set iPhone Wi-Fi HTTP Proxy → Manual: Server ${lanIp}, Port ${proxy.port}. Ctrl+C exits.`,
     );
+    terminal.line(
+        'The iPhone and this computer must be on the same Wi-Fi (USB carries only the inspector).',
+    );
+    watchNetwork(lanIp, proxy);
 
     if (!ctx.logsEnabled) return forever();
 

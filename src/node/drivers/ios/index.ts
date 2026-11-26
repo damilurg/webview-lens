@@ -23,6 +23,7 @@ import {
 } from './iwdp.ts';
 import { describeIosDevices, listIosDevices } from './usbmux.ts';
 import { connectWebKitInspector } from './webkit-targets.ts';
+import { detectLanAddresses, networkChecks } from './network.ts';
 import { createWipCdpBridge } from './wip-cdp-bridge.ts';
 import { createLogger } from '../../logger.ts';
 
@@ -81,6 +82,7 @@ export interface IosDriverDeps {
     listIwdpDevices?: typeof listIwdpDevices;
     listIwdpPages?: typeof listIwdpPages;
     connectWip?: typeof connectCdp;
+    lanAddresses?: () => string[];
 }
 
 const parsePortFromIwdpUrl = (url: string, fallback: number | string): string => {
@@ -99,6 +101,7 @@ export const createIosDriver = (deps: IosDriverDeps = {}): DeviceDriver => {
     const listIwdpDevicesFn = deps.listIwdpDevices ?? listIwdpDevices;
     const listIwdpPagesFn = deps.listIwdpPages ?? listIwdpPages;
     const connectWipFn = deps.connectWip ?? connectWebKitInspector;
+    const lanAddressesFn = deps.lanAddresses ?? detectLanAddresses;
 
     const resolveIwdpDevice = async (
         serial?: string,
@@ -207,6 +210,8 @@ export const createIosDriver = (deps: IosDriverDeps = {}): DeviceDriver => {
                           ? `inspectable WKWebView pages: ${targets.length}`
                           : 'no inspectable WKWebView pages (enable Web Inspector on iPhone and webView.isInspectable = true)',
             });
+
+            checks.push(...networkChecks(lanAddressesFn(), targets ?? []));
 
             return { platform: 'ios', checks, targets: targets ?? [] };
         },

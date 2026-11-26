@@ -425,6 +425,20 @@ export const inspectPage = async (port = 9223) => {
 
 <!-- /example -->
 
+### Значение из промиса: `evaluate` с `awaitPromise`
+
+`session.evaluate()` возвращает значение целиком, а у промиса его нет: он приходит как `{}`. Попросите
+дождаться его:
+
+```ts
+const status = await session.evaluate("fetch('/api/health').then((r) => r.status)", {
+    awaitPromise: true,
+});
+```
+
+Отклонённый промис даёт `undefined`, как и брошенная ошибка. Проверено на iPhone (WebKit), формат
+Chrome покрыт `test/base-session.test.ts`.
+
 ### Собственные логи webview-lens в вашем логгере
 
 Функции библиотеки сами ничего не печатают. Исключение: `attachTelemetry` печатает консоль страницы в stdout / stderr, если не передать `log` / `error`; строки, залогированные до подключения, помечаются `(earlier)` (`earlier: 'skip'` их скрывает). Передайте `log` (или `logger` для `startOverride` и
