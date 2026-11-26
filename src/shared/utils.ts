@@ -45,3 +45,15 @@ export const withTimeout = async <T>(
 export const waitWithTimeout = async <T>(promise: Promise<T>, timeoutMs: number): Promise<void> => {
     await withTimeout(promise, timeoutMs);
 };
+
+/** Without trailing slashes: `https://stand.test//` → `https://stand.test`. */
+export const stripTrailingSlashes = (value: string): string => value.replace(/\/+$/, '');
+
+/** Web content (http or https), not `about:`, `file:`, `chrome-extension:`… Schemes are case-insensitive. */
+export const isHttpUrl = (url: string): boolean => /^https?:/i.test(url);
+
+/** The WebSocket URL of an http(s) URL: `http:` → `ws:`, `https:` → `wss:`. */
+export const toWebSocketUrl = (url: string): string => url.replace(/^http/i, 'ws');
+
+/** A hostname without IPv6 brackets, as sockets want it: `[::1]` → `::1`. */
+export const unbracketHost = (host: string): string => host.replace(/^\[|\]$/g, '');

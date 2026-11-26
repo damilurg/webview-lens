@@ -3,7 +3,7 @@
 import type { InspectableTarget, InspectorSession } from '../../node/drivers/types.ts';
 import { type KeyboardWatchEnd, watchKeyboard } from '../../node/keyboard-probe.ts';
 import { str } from '../../shared/decode.ts';
-import { errorMessage, sleep, withTimeout } from '../../shared/utils.ts';
+import { errorMessage, isHttpUrl, sleep, withTimeout } from '../../shared/utils.ts';
 import type { CliContext } from '../context.ts';
 import { ensureIosProxy, logAdbPath } from '../runtime.ts';
 import { terminal } from '../output.ts';
@@ -65,7 +65,7 @@ export const keyboard = async (ctx: CliContext): Promise<void> => {
     const targetOptions = { ...ctx.targetOptions, ...(port !== undefined ? { port } : {}) };
     const matches = (page: InspectableTarget) =>
         page.type === 'page' &&
-        /^https?:/.test(page.url) &&
+        isHttpUrl(page.url) &&
         (!ctx.cfg.match || page.url.includes(ctx.cfg.match));
 
     // Follow the app across restarts and screens, like --logs.

@@ -4,7 +4,7 @@
 import http from 'node:http';
 import net from 'node:net';
 
-import { errorMessage } from '../shared/utils.ts';
+import { errorMessage, stripTrailingSlashes } from '../shared/utils.ts';
 import { createLogger } from './logger.ts';
 
 // Silent unless logging is configured (--verbose); callers pass their own callbacks to show it.
@@ -33,7 +33,7 @@ export const createFrontendLoader = ({
     origin = process.env.DEVTOOLS_FRONTEND_ORIGIN ?? DEFAULT_FRONTEND_ORIGIN,
     fetchImpl = fetch,
 }: FrontendLoaderOptions = {}): ((pathname: string) => Promise<FrontendFile>) => {
-    const baseOrigin = origin.replace(/\/+$/, '');
+    const baseOrigin = stripTrailingSlashes(origin);
     const cache = new Map<string, FrontendFile>();
 
     return async (pathname: string): Promise<FrontendFile> => {

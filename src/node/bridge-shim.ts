@@ -1,3 +1,4 @@
+import { stripTrailingSlashes, toWebSocketUrl } from '../shared/utils.ts';
 // The page side of the `dev` WebSocket bridge (Android). CDP Fetch cannot intercept WebSockets, so
 // sockets to the stand's bridged prefixes (and separate HMR ports) are replaced in the page by a stub
 // that talks to webview-lens through a CDP binding: page → binding → Node → local server, and back
@@ -15,7 +16,7 @@ export const bridgeShim = (
     wsPrefixes: readonly string[],
     hmrPorts: readonly number[] = [],
 ): string => {
-    const wsRemote = remote.replace(/\/+$/, '').replace(/^http/, 'ws');
+    const wsRemote = toWebSocketUrl(stripTrailingSlashes(remote));
     const hmrPrefixes = hmrPorts.flatMap((port) => [
         `ws://localhost:${port}`,
         `wss://localhost:${port}`,

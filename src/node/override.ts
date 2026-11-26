@@ -10,7 +10,13 @@
 // page → binding → this process → local server, and back via Runtime.evaluate.
 
 import { bool, type Decoder, num, oneOf, parseJson, someOf, str } from '../shared/decode.ts';
-import { bestEffort, errorMessage, isRecord } from '../shared/utils.ts';
+import {
+    bestEffort,
+    errorMessage,
+    isRecord,
+    stripTrailingSlashes,
+    toWebSocketUrl,
+} from '../shared/utils.ts';
 import { type Cdp, connectCdp, type DevtoolsPage } from './cdp.ts';
 import { BINDING, bridgeShim, RECEIVER } from './bridge-shim.ts';
 import { createLogger } from './logger.ts';
@@ -151,7 +157,7 @@ export interface OverrideSession {
 
 /** Normalizes a URL base path: `""` or `"/"` → `""`, `"shop/"` → `"/shop"`. */
 export const normalizeBasePath = (base = ''): string => {
-    const trimmed = base.trim().replace(/\/+$/, '');
+    const trimmed = stripTrailingSlashes(base.trim());
 
     if (!trimmed || trimmed === '/') return '';
 
@@ -181,8 +187,8 @@ export const createUrlMapper = ({
     remoteBase = '',
     localBase = '',
 }: UrlMapperOptions): UrlMapper => {
-    const remoteOrigin = remote.replace(/\/+$/, '');
-    const localOrigin = local.replace(/\/+$/, '');
+    const remoteOrigin = stripTrailingSlashes(remote);
+    const localOrigin = stripTrailingSlashes(local);
     const rBase = normalizeBasePath(remoteBase);
     const lBase = normalizeBasePath(localBase);
     const remotePrefix = remoteOrigin + rBase;
@@ -520,7 +526,7 @@ export const startOverride = async ({
                 return;
             }
 
-            const targetUrl = hmr ? hmr.wsUrl : mapper.toLocal(url).replace(/^http/, 'ws');
+            const targetUrl = hmr ? hmr.wsUrl : toWebSocketUrl(mapper.toLocal(url));
             const targetOrigin = hmr ? hmr.origin : mapper.localOrigin;
             debugLog.debug(`bridge socket #${sid} → ${targetUrl}`, { protocols });
 

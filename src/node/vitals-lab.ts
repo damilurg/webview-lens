@@ -22,7 +22,7 @@ import {
     type Rating,
 } from '../shared/thresholds.ts';
 import { type Decoder, list, num, parseJson, rec, str } from '../shared/decode.ts';
-import { bestEffort, isRecord, sleep } from '../shared/utils.ts';
+import { bestEffort, isHttpUrl, isRecord, sleep } from '../shared/utils.ts';
 import { createLogger } from './logger.ts';
 
 // Silent unless logging is configured (--verbose); callers pass their own callbacks to show it.
@@ -238,7 +238,7 @@ export const measureVitals = async ({
     throttle = 'none',
     cpu = 1,
     settleMs = 4000,
-    isTarget = (target) => target.type === 'page' && /^https?:/.test(target.url),
+    isTarget = (target) => target.type === 'page' && isHttpUrl(target.url),
     log = vitalsLog.info,
     wait,
 }: LabOptions): Promise<LabResult> => {

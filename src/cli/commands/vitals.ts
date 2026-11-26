@@ -15,6 +15,7 @@ import { METRIC_NAMES } from '../../shared/thresholds.ts';
 import type { CliContext } from '../context.ts';
 import { ensureIosProxy, logAdbPath } from '../runtime.ts';
 import { terminal } from '../output.ts';
+import { isHttpUrl } from '../../shared/utils.ts';
 
 export const vitals = async (ctx: CliContext): Promise<void> => {
     const { cfg, values } = ctx;
@@ -54,7 +55,7 @@ export const vitals = async (ctx: CliContext): Promise<void> => {
         wait: ctx.targetOptions,
         isTarget: (page) =>
             page.type === 'page' &&
-            /^https?:/.test(page.url) &&
+            isHttpUrl(page.url) &&
             (!cfg.match || page.url.includes(cfg.match)),
     });
 

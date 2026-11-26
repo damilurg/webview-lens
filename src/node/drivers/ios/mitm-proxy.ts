@@ -7,7 +7,7 @@ import net from 'node:net';
 import os from 'node:os';
 import tls from 'node:tls';
 
-import { errorMessage } from '../../../shared/utils.ts';
+import { errorMessage, unbracketHost } from '../../../shared/utils.ts';
 import { createLogger } from '../../logger.ts';
 import { connectAndPipe } from '../../fs-utils.ts';
 import {
@@ -329,7 +329,7 @@ const forwardPlainHttp = (req: http.IncomingMessage, res: http.ServerResponse): 
 
     const upstream = http.request(
         {
-            hostname: target.hostname.replace(/^\[|\]$/g, ''),
+            hostname: unbracketHost(target.hostname),
             port: Number(target.port) || 80,
             method: req.method,
             path: `${target.pathname}${target.search}`,
@@ -450,7 +450,7 @@ export const startIosMitmProxy = async ({
         }
         const isHttps = localUrl.protocol === 'https:';
         const localPort = Number(localUrl.port) || (isHttps ? 443 : 80);
-        const localHost = localUrl.hostname.replace(/^\[|\]$/g, '');
+        const localHost = unbracketHost(localUrl.hostname);
         // Local https dev servers (Vite/Angular `--https`) use self-signed certs: trust them on
         // loopback only.
         const secure = isHttps

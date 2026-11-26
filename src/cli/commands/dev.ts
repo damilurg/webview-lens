@@ -12,7 +12,7 @@ import { type OverrideSession, startOverride } from '../../node/override.ts';
 import { resolvePreset } from '../../node/presets.ts';
 import { renderQrTerminal } from '../../node/qr.ts';
 import { ensureServer } from '../../node/server-process.ts';
-import { errorMessage, sleep } from '../../shared/utils.ts';
+import { errorMessage, sleep, stripTrailingSlashes } from '../../shared/utils.ts';
 import type { CliContext } from '../context.ts';
 import {
     basePathOptions,
@@ -36,7 +36,7 @@ const devSettings = ({ cfg }: CliContext): DevSettings => {
     const preset = resolvePreset(cfg.preset ?? 'auto');
 
     return {
-        local: (cfg.local ?? process.env.LOCAL_URL ?? 'http://localhost:3000').replace(/\/$/, ''),
+        local: stripTrailingSlashes(cfg.local ?? process.env.LOCAL_URL ?? 'http://localhost:3000'),
         wsPrefixes: cfg.ws ?? preset.wsPrefixes,
         quietPrefixes: cfg.quiet ?? preset.quietPrefixes,
         hmrPorts: cfg.hmrPorts ?? [],
