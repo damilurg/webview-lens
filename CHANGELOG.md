@@ -2,7 +2,7 @@
 
 All notable changes to `webview-lens` are documented in this file.
 
-## [Unreleased]
+## [0.4.0] - 2026-11-27
 
 Found by end-to-end runs on real phones: Redmi Note 8 Pro (Android 11, WebView 157) with a Kotlin and a Flutter app, and iPhone 17 Pro (iOS 26.6.1).
 
