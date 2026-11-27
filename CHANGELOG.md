@@ -2,6 +2,16 @@
 
 All notable changes to `webview-lens` are documented in this file.
 
+## [Unreleased]
+
+### Fixed
+
+- The published type declarations pointed at the sources (`from './aggregator.ts'`); they now point at the files the package ships (`./aggregator.js`). `scripts/dts-specifiers.ts` rewrites them after `tsc` (TypeScript keeps `.ts` in declarations even with `rewriteRelativeImportExtensions`), and `--check` runs in the build.
+
+### Added
+
+- README and Getting started: the package is ES modules only, with its own types (no `@types/webview-lens`); `require()` from CommonJS on Node 22.12+, TypeScript 5.8+ in a CommonJS project. An invariant keeps top-level `await` out of the package modules, so `require()` keeps working.
+
 ## [0.4.0] - 2026-11-27
 
 Found by end-to-end runs on real phones: Redmi Note 8 Pro (Android 11, WebView 157) with a Kotlin and a Flutter app, and iPhone 17 Pro (iOS 26.6.1).

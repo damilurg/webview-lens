@@ -95,6 +95,30 @@ const findConsoleCalls = (file: string): string[] => {
 };
 
 /** The only places allowed to print: the CLI's terminal output and RUM's opt-in `debug` in the page. */
+/** `await` outside any function (top-level await), as `file:line`. */
+const findTopLevelAwait = (file: string): string[] => {
+    const source = ts.createSourceFile(
+        file,
+        fs.readFileSync(file, 'utf8'),
+        ts.ScriptTarget.Latest,
+        true,
+    );
+    const found: string[] = [];
+    const visit = (node: ts.Node): void => {
+        if (ts.isFunctionLike(node) || ts.isClassStaticBlockDeclaration(node)) return;
+        if (ts.isAwaitExpression(node) || (ts.isForOfStatement(node) && node.awaitModifier)) {
+            found.push(
+                `${path.relative(ROOT, file)}:${source.getLineAndCharacterOfPosition(node.getStart(source)).line + 1}`,
+            );
+        }
+        ts.forEachChild(node, visit);
+    };
+
+    ts.forEachChild(source, visit);
+
+    return found;
+};
+
 const CONSOLE_ALLOWED = new Set(['src/cli/output.ts', 'src/rum/index.ts']);
 
 describe('Repository architectural invariants', () => {
@@ -230,6 +254,41 @@ describe('Repository architectural invariants', () => {
             [],
             `Decode instead of asserting (src/shared/decode.ts, src/node/protocol.ts):\n${found.join('\n')}`,
         );
+    });
+
+    it('no top-level await in the package modules: CommonJS projects can require() them (Node 22.12+)', () => {
+        // require(esm) refuses a module graph with top-level await (ERR_REQUIRE_ASYNC_MODULE). The CLI
+        // entry is only run, never required.
+        const found = listTsFiles(path.join(ROOT, 'src'))
+            .filter((file) => path.relative(ROOT, file) !== path.join('src', 'cli.ts'))
+            .flatMap(findTopLevelAwait);
+
+        assert.deepEqual(found, []);
+    });
+
+    it('the top-level await check finds it at the top level and in for await, not inside functions', () => {
+        const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wvl-tla-'));
+        const file = path.join(dir, 'mod.ts');
+
+        fs.writeFileSync(
+            file,
+            [
+                'await ready;',
+                'const f = async () => { await x; };',
+                'async function g() { for await (const a of b) {} }',
+                'for await (const c of d) {}',
+                'class K { static { void 0; } m = async () => await y; }',
+                'export const v = await load();',
+            ].join('\n'),
+        );
+        try {
+            assert.deepEqual(
+                findTopLevelAwait(file).map((hit) => hit.split(':').pop()),
+                ['1', '4', '6'],
+            );
+        } finally {
+            fs.rmSync(dir, { recursive: true, force: true });
+        }
     });
 
     it('maintains zero runtime dependencies in package.json', () => {
