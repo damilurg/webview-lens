@@ -5,6 +5,7 @@ import type { Cdp } from '../src/node/cdp.ts';
 import { createCdpInspectorSession } from '../src/node/drivers/android.ts';
 import { resolveDriver } from '../src/node/drivers/registry.ts';
 import { type DeviceDriver, isPlatformSelection } from '../src/node/drivers/types.ts';
+import { enableIfSupported } from '../src/node/drivers/ios/index.ts';
 
 describe('isPlatformSelection', () => {
     it('accepts auto, android, ios and rejects unknown values', () => {
@@ -77,5 +78,22 @@ describe('createCdpInspectorSession', () => {
         await session.navigate('https://stand.example.test/about', { waitForLoad: true });
 
         assert.deepEqual(order, ['once:Page.loadEventFired', 'send:Page.navigate']);
+    });
+});
+
+describe('enableIfSupported (iOS domains)', () => {
+    it('ignores a method this WebKit lacks but surfaces any other failure', async () => {
+        const cdpThat = (message: string) =>
+            ({
+                send: async () => {
+                    throw new Error(message);
+                },
+            }) as unknown as Parameters<typeof enableIfSupported>[0];
+
+        await enableIfSupported(cdpThat("'Page.enable' was not found"), 'Page.enable');
+        await assert.rejects(
+            enableIfSupported(cdpThat('DevTools connection closed'), 'Page.enable'),
+            /connection closed/,
+        );
     });
 });

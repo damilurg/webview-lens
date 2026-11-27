@@ -22,16 +22,40 @@ interface Page {
     title: string;
     description: string;
     home?: 'en' | 'ru';
+    /** H1 for a source without one (README's title lives in its GitHub badge header). */
+    heading?: string;
 }
 
 export const PAGES: readonly Page[] = [
     {
-        source: 'README.md',
+        source: 'docs/home.md',
         route: '/',
         title: 'Debug Android WebView & iOS WKWebView in Chrome DevTools',
         description:
-            'Chrome DevTools for Android WebView and iOS WKWebView on macOS, Windows and Linux: fixed DevTools URL, localhost dev server inside the app, WebView logs, Web Vitals with CI budgets, RUM and Prometheus.',
+            'Debug the web page inside a mobile app: Chrome DevTools for Android WebView and iOS WKWebView that survive app restarts, your localhost dev server inside the app, WebView logs, keyboard fixes, Web Vitals and RUM. macOS, Windows, Linux.',
         home: 'en',
+    },
+    {
+        source: 'README.md',
+        route: '/overview',
+        heading: 'Overview',
+        title: 'webview-lens overview: commands, requirements, API',
+        description:
+            'Everything webview-lens does on one page: commands, requirements, several devices at once, DevTools at a fixed address, lab Web Vitals with CI budgets, RUM and Prometheus, programmatic API.',
+    },
+    {
+        source: 'docs/troubleshooting.md',
+        route: '/troubleshooting',
+        title: 'WebView problems and fixes: chrome://inspect, iOS on Windows, localhost, keyboard',
+        description:
+            'Why a WebView does not show up in chrome://inspect, how to debug an iOS WKWebView on Windows, load localhost inside the app, see console.log, fix the keyboard covering inputs, measure Web Vitals in the app.',
+    },
+    {
+        source: 'docs/alternatives.md',
+        route: '/alternatives',
+        title: 'chrome://inspect, Safari Web Inspector, Eruda alternatives for WebView debugging',
+        description:
+            'webview-lens compared with chrome://inspect, Safari Web Inspector, ios_webkit_debug_proxy, Eruda / vConsole and HTTP proxies like Charles and Proxyman, and when each is the better choice.',
     },
     {
         source: 'docs/getting-started.md',
@@ -83,6 +107,13 @@ export const PAGES: readonly Page[] = [
             'Collect Core Web Vitals, custom timings and JS errors from WebView users and export p50/p75/p95 to Prometheus with zero-dependency Fetch API handlers.',
     },
     {
+        source: 'docs/verification.md',
+        route: '/verification',
+        title: 'How webview-lens was verified on real phones',
+        description:
+            'Every claim of webview-lens with how it was checked on an Android phone and an iPhone, what was measured, what was found and fixed, and what is not verified.',
+    },
+    {
         source: 'docs/standards.md',
         route: '/standards',
         title: 'Standards conformance',
@@ -102,12 +133,34 @@ export const PAGES: readonly Page[] = [
         description: 'История релизов webview-lens (на английском).',
     },
     {
-        source: 'docs/ru/README.md',
+        source: 'docs/ru/home.md',
         route: '/ru/',
         title: 'Отладка Android WebView и iOS WKWebView в Chrome DevTools',
         description:
-            'Chrome DevTools для Android WebView и iOS WKWebView на macOS, Windows и Linux: постоянный адрес DevTools, локальный dev-сервер внутри приложения, логи WebView, Web Vitals с бюджетами CI, RUM и Prometheus.',
+            'Отладка веб-страницы внутри мобильного приложения: Chrome DevTools для Android WebView и iOS WKWebView, которые переживают перезапуск, localhost внутри приложения, логи WebView, клавиатура, Web Vitals и RUM.',
         home: 'ru',
+    },
+    {
+        source: 'docs/ru/README.md',
+        route: '/ru/overview',
+        heading: 'Обзор',
+        title: 'Обзор webview-lens: команды, требования, API',
+        description:
+            'Всё, что умеет webview-lens, на одной странице: команды, требования, несколько устройств сразу, DevTools на постоянном адресе, Web Vitals с бюджетами CI, RUM и Prometheus, программный API.',
+    },
+    {
+        source: 'docs/ru/troubleshooting.md',
+        route: '/ru/troubleshooting',
+        title: 'Проблемы WebView и решения: chrome://inspect, iOS на Windows, localhost, клавиатура',
+        description:
+            'Почему WebView не видно в chrome://inspect, как отлаживать iOS WKWebView на Windows, открыть localhost в приложении, увидеть console.log, исправить клавиатуру поверх поля, замерить Web Vitals.',
+    },
+    {
+        source: 'docs/ru/alternatives.md',
+        route: '/ru/alternatives',
+        title: 'Альтернативы chrome://inspect, Safari Web Inspector и Eruda для отладки WebView',
+        description:
+            'Сравнение webview-lens с chrome://inspect, Safari Web Inspector, ios_webkit_debug_proxy, Eruda / vConsole и HTTP-прокси вроде Charles и Proxyman, и когда что выбрать.',
     },
     {
         source: 'docs/ru/getting-started.md',
@@ -122,6 +175,13 @@ export const PAGES: readonly Page[] = [
         title: 'Рецепты WebView: клавиатура, safe areas, авторизация, JS-bridge, файлы',
         description:
             'Решения проблем WebView на Kotlin, Flutter и Swift: клавиатура закрывает поле, зум iOS при фокусе, safe areas, нативный вход через cookie, единый JS-bridge, кнопка «Назад», загрузка файлов на Android.',
+    },
+    {
+        source: 'docs/ru/verification.md',
+        route: '/ru/verification',
+        title: 'Как webview-lens проверен на реальных телефонах',
+        description:
+            'Каждое утверждение webview-lens: как проверено на Android и iPhone, что замерено, что найдено и исправлено, что не проверено.',
     },
     {
         source: 'ARCHITECTURE.md',
@@ -166,75 +226,6 @@ export const PAGES: readonly Page[] = [
     },
 ];
 
-const HERO = {
-    en: {
-        text: 'Debug WebViews in Chrome DevTools',
-        tagline:
-            'Chrome DevTools, your localhost dev server, live logs and Web Vitals for the web page inside Android WebView and iOS WKWebView — from macOS, Windows or Linux.',
-        start: 'Get started',
-        startLink: '/#quick-start',
-        features: [
-            [
-                'Fixed DevTools URL',
-                'Full Chrome DevTools at http://localhost:3300 that survives app restarts: a chrome://inspect alternative, iOS included.',
-            ],
-            [
-                'iOS on Windows',
-                'Debug iOS WKWebView and Safari on Windows and macOS through a WebKit Inspector → Chrome DevTools bridge.',
-            ],
-            [
-                'Localhost inside the app',
-                'Your dev server behind the stand’s real HTTPS origin with HMR: no cleartext, no app changes.',
-            ],
-            [
-                'Logs in the terminal',
-                'console.log, uncaught exceptions and failed requests from the WebView with --logs.',
-            ],
-            [
-                'Web Vitals on a real phone',
-                'LCP, FCP, CLS, INP, TTFB with throttling, Markdown reports and CI budgets.',
-            ],
-            [
-                'RUM + Prometheus',
-                'Zero-dependency, SSR-safe client and Fetch API handlers with p50/p75/p95 /metrics.',
-            ],
-        ],
-    },
-    ru: {
-        text: 'Отладка WebView в Chrome DevTools',
-        tagline:
-            'Chrome DevTools, локальный dev-сервер, живые логи и Web Vitals для веб-страницы внутри Android WebView и iOS WKWebView — с macOS, Windows или Linux.',
-        start: 'Начать',
-        startLink: '/ru/#быстрыи-старт',
-        features: [
-            [
-                'Постоянный адрес DevTools',
-                'Полные Chrome DevTools на http://localhost:3300, которые переживают перезапуск приложения: замена chrome://inspect, в том числе для iOS.',
-            ],
-            [
-                'iOS на Windows',
-                'Отладка iOS WKWebView и Safari на Windows и macOS через мост WebKit Inspector → Chrome DevTools.',
-            ],
-            [
-                'Localhost внутри приложения',
-                'Ваш dev-сервер под настоящим HTTPS-доменом стенда с HMR: без cleartext и без правок приложения.',
-            ],
-            [
-                'Логи в терминале',
-                'console.log, необработанные исключения и упавшие запросы из WebView с флагом --logs.',
-            ],
-            [
-                'Web Vitals на телефоне',
-                'LCP, FCP, CLS, INP, TTFB с троттлингом, отчётами в Markdown и бюджетами для CI.',
-            ],
-            [
-                'RUM + Prometheus',
-                'Клиент без зависимостей, безопасный для SSR, и обработчики Fetch API с /metrics p50/p75/p95.',
-            ],
-        ],
-    },
-} as const;
-
 // First page wins for a source file (CHANGELOG.md links go to the English /changelog).
 const routeBySource = new Map<string, string>();
 
@@ -267,32 +258,8 @@ const frontMatter = (page: Page): string => {
         ...(updated ? [`lastUpdated: ${updated}`] : []),
     ];
 
-    if (page.home) {
-        const hero = HERO[page.home];
-
-        lines.push(
-            'layout: home',
-            'hero:',
-            '  name: webview-lens',
-            `  text: ${yamlString(hero.text)}`,
-            `  tagline: ${yamlString(hero.tagline)}`,
-            '  actions:',
-            '    - theme: brand',
-            `      text: ${yamlString(hero.start)}`,
-            `      link: ${yamlString(hero.startLink)}`,
-            '    - theme: alt',
-            '      text: GitHub',
-            '      link: https://github.com/damilurg/webview-lens',
-            '    - theme: alt',
-            '      text: npm',
-            '      link: https://www.npmjs.com/package/webview-lens',
-            'features:',
-            ...hero.features.flatMap(([title, details]) => [
-                `  - title: ${yamlString(title)}`,
-                `    details: ${yamlString(details)}`,
-            ]),
-        );
-    }
+    // The landing pages read as plain documentation: no hero, no feature cards, no page footer.
+    if (page.home) lines.push('aside: false', 'prev: false', 'next: false', 'editLink: false');
 
     return `---\n${lines.join('\n')}\n---\n\n`;
 };
@@ -313,9 +280,9 @@ export const rewriteLink = (target: string, source: string): string => {
 
 /** Page body: README header removed on home pages, links rewritten. */
 export const renderPage = (markdown: string, page: Page): string => {
-    const body = page.home
-        ? markdown.replace(/^<div align="center">[\s\S]*?<\/div>\s*/, '')
-        : markdown;
+    // README's centred badge header is for GitHub; the site shows the page title instead.
+    const stripped = markdown.replace(/^<div align="center">[\s\S]*?<\/div>\s*/, '');
+    const body = page.heading ? `# ${page.heading}\n\n${stripped}` : stripped;
     const linked = body.replace(
         /(\[[^\]]*\]\()([^)\s]+)(\))/g,
         (_match, open: string, target: string, close: string) =>

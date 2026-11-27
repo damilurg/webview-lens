@@ -8,6 +8,7 @@ import {
     median,
     parseBudgets,
     toMarkdown,
+    measureVitals,
 } from '../src/node/vitals-lab.ts';
 import { rate } from '../src/shared/thresholds.ts';
 
@@ -105,5 +106,58 @@ describe('budgets', () => {
         );
 
         assert.deepEqual(violations, []);
+    });
+});
+
+describe('lab vitals on iOS (found on iOS 26.6)', () => {
+    it('keeps CLS n/a (null) where layout-shift entries do not exist', () => {
+        assert.match(COLLECTOR, /cls: clsSupported \? 0 : null/);
+    });
+
+    it('does not hand the Android forward port to the iOS driver', async () => {
+        let seenPort: unknown = 'not called';
+        const target = {
+            id: 'p1',
+            platform: 'ios' as const,
+            type: 'page',
+            url: 'https://stand.test/',
+            title: '',
+            debuggerUrl: 'ws://x',
+        };
+        const driver = {
+            platform: 'ios' as const,
+            listDevices: () => [],
+            isAvailable: () => true,
+            diagnose: async () => '',
+            doctor: async () => ({ platform: 'ios' as const, checks: [], targets: [] }),
+            listTargets: async () => [target],
+            getDeviceDescription: async () => 'iPhone',
+            waitForTarget: async (_predicate: unknown, options: { port?: unknown } = {}) => {
+                seenPort = options.port;
+
+                return target;
+            },
+            connectInspector: async () => {
+                let resolveClosed!: () => void;
+
+                return {
+                    platform: 'ios' as const,
+                    capabilities: { lcp: true, cls: false, inp: false, cdpFetchOverride: false },
+                    evaluate: async <T>() =>
+                        JSON.stringify({ lcp: 80, fcp: 30, cls: null, inp: null, ttfb: 20 }) as T,
+                    addInitScript: async () => undefined,
+                    navigate: async () => undefined,
+                    reload: async () => undefined,
+                    setCacheDisabled: async () => undefined,
+                    close: () => resolveClosed(),
+                    closed: new Promise<void>((resolve) => {
+                        resolveClosed = resolve;
+                    }),
+                };
+            },
+        };
+
+        await measureVitals({ driver, paths: ['/'], runs: 1, settleMs: 0, log: () => undefined });
+        assert.equal(seenPort, undefined);
     });
 });

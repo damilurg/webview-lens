@@ -1,6 +1,6 @@
 // iOS implementation of DeviceDriver and InspectorSession over usbmuxd + IWDP + WIP↔CDP bridge.
 
-import { errorMessage, sleep } from '../../../shared/utils.ts';
+import { errorMessage, sleep, withTimeout } from '../../../shared/utils.ts';
 import { type Cdp, type connectCdp } from '../../cdp.ts';
 import { createProtocolInspectorSession } from '../base-session.ts';
 import type {
@@ -23,7 +23,12 @@ import {
 } from './iwdp.ts';
 import { describeIosDevices, listIosDevices } from './usbmux.ts';
 import { connectWebKitInspector } from './webkit-targets.ts';
+import { detectLanAddresses, networkChecks } from './network.ts';
 import { createWipCdpBridge } from './wip-cdp-bridge.ts';
+import { createLogger } from '../../logger.ts';
+
+// Silent unless logging is configured (--verbose); callers pass their own callbacks to show it.
+const iosLog = createLogger('ios');
 
 /**
  * Enables a WebKit domain when this iOS has it. Only "'…' was not found" is ignored: a closed socket
@@ -77,6 +82,9 @@ export interface IosDriverDeps {
     listIwdpDevices?: typeof listIwdpDevices;
     listIwdpPages?: typeof listIwdpPages;
     connectWip?: typeof connectCdp;
+    lanAddresses?: () => string[];
+    /** How long a page may take to answer the first commands. Default: 5 s. */
+    connectTimeoutMs?: number;
 }
 
 const parsePortFromIwdpUrl = (url: string, fallback: number | string): string => {
@@ -95,6 +103,8 @@ export const createIosDriver = (deps: IosDriverDeps = {}): DeviceDriver => {
     const listIwdpDevicesFn = deps.listIwdpDevices ?? listIwdpDevices;
     const listIwdpPagesFn = deps.listIwdpPages ?? listIwdpPages;
     const connectWipFn = deps.connectWip ?? connectWebKitInspector;
+    const lanAddressesFn = deps.lanAddresses ?? detectLanAddresses;
+    const connectTimeoutMs = deps.connectTimeoutMs ?? 5000;
 
     const resolveIwdpDevice = async (
         serial?: string,
@@ -123,19 +133,19 @@ export const createIosDriver = (deps: IosDriverDeps = {}): DeviceDriver => {
         }));
     };
 
-    const listTargets = async (
-        options: DriverTargetOptions = {},
-    ): Promise<InspectableTarget[] | null> => {
-        const { port } = options.port
-            ? { port: String(options.port) }
-            : await resolveIwdpDevice(options.serial);
+    const listTargets = async ({
+        port: explicitPort,
+        serial,
+        app,
+    }: DriverTargetOptions = {}): Promise<InspectableTarget[] | null> => {
+        const { port } = explicitPort
+            ? { port: String(explicitPort) }
+            : await resolveIwdpDevice(serial);
         const pages = await listIwdpPagesFn(port);
 
         if (!pages) return null;
 
-        const filtered = options.app
-            ? pages.filter((p) => !p.appId || p.appId === options.app)
-            : pages;
+        const filtered = app ? pages.filter((p) => !p.appId || p.appId === app) : pages;
 
         return filtered
             .filter((p) => Boolean(p.webSocketDebuggerUrl))
@@ -143,8 +153,9 @@ export const createIosDriver = (deps: IosDriverDeps = {}): DeviceDriver => {
     };
 
     const diagnose = async (options: DriverTargetOptions = {}): Promise<string> => {
+        const { serial } = options;
         const status = await listIosDevicesFn({ platform: hostPlatform });
-        const problem = describeIosDevices(status, options.serial, hostPlatform);
+        const problem = describeIosDevices(status, serial, hostPlatform);
 
         if (problem) return problem;
 
@@ -157,7 +168,7 @@ export const createIosDriver = (deps: IosDriverDeps = {}): DeviceDriver => {
                 : 'ios_webkit_debug_proxy not found: install it (brew install ios-webkit-debug-proxy on macOS, scoop install ios-webkit-debug-proxy on Windows) and run it';
         }
         if (targets.length === 0) {
-            return 'No inspectable WKWebView: enable Settings → Safari → Advanced → Web Inspector on iPhone and ensure the test build sets webView.isInspectable = true';
+            return 'No inspectable WKWebView yet: open the app on the screen with the WebView (unlocked). If it is open: Settings → Safari → Advanced → Web Inspector on, and the test build sets webView.isInspectable = true';
         }
 
         return `Found ${targets.length} iOS WebView page(s); waiting for one matching the filter`;
@@ -169,9 +180,10 @@ export const createIosDriver = (deps: IosDriverDeps = {}): DeviceDriver => {
         isAvailable: async () => (await listDevices()).length > 0,
         diagnose,
         async doctor(options: DriverTargetOptions = {}): Promise<DoctorReport> {
+            const { serial } = options;
             const checks: DoctorCheck[] = [];
             const status = await listIosDevicesFn({ platform: hostPlatform });
-            const usbProblem = describeIosDevices(status, options.serial, hostPlatform);
+            const usbProblem = describeIosDevices(status, serial, hostPlatform);
 
             checks.push({
                 ok: !usbProblem,
@@ -202,6 +214,8 @@ export const createIosDriver = (deps: IosDriverDeps = {}): DeviceDriver => {
                           : 'no inspectable WKWebView pages (enable Web Inspector on iPhone and webView.isInspectable = true)',
             });
 
+            checks.push(...networkChecks(lanAddressesFn(), targets ?? []));
+
             return { platform: 'ios', checks, targets: targets ?? [] };
         },
         listTargets,
@@ -209,12 +223,11 @@ export const createIosDriver = (deps: IosDriverDeps = {}): DeviceDriver => {
             predicate: TargetPredicate,
             options: DriverTargetOptions = {},
         ): Promise<InspectableTarget> {
-            const log = options.log ?? console.log;
-            const intervalMs = options.intervalMs ?? 2000;
+            const { log = iosLog.info, intervalMs = 2000, signal } = options;
             let lastHint = '';
 
             for (;;) {
-                options.signal?.throwIfAborted();
+                signal?.throwIfAborted();
 
                 const target = (await listTargets(options))?.find(predicate);
 
@@ -227,8 +240,8 @@ export const createIosDriver = (deps: IosDriverDeps = {}): DeviceDriver => {
                 await sleep(intervalMs);
             }
         },
-        async getDeviceDescription(options: DriverTargetOptions = {}): Promise<string> {
-            const { entry } = await resolveIwdpDevice(options.serial);
+        async getDeviceDescription({ serial }: DriverTargetOptions = {}): Promise<string> {
+            const { entry } = await resolveIwdpDevice(serial);
 
             return entry?.deviceName
                 ? `${entry.deviceName} (iOS WKWebView)`
@@ -240,9 +253,22 @@ export const createIosDriver = (deps: IosDriverDeps = {}): DeviceDriver => {
             }
 
             const rawWip = await connectWipFn(target.debuggerUrl);
+            const enabled = await withTimeout(
+                (async () => {
+                    await enableIfSupported(rawWip, 'Page.enable');
+                    await enableIfSupported(rawWip, 'Network.enable');
+                })(),
+                connectTimeoutMs,
+            );
 
-            await enableIfSupported(rawWip, 'Page.enable');
-            await enableIfSupported(rawWip, 'Network.enable');
+            // A locked iPhone or a WebView behind another screen has its JavaScript suspended and never answers; an
+            // open socket to it would stay forever (and enough of them jam ios_webkit_debug_proxy).
+            if (enabled.timedOut) {
+                rawWip.close();
+                throw new Error(
+                    `iOS page ${target.url} did not answer in ${connectTimeoutMs / 1000} s: the iPhone locked, a WebView behind another screen, or a busy page`,
+                );
+            }
 
             return createIosInspectorSession(rawWip);
         },

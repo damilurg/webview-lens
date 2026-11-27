@@ -1,0 +1,13 @@
+{
+    // Emits the browser entry points (webview-lens/rum, webview-lens/viewport) to dist/.
+    "extends": "./tsconfig.web.json",
+    "compilerOptions": {
+        "composite": false,
+        "incremental": false,
+        "noEmit": false,
+        "rootDir": "src",
+        "outDir": "dist",
+        "declaration": true,
+        "sourceMap": true
+    }
+}

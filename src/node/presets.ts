@@ -43,7 +43,9 @@ export const PRESETS: Readonly<Record<PresetName, FrameworkPreset>> = {
     },
     angular: {
         name: 'angular',
-        wsPrefixes: ['/ng-cli-ws'],
+        // Angular 17+ (`@angular/build`) serves through Vite: the HMR socket is on the page
+        // origin (`wss://host/?token=…`). `/ng-cli-ws` was the webpack dev server's path.
+        wsPrefixes: ['/'],
         quietPrefixes: ['/@vite', '/@fs', '/assets/'],
     },
     generic: {
@@ -65,7 +67,7 @@ export const PRESET_SELECTIONS: readonly PresetSelection[] = [
 ];
 
 export const isPresetSelection = (value: string): value is PresetSelection =>
-    (PRESET_SELECTIONS as readonly string[]).includes(value);
+    PRESET_SELECTIONS.some((item) => item === value);
 
 /** Picks the best preset from a merged dependencies map. */
 export const detectPresetFromDependencies = (

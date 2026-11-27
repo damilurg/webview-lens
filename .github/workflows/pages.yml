@@ -37,6 +37,11 @@ jobs:
               working-directory: site
             - run: npm run build
               working-directory: site
+              env:
+                  # Search console ownership tags (Settings → Secrets and variables → Variables).
+                  GOOGLE_SITE_VERIFICATION: ${{ vars.GOOGLE_SITE_VERIFICATION }}
+                  YANDEX_VERIFICATION: ${{ vars.YANDEX_VERIFICATION }}
+                  BING_SITE_VERIFICATION: ${{ vars.BING_SITE_VERIFICATION }}
             - uses: actions/upload-pages-artifact@v5
               with:
                   path: site/.vitepress/dist
@@ -49,3 +54,15 @@ jobs:
         steps:
             - id: deployment
               uses: actions/deploy-pages@v5
+    indexnow:
+        # Ask Bing, Yandex and the other IndexNow engines to recrawl the pages that were just deployed.
+        needs: deploy
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v7
+              with:
+                  persist-credentials: false
+            - uses: actions/setup-node@v7
+              with:
+                  node-version: 26
+            - run: node site/indexnow.ts

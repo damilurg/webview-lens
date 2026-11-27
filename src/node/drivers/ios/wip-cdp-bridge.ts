@@ -2,8 +2,9 @@
 // Enables running unified telemetry, lab vitals and Chrome DevTools against iOS WKWebView
 // on both Windows and macOS.
 
+import { rec } from '../../../shared/decode.ts';
 import { isRecord } from '../../../shared/utils.ts';
-import type { Cdp } from '../../cdp.ts';
+import { type Cdp, onceVia } from '../../cdp.ts';
 
 export interface ProtocolMessage {
     method: string;
@@ -38,12 +39,26 @@ export const translateCdpToWip = (
         };
     }
     if (method === 'Runtime.evaluate') {
+        // Chrome DevTools names the context by uniqueContextId (a string); WebKit takes contextId.
+        const contextId =
+            typeof params.contextId === 'number'
+                ? params.contextId
+                : typeof params.uniqueContextId === 'string' && /^\d+$/.test(params.uniqueContextId)
+                  ? Number(params.uniqueContextId)
+                  : undefined;
+
         return {
             method: 'Runtime.evaluate',
             params: {
                 expression: params.expression,
                 returnByValue: Boolean(params.returnByValue),
-                objectGroup: 'console',
+                objectGroup:
+                    typeof params.objectGroup === 'string' ? params.objectGroup : 'console',
+                // The Console's own options; without generatePreview an object shows as "Object".
+                ...(params.generatePreview === true ? { generatePreview: true } : {}),
+                ...(params.includeCommandLineAPI === true ? { includeCommandLineAPI: true } : {}),
+                ...(params.silent === true ? { doNotPauseOnExceptionsAndMuteConsole: true } : {}),
+                ...(contextId !== undefined ? { contextId } : {}),
             },
         };
     }
@@ -51,14 +66,20 @@ export const translateCdpToWip = (
     return { method, params };
 };
 
+const THROWING_METHODS = new Set([
+    'Runtime.evaluate',
+    'Runtime.awaitPromise',
+    'Runtime.callFunctionOn',
+]);
+
 /** Translates a WebKit Inspector Protocol command result into CDP shape. */
 export const translateWipResultToCdp = (method: string, result: unknown): unknown => {
-    if (method === 'Runtime.evaluate' && isRecord(result) && result.wasThrown === true) {
+    // WebKit reports a throw (or a rejected promise) with `wasThrown`, CDP with `exceptionDetails`.
+    if (THROWING_METHODS.has(method) && isRecord(result) && result.wasThrown === true) {
         const exception = isRecord(result.result) ? result.result : undefined;
-        const text =
-            typeof exception?.description === 'string'
-                ? exception.description
-                : 'Uncaught exception';
+        // CDP's text is the prefix ("Uncaught"); DevTools prints the exception's description after
+        // it, so the description here showed every error twice.
+        const text = 'Uncaught';
 
         return {
             result: result.result,
@@ -163,6 +184,35 @@ export const translateWipEventToCdp = (
         };
     }
 
+    // WebKit: { id, type: 'normal' | 'user' | 'internal', name, frameId }. Chrome DevTools creates a
+    // console context only from CDP's shape (uniqueId, auxData.isDefault / frameId); without it the
+    // Console prompt has no context and silently sends nothing (seen on the test iPhone).
+    if (
+        method === 'Runtime.executionContextCreated' &&
+        isRecord(params) &&
+        isRecord(params.context)
+    ) {
+        const { id, type, name, frameId, origin } = params.context;
+        const isDefault = type === 'normal' || params.context.isPageContext === true;
+
+        return {
+            method,
+            params: {
+                context: {
+                    id,
+                    origin: typeof origin === 'string' ? origin : '',
+                    name: typeof name === 'string' ? name : '',
+                    uniqueId: String(id),
+                    auxData: {
+                        isDefault,
+                        type: isDefault ? 'default' : 'isolated',
+                        ...(typeof frameId === 'string' ? { frameId } : {}),
+                    },
+                },
+            },
+        };
+    }
+
     if (method === 'Network.loadingFailed' && isRecord(params)) {
         return {
             method: 'Network.loadingFailed',
@@ -209,11 +259,10 @@ export const createWipCdpBridge = (rawWip: Cdp): Cdp => {
         });
     };
 
-    const on = <T>(cdpMethod: string, listener: (params: T) => void) => {
+    const on = (cdpMethod: string, listener: (params: unknown) => void) => {
         const set = cdpListeners.get(cdpMethod) ?? new Set();
-        const untyped = listener as (params: unknown) => void;
 
-        set.add(untyped);
+        set.add(listener);
         cdpListeners.set(cdpMethod, set);
 
         if (cdpMethod === 'Runtime.consoleAPICalled') {
@@ -222,25 +271,19 @@ export const createWipCdpBridge = (rawWip: Cdp): Cdp => {
         ensureWipSubscription(cdpMethod);
 
         return () => {
-            set.delete(untyped);
+            set.delete(listener);
         };
     };
 
     return {
-        async send<T = unknown>(method: string, params: object = {}): Promise<T> {
-            const translated = translateCdpToWip(method, params as Record<string, unknown>);
+        async send(method: string, params: object = {}): Promise<unknown> {
+            const translated = translateCdpToWip(method, rec(params) ?? {});
             const result = await rawWip.send(translated.method, translated.params);
 
-            return translateWipResultToCdp(method, result) as T;
+            return translateWipResultToCdp(method, result);
         },
         on,
-        once: <T>(method: string) =>
-            new Promise<T>((resolve) => {
-                const off = on<T>(method, (params) => {
-                    off();
-                    resolve(params);
-                });
-            }),
+        once: onceVia(on),
         close: () => rawWip.close(),
         closed: rawWip.closed,
     };

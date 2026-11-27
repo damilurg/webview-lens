@@ -10,7 +10,17 @@ import {
     isKeyguardShowing,
     runAdb,
 } from './adb.ts';
-import { type DevtoolsPage, listPages, type PagePredicate, pickPage } from './cdp.ts';
+import {
+    type DevtoolsPage,
+    isPageOnScreen,
+    listPages,
+    type PagePredicate,
+    pickPage,
+} from './cdp.ts';
+import { createLogger } from './logger.ts';
+
+// Silent unless logging is configured (--verbose); callers pass their own callbacks to show it.
+const deviceLog = createLogger('device');
 
 const firstLine = (error: unknown) => errorMessage(error).split('\n')[0] ?? '';
 
@@ -27,12 +37,12 @@ export interface DiagnoseOptions {
 export const diagnose = (
     port: string | number,
     run: AdbRunner = runAdb,
-    options: DiagnoseOptions = {},
+    { serial, app }: DiagnoseOptions = {},
 ): string => {
-    const deviceRun = createAdbRunner(options.serial, run);
+    const deviceRun = createAdbRunner(serial, run);
 
     try {
-        const devicesProblem = describeDevices(run(['devices']), options.serial);
+        const devicesProblem = describeDevices(run(['devices']), serial);
 
         if (devicesProblem) return devicesProblem;
     } catch (error) {
@@ -50,13 +60,13 @@ export const diagnose = (
         return 'The phone screen is locked: unlock it, a locked WebView does not render';
     }
 
-    const socket = forwardWebView(port, deviceRun, options.app ? { app: options.app } : {});
+    const socket = forwardWebView(port, deviceRun, app ? { app } : {});
 
     if (socket) {
         return `Port ${port} → ${socket}. Waiting for the page: open the WebView screen in the app`;
     }
-    if (options.app) {
-        return `No debuggable WebView for app "${options.app}": open its WebView screen (must call WebView.setWebContentsDebuggingEnabled(true))`;
+    if (app) {
+        return `No debuggable WebView for app "${app}": open its WebView screen (must call WebView.setWebContentsDebuggingEnabled(true))`;
     }
 
     return 'No debuggable WebView: open the WebView screen in the app (its build must call WebView.setWebContentsDebuggingEnabled(true))';
@@ -78,7 +88,7 @@ export const waitForPage = async (
     port: string | number,
     predicate: PagePredicate = isAnyPage,
     {
-        log = console.log,
+        log = deviceLog.info,
         intervalMs = 2000,
         run = runAdb,
         listPages: listPagesFn = listPages,
@@ -119,6 +129,37 @@ export const waitForPage = async (
 
         if (hint !== lastHint) log(`… ${hint}`);
         lastHint = hint;
+        await sleep(intervalMs);
+    }
+};
+
+export interface WatchScreenOptions {
+    intervalMs?: number;
+    listPages?: typeof listPages;
+    signal?: AbortSignal;
+}
+
+/**
+ * Resolves with the new page once another WebView matching `predicate` is the one on screen while
+ * `currentId` is not: apps recreate their WebView (rotation, a new screen) and leave the old one
+ * alive but hidden. Never resolves while `currentId` stays on screen (or no page reports it).
+ */
+export const waitForOtherPageOnScreen = async (
+    port: string | number,
+    currentId: string,
+    predicate: PagePredicate,
+    { intervalMs = 2000, listPages: listPagesFn = listPages, signal }: WatchScreenOptions = {},
+): Promise<DevtoolsPage> => {
+    for (;;) {
+        signal?.throwIfAborted();
+
+        const pages = (await listPagesFn(port)) ?? [];
+        const current = pages.find((page) => page.id === currentId);
+        const onScreen = pages.filter(predicate).find(isPageOnScreen);
+
+        if (onScreen && onScreen.id !== currentId && current && !isPageOnScreen(current)) {
+            return onScreen;
+        }
         await sleep(intervalMs);
     }
 };

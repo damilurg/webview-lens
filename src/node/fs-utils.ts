@@ -1,12 +1,11 @@
 // Shared Node-only filesystem, process-tree and socket helpers used across drivers and CLI tools.
 
+import { parseJson, rec } from '../shared/decode.ts';
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import net from 'node:net';
 import path from 'node:path';
 import tls from 'node:tls';
-
-import { isRecord } from '../shared/utils.ts';
 
 /** True when `file` exists and is a regular file. Never throws. */
 export const isFile = (file: string): boolean => {
@@ -55,10 +54,7 @@ export const findFileInDirs = (
 /** Reads and parses `package.json` in `cwd` as a plain object, or returns undefined. */
 export const readPackageJson = (cwd: string): Record<string, unknown> | undefined => {
     try {
-        const raw = fs.readFileSync(path.join(cwd, 'package.json'), 'utf8');
-        const parsed: unknown = JSON.parse(raw);
-
-        return isRecord(parsed) ? parsed : undefined;
+        return rec(parseJson(fs.readFileSync(path.join(cwd, 'package.json'), 'utf8')));
     } catch {
         return undefined;
     }

@@ -47,6 +47,11 @@ export const setupKeyboard = () => {
 .screen {
     height: var(--wl-viewport-height, 100dvh); /* instead of 100vh */
 }
+body {
+    /* Lets the last fields scroll above the keyboard: a WKWebView in an app adds no scroll room
+       for it (measured), so without this they stay under it. 0 where the WebView resized. */
+    padding-bottom: var(--wl-scroll-room, 0px);
+}
 ```
 
 | Variable / attribute   | Meaning                                                                                       |
@@ -54,6 +59,7 @@ export const setupKeyboard = () => {
 | `--wl-keyboard-inset`  | part of the page under the keyboard: what fixed bars move up by (0 where the WebView resized) |
 | `--wl-keyboard-height` | keyboard height (0 when closed)                                                               |
 | `--wl-viewport-height` | visible height                                                                                |
+| `--wl-scroll-room`     | room to add at the end of the page so its last fields can scroll above the keyboard           |
 | `data-wl-keyboard`     | `open` / `closed` on `<html>`                                                                 |
 
 **Android (Kotlin).** Keep `android:windowSoftInputMode="adjustResize"` on the activity. Apps that
@@ -68,11 +74,54 @@ webView.setOnApplyWindowInsetsListener { view, insets ->
 }
 ```
 
-**Flutter.** `Scaffold(resizeToAvoidBottomInset: true)` (the default) resizes the `WebViewWidget`
-on both platforms, so the page sees a smaller viewport and `--wl-keyboard-inset` stays 0.
+**Flutter.** On Android keep the default `Scaffold(resizeToAvoidBottomInset: true)`: the
+`WebViewWidget` shrinks and `--wl-keyboard-inset` stays 0. On iOS turn it off and let WKWebView
+handle the keyboard, and stop WKWebView adding the safe area to its insets (webview_flutter has no
+Dart API for it, so it takes a few lines of Swift). Both measured on an iPhone: with the resize,
+WKWebView scrolled a newly focused field by the old geometry; with the automatic insets, a focused
+field in a fixed bar moved 33 px under the keyboard.
+
+```dart
+Scaffold(resizeToAvoidBottomInset: !Platform.isIOS, body: WebViewWidget(controller: controller))
+
+// after the first page load (onPageFinished), iOS only:
+const MethodChannel('app/webview_insets').invokeMethod<int>('neverAdjust');
+```
+
+```swift
+// AppDelegate: on "neverAdjust", for every WKWebView in the app's windows
+webView.scrollView.contentInsetAdjustmentBehavior = .never
+```
 
 **iOS (Swift).** WKWebView is not resized; leave it so and use `--wl-keyboard-inset` on the page.
 With `viewport-fit=cover`, avoid double insets: `webView.scrollView.contentInsetAdjustmentBehavior = .never`.
+
+### Seeing what the keyboard does: `webview-lens keyboard`
+
+```bash
+npx webview-lens keyboard --overlay            # Android; add --platform ios for an iPhone
+```
+
+One line per change: the keyboard height, how much of the page it covers, the visible height, the
+focused field (`visible`, `partly hidden`, `HIDDEN`, and whether a fixed bar such as a composer is
+the reason), and the `--wl-*` values when the page uses `webview-lens/viewport`. `--overlay` draws
+the same on the phone: a panel, a red line at the visible bottom, and the focused field outlined
+green (visible), orange (partly) or red (hidden). `--frames` prints every frame of the animation.
+The numbers come from the same `measureViewport` the library uses.
+
+Measured with it on the test apps (Redmi Note 8 Pro, Android 11, WebView 157; iPhone 17 Pro,
+iOS 26.6.1; 2026-11-26):
+
+| Container                          | What happens                                                                                                                       |
+| ---------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| Android, Kotlin, `adjustResize`    | The WebView shrinks 720 → 465 px; keyboard 255 px, covers 0 px. A field hidden behind the 72 px composer is scrolled up in 0.2 s.  |
+| iOS, Flutter, WKWebView handles it | The visual viewport shrinks to 311 px and pans inside the 714 px layout; keyboard 369–403 px. Every field ends above the composer. |
+
+What it found on the iPhone, all fixed in `webview-lens/viewport` and the Flutter recipe above: client
+coordinates there follow the visual viewport, so a hidden field looked visible; `scrollIntoView`
+centres in the layout viewport, part of which is under the keyboard; the page had no scroll room to
+lift its last fields; `innerHeight` shrank by 34 px while a fixed bar's field was focused, and the bar
+followed it under the keyboard.
 
 ## iOS zooms in when an input gets focus
 
@@ -252,6 +301,10 @@ export const runVitals = async () => {
         paths: ['/', '/orders'],
         runs: 3,
         cold: true,
+        // Progress and what blocks it ("No phone found: …") in the job log; the library is silent otherwise.
+        log: console.log,
+        // A job must not hang forever when the phone is not there.
+        wait: { signal: AbortSignal.timeout(5 * 60_000) },
     });
 
     fs.writeFileSync('webview-vitals.md', toMarkdown(result));
@@ -296,7 +349,102 @@ export const streamPageLogs = async (port = 9223) => {
 
 <!-- /example -->
 
+### Reading protocol results without casts
+
+`cdp.send()` and `cdp.on()` return `unknown`: the other end is a phone, a proxy or a page script, and a
+type parameter would only claim a shape. Decode what you read. `sendDecoded` rejects with the method
+name when the result has another shape; `subscribe` calls your listener only with params that decode.
+The decoders webview-lens uses itself (`decodeCookies`, `decodeEvaluateResult`, …) and the building
+blocks (`rec`, `str`, `num`, `list`, …) are exported.
+
+<!-- example: examples/recipes/read-protocol.ts -->
+
+```ts
+// Reading DevTools protocol results without casts: `send` and `on` hand out `unknown`, decoders turn
+// it into the fields you read (or `undefined`, if the page, the phone or a proxy sent another shape).
+// Run: node examples/recipes/read-protocol.ts
+
+import {
+    connectCdp,
+    decodeCookies,
+    decodeEvaluateResult,
+    type Decoder,
+    num,
+    rec,
+    sendDecoded,
+    str,
+    subscribe,
+    waitForPage,
+} from 'webview-lens';
+
+// Your own decoder for a command webview-lens does not cover.
+const decodeLayout: Decoder<{ width: number; height: number }> = (input) => {
+    const viewport = rec(rec(input)?.cssVisualViewport);
+    const width = num(viewport?.clientWidth);
+    const height = num(viewport?.clientHeight);
+
+    return width !== undefined && height !== undefined ? { width, height } : undefined;
+};
+
+export const inspectPage = async (port = 9223) => {
+    const page = await waitForPage(port, (p) => p.type === 'page' && p.url.startsWith('https://'));
+    const cdp = await connectCdp(page.webSocketDebuggerUrl);
+
+    // A result of another shape rejects with the method name instead of failing later on `undefined`.
+    const cookies = await sendDecoded(
+        cdp,
+        'Network.getCookies',
+        { urls: [page.url] },
+        decodeCookies,
+    );
+    const layout = await sendDecoded(cdp, 'Page.getLayoutMetrics', {}, decodeLayout);
+    const title = str(
+        decodeEvaluateResult(
+            await cdp.send('Runtime.evaluate', {
+                expression: 'document.title',
+                returnByValue: true,
+            }),
+        )?.value,
+    );
+
+    console.log({ title, cookies: cookies.map((c) => c.name), layout });
+
+    // Events: the listener only sees params that decode.
+    const off = subscribe(
+        cdp,
+        'Page.frameNavigated',
+        (input) => str(rec(rec(input)?.frame)?.url),
+        (url) => console.log('navigated to', url),
+    );
+
+    await cdp.send('Page.enable');
+    await cdp.closed;
+    off();
+};
+```
+
+<!-- /example -->
+
+### A value from a promise: `evaluate` with `awaitPromise`
+
+`session.evaluate()` returns a value by value, and a promise has none: it comes back as `{}`. Ask for
+it to be awaited:
+
+```ts
+const status = await session.evaluate("fetch('/api/health').then((r) => r.status)", {
+    awaitPromise: true,
+});
+```
+
+A rejected promise gives `undefined`, like a thrown error. Checked on the iPhone (WebKit) and covered
+for Chrome's shape by `test/base-session.test.ts`.
+
 ### webview-lens' own logs in your logger
+
+Library functions print nothing by themselves, except `attachTelemetry`, which prints the page's console to stdout / stderr unless you pass `log` / `error`; lines the page logged before the attach are marked `(earlier)` (`earlier: 'skip'` drops them). Pass `log` (or `logger` for `startOverride` and the iOS
+proxy) to see their progress, for example `measureVitals({ …, log: console.log })`. To see everything
+without code changes, run your script with `WEBVIEW_LENS_DEBUG=1` (stderr) or
+`WEBVIEW_LENS_LOG_FILE=wvl.jsonl`. To send it to your own logger:
 
 <!-- example: examples/recipes/library-logs.ts -->
 

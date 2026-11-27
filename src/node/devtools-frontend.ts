@@ -2,9 +2,13 @@
 // Supports overriding the origin via `DEVTOOLS_FRONTEND_ORIGIN` for corporate mirrors/VPNs.
 
 import http from 'node:http';
-import type net from 'node:net';
+import net from 'node:net';
 
-import { errorMessage } from '../shared/utils.ts';
+import { errorMessage, stripTrailingSlashes } from '../shared/utils.ts';
+import { createLogger } from './logger.ts';
+
+// Silent unless logging is configured (--verbose); callers pass their own callbacks to show it.
+const frontendLog = createLogger('devtools');
 
 export const DEFAULT_FRONTEND_ORIGIN = 'https://chrome-devtools-frontend.appspot.com';
 
@@ -29,7 +33,7 @@ export const createFrontendLoader = ({
     origin = process.env.DEVTOOLS_FRONTEND_ORIGIN ?? DEFAULT_FRONTEND_ORIGIN,
     fetchImpl = fetch,
 }: FrontendLoaderOptions = {}): ((pathname: string) => Promise<FrontendFile>) => {
-    const baseOrigin = origin.replace(/\/+$/, '');
+    const baseOrigin = stripTrailingSlashes(origin);
     const cache = new Map<string, FrontendFile>();
 
     return async (pathname: string): Promise<FrontendFile> => {
@@ -85,7 +89,7 @@ export const startDevtoolsHttpServer = ({
     resolveRedirectPath,
     onUpgrade,
     loadFrontendFile = sharedFrontendLoader,
-    log = console.error,
+    log = frontendLog.warn,
 }: DevtoolsHttpServerOptions): DevtoolsServerHandle => {
     const server = http.createServer(async (request, response) => {
         const url = new URL(request.url ?? '/', 'http://localhost');
@@ -121,7 +125,13 @@ export const startDevtoolsHttpServer = ({
     });
 
     server.on('upgrade', (request, socket, head) => {
-        onUpgrade(request, socket as net.Socket, head);
+        // An HTTP server hands upgrades a net.Socket; the type says only Duplex.
+        if (!(socket instanceof net.Socket)) {
+            socket.destroy();
+
+            return;
+        }
+        onUpgrade(request, socket, head);
     });
     server.on('error', (error: NodeJS.ErrnoException) => {
         log(`${label} on :${port} did not start: ${error.code ?? error.message}`);

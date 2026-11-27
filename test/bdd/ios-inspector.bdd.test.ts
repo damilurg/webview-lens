@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import type { Cdp } from '../../src/node/cdp.ts';
+import { type Cdp, onceVia } from '../../src/node/cdp.ts';
 import { createIosDriver } from '../../src/node/drivers/ios/index.ts';
 import { resolveDriver } from '../../src/node/drivers/registry.ts';
 import type { DeviceDriver } from '../../src/node/drivers/types.ts';
@@ -28,22 +28,15 @@ const createFakeWipSocket = () => {
 
             return {} as T;
         },
-        on: <T>(method: string, listener: (params: T) => void) => {
+        on: (method: string, listener: (params: unknown) => void) => {
             const set = listeners.get(method) ?? new Set();
-            const fn = listener as (params: unknown) => void;
 
-            set.add(fn);
+            set.add(listener);
             listeners.set(method, set);
 
-            return () => set.delete(fn);
+            return () => set.delete(listener);
         },
-        once: <T>(method: string) =>
-            new Promise<T>((resolve) => {
-                const off = socket.on<T>(method, (params) => {
-                    off();
-                    resolve(params);
-                });
-            }),
+        once: (method: string) => onceVia(socket.on)(method),
         close: () => resolveClosed(),
         closed,
     };
@@ -141,7 +134,7 @@ describe('Feature: Cross-platform iOS USB Discovery & WKWebView Inspector (macOS
 
             await session.setCacheDisabled(true);
             await session.addInitScript('window.__boot = true;');
-            const result = await session.evaluate<string>('"hello"');
+            const result = await session.evaluate('"hello"');
 
             assert.equal(result, 'hello-from-wkwebview');
             assert.ok(
@@ -225,5 +218,40 @@ describe('Feature: Cross-platform iOS USB Discovery & WKWebView Inspector (macOS
 
             assert.equal(selected.platform, 'ios');
         });
+    });
+});
+
+describe('Scenario: a WebView behind another screen never answers (seen on the test iPhone)', () => {
+    it('Given a page socket that never replies, When connectInspector runs, Then it fails in time, names the reason and closes the socket', async () => {
+        let closed = false;
+        const silent: Cdp = {
+            send: () => new Promise(() => undefined),
+            on: () => () => undefined,
+            once: () => new Promise(() => undefined),
+            close: () => {
+                closed = true;
+            },
+            closed: new Promise(() => undefined),
+        };
+        const driver = createIosDriver({
+            platform: 'darwin',
+            connectWip: async () => silent,
+            connectTimeoutMs: 30,
+        });
+        const started = Date.now();
+
+        await assert.rejects(
+            driver.connectInspector({
+                id: 'ios-page-1',
+                platform: 'ios',
+                type: 'page',
+                title: 'Shop',
+                url: 'https://stand.test/',
+                debuggerUrl: 'ws://localhost:9222/devtools/page/1',
+            }),
+            /did not answer in 0\.03 s: the iPhone locked, a WebView behind another screen/,
+        );
+        assert.ok(Date.now() - started < 1000);
+        assert.equal(closed, true);
     });
 });

@@ -9,10 +9,27 @@
 // HMR ports) go through a stub WebSocket in the page and a CDP binding:
 // page → binding → this process → local server, and back via Runtime.evaluate.
 
-import { bestEffort, errorMessage } from '../shared/utils.ts';
+import { bool, type Decoder, num, oneOf, parseJson, someOf, str } from '../shared/decode.ts';
+import {
+    bestEffort,
+    errorMessage,
+    isRecord,
+    stripTrailingSlashes,
+    toWebSocketUrl,
+} from '../shared/utils.ts';
 import { type Cdp, connectCdp, type DevtoolsPage } from './cdp.ts';
 import { BINDING, bridgeShim, RECEIVER } from './bridge-shim.ts';
 import { createLogger } from './logger.ts';
+import {
+    type BindingCall,
+    decodeBindingCall,
+    decodeCookies,
+    decodeEvaluateResult,
+    decodePausedRequest,
+    type PausedRequest,
+    sendDecoded,
+    subscribe,
+} from './protocol.ts';
 import { attachTelemetry, type TelemetryOptions } from './telemetry.ts';
 
 const debugLog = createLogger('override');
@@ -36,37 +53,38 @@ const DROP_REQUEST = new Set([
     'accept-encoding',
 ]);
 
-interface PausedRequest {
-    requestId: string;
-    request: {
-        url: string;
-        method: string;
-        headers: Record<string, string>;
-        postData?: string;
-        postDataEntries?: { bytes?: string }[];
-    };
-}
-
-interface BindingCall {
-    name: string;
-    payload: string;
-}
-
+/** A frame the bridge shim posts through the binding. Any page script can call it: untrusted. */
 interface BridgeMessage {
     sid: number;
     type: 'open' | 'send' | 'close';
     url?: string;
-    data?: string;
-    binary?: boolean;
+    data: string;
+    binary: boolean;
     /** WebSocket subprotocols the page asked for (Vite HMR requires `vite-hmr`). */
-    protocols?: string[];
+    protocols: string[];
 }
 
-/** Node's WebSocket (undici) takes headers in its second argument, unlike the DOM signature. */
-const NodeWebSocket = WebSocket as unknown as new (
-    url: string,
-    init?: { protocols?: string[]; headers?: Record<string, string> },
-) => WebSocket;
+const decodeBridgeMessage: Decoder<BridgeMessage> = (input) => {
+    if (!isRecord(input)) return undefined;
+
+    const sid = num(input.sid);
+    const type = oneOf(['open', 'send', 'close'])(input.type);
+    const data = input.data === undefined ? '' : str(input.data);
+
+    if (sid === undefined || !Number.isInteger(sid) || !type || data === undefined)
+        return undefined;
+
+    const url = str(input.url);
+
+    return {
+        sid,
+        type,
+        ...(url !== undefined ? { url } : {}),
+        data,
+        binary: bool(input.binary) ?? false,
+        protocols: (someOf(str)(input.protocols) ?? []).slice(0, 8),
+    };
+};
 
 export type SsePolicy = 'fail' | 'continue';
 
@@ -139,7 +157,7 @@ export interface OverrideSession {
 
 /** Normalizes a URL base path: `""` or `"/"` → `""`, `"shop/"` → `"/shop"`. */
 export const normalizeBasePath = (base = ''): string => {
-    const trimmed = base.trim().replace(/\/+$/, '');
+    const trimmed = stripTrailingSlashes(base.trim());
 
     if (!trimmed || trimmed === '/') return '';
 
@@ -169,8 +187,8 @@ export const createUrlMapper = ({
     remoteBase = '',
     localBase = '',
 }: UrlMapperOptions): UrlMapper => {
-    const remoteOrigin = remote.replace(/\/+$/, '');
-    const localOrigin = local.replace(/\/+$/, '');
+    const remoteOrigin = stripTrailingSlashes(remote);
+    const localOrigin = stripTrailingSlashes(local);
     const rBase = normalizeBasePath(remoteBase);
     const lBase = normalizeBasePath(localBase);
     const remotePrefix = remoteOrigin + rBase;
@@ -360,7 +378,7 @@ export const startOverride = async ({
     connect = connectCdp,
     fetchImpl = fetch,
     telemetry = false,
-    logger = { request: console.log, error: console.error },
+    logger = { request: debugLog.info, error: debugLog.error },
 }: OverrideOptions): Promise<OverrideSession> => {
     const cdp = await connect(page.webSocketDebuggerUrl);
     const mapper = createUrlMapper({ remote, local, remoteBase, localBase });
@@ -386,9 +404,11 @@ export const startOverride = async ({
         const url = mapper.toLocal(request.url);
 
         try {
-            const { cookies } = await cdp.send<{ cookies: { name: string; value: string }[] }>(
+            const cookies = await sendDecoded(
+                cdp,
                 'Network.getCookies',
                 { urls: [request.url] },
+                decodeCookies,
             );
             const body = request.postDataEntries
                 ? Buffer.concat(
@@ -404,7 +424,9 @@ export const startOverride = async ({
                     mapper.toLocal,
                     forwardedHeaders ? forwarded : undefined,
                 ),
-                body: body === undefined || typeof body === 'string' ? body : new Uint8Array(body),
+                ...(body === undefined
+                    ? {}
+                    : { body: typeof body === 'string' ? body : new Uint8Array(body) }),
                 redirect: 'manual',
             });
 
@@ -487,22 +509,13 @@ export const startOverride = async ({
         if (name !== BINDING) return;
 
         // The binding is callable by any script in the page: treat the payload as untrusted.
-        let message: BridgeMessage;
+        const message = decodeBridgeMessage(parseJson(payload));
 
-        try {
-            message = JSON.parse(payload) as BridgeMessage;
-        } catch {
-            return;
-        }
+        if (!message) return;
 
-        const { sid, type, url, data = '', binary = false } = message;
-        const protocols = Array.isArray(message.protocols)
-            ? message.protocols.filter((p): p is string => typeof p === 'string').slice(0, 8)
-            : [];
+        const { sid, type, url, data, binary, protocols } = message;
 
-        if (!Number.isInteger(sid) || typeof data !== 'string') return;
-
-        if (type === 'open' && typeof url === 'string') {
+        if (type === 'open' && url !== undefined) {
             const hmr = resolveHmrTarget(url, hmrPorts);
 
             // Only the stand's origin (mapped to local) and configured HMR ports: never an
@@ -513,11 +526,12 @@ export const startOverride = async ({
                 return;
             }
 
-            const targetUrl = hmr ? hmr.wsUrl : mapper.toLocal(url).replace(/^http/, 'ws');
+            const targetUrl = hmr ? hmr.wsUrl : toWebSocketUrl(mapper.toLocal(url));
             const targetOrigin = hmr ? hmr.origin : mapper.localOrigin;
             debugLog.debug(`bridge socket #${sid} → ${targetUrl}`, { protocols });
 
-            const socket = new NodeWebSocket(targetUrl, {
+            // Node's WebSocket (undici) takes headers in its second argument, unlike the DOM one.
+            const socket = new WebSocket(targetUrl, {
                 ...(protocols.length > 0 ? { protocols } : {}),
                 headers: { origin: targetOrigin },
             });
@@ -548,8 +562,8 @@ export const startOverride = async ({
         if (type === 'close') sockets.get(sid)?.close();
     };
 
-    cdp.on<PausedRequest>('Fetch.requestPaused', (params) => void handle(params));
-    cdp.on<BindingCall>('Runtime.bindingCalled', onBinding);
+    subscribe(cdp, 'Fetch.requestPaused', decodePausedRequest, (params) => void handle(params));
+    subscribe(cdp, 'Runtime.bindingCalled', decodeBindingCall, onBinding);
 
     const detachTelemetry = telemetry
         ? attachTelemetry(cdp, telemetry === true ? {} : telemetry)
@@ -563,15 +577,15 @@ export const startOverride = async ({
     await cdp.send('Runtime.addBinding', { name: BINDING });
     await cdp.send('Page.addScriptToEvaluateOnNewDocument', { source: shim });
 
-    const check = await cdp.send<{ exceptionDetails?: { exception?: { description?: string } } }>(
+    const check = await sendDecoded(
+        cdp,
         'Runtime.evaluate',
         { expression: `new Function(${JSON.stringify(shim)}); 'ok'` },
+        decodeEvaluateResult,
     );
 
-    if (check.exceptionDetails) {
-        throw new Error(
-            `WebSocket bridge script: ${check.exceptionDetails.exception?.description}`,
-        );
+    if (check.exception !== undefined) {
+        throw new Error(`WebSocket bridge script: ${check.exception}`);
     }
 
     await cdp.send('Fetch.enable', {

@@ -4,10 +4,9 @@
 
 import http from 'node:http';
 import net from 'node:net';
-import os from 'node:os';
 import tls from 'node:tls';
 
-import { errorMessage } from '../../../shared/utils.ts';
+import { errorMessage, unbracketHost } from '../../../shared/utils.ts';
 import { createLogger } from '../../logger.ts';
 import { connectAndPipe } from '../../fs-utils.ts';
 import {
@@ -19,6 +18,7 @@ import {
     type UrlMapper,
 } from '../../override.ts';
 import { buildIosMobileConfig, type CertPair, ensureRootCa, generateLeafCert } from './certs.ts';
+import { detectLanAddresses } from './network.ts';
 import { certLandingPage, INTERCEPT_CHECK_PATH, page, PROXY_CHECK_HOST } from './mitm-pages.ts';
 
 export { INTERCEPT_CHECK_PATH, PROXY_CHECK_HOST };
@@ -213,7 +213,7 @@ export const handleDecryptedRequest = async ({
     };
 
     if (body && body.byteLength > 0 && method !== 'GET' && method !== 'HEAD') {
-        init.body = body as unknown as BodyInit;
+        init.body = body;
     }
 
     const response = await fetchImpl(targetUrl, init);
@@ -266,17 +266,6 @@ export const buildWsUpgradeHandshake = (request: UpgradeRequestLike, mapper: Url
 };
 
 /** Returns non-internal IPv4 LAN addresses of this machine for iPhone Wi-Fi Proxy setup. */
-export const detectLanAddresses = (): string[] => {
-    const result: string[] = [];
-
-    for (const entries of Object.values(os.networkInterfaces())) {
-        for (const info of entries ?? []) {
-            if (info.family === 'IPv4' && !info.internal) result.push(info.address);
-        }
-    }
-
-    return result;
-};
 
 export interface IosMitmProxyOptions {
     /** Stand origin to intercept, e.g. `https://stand.example.com`. */
@@ -308,6 +297,8 @@ export interface IosMitmProxy {
     readonly port: number;
     readonly ca: CertPair;
     readonly targetHost: string;
+    /** Client connections accepted so far (none means the phone is not reaching this computer). */
+    connections(): number;
     close(): Promise<void>;
 }
 
@@ -329,7 +320,7 @@ const forwardPlainHttp = (req: http.IncomingMessage, res: http.ServerResponse): 
 
     const upstream = http.request(
         {
-            hostname: target.hostname.replace(/^\[|\]$/g, ''),
+            hostname: unbracketHost(target.hostname),
             port: Number(target.port) || 80,
             method: req.method,
             path: `${target.pathname}${target.search}`,
@@ -376,7 +367,7 @@ export const startIosMitmProxy = async ({
     ca,
     certDir,
     fetchImpl = fetch,
-    logger = { request: console.log, error: console.error },
+    logger = { request: debugLog.info, error: debugLog.error },
 }: IosMitmProxyOptions): Promise<IosMitmProxy> => {
     const mapper = createUrlMapper({ remote, local, remoteBase, localBase });
     const targetHost = new URL(mapper.remoteOrigin).hostname;
@@ -442,9 +433,15 @@ export const startIosMitmProxy = async ({
 
     // Native WebSocket HMR tunneling over the decrypted HTTPS connection.
     decryptedServer.on('upgrade', (req, clientSocket, head) => {
+        // An HTTP server hands upgrades and CONNECTs a net.Socket; the type says only Duplex.
+        if (!(clientSocket instanceof net.Socket)) {
+            clientSocket.destroy();
+
+            return;
+        }
         const isHttps = localUrl.protocol === 'https:';
         const localPort = Number(localUrl.port) || (isHttps ? 443 : 80);
-        const localHost = localUrl.hostname.replace(/^\[|\]$/g, '');
+        const localHost = unbracketHost(localUrl.hostname);
         // Local https dev servers (Vite/Angular `--https`) use self-signed certs: trust them on
         // loopback only.
         const secure = isHttps
@@ -457,7 +454,7 @@ export const startIosMitmProxy = async ({
         connectAndPipe(
             localPort,
             localHost,
-            clientSocket as net.Socket,
+            clientSocket,
             (upstream) => {
                 upstream.write(buildWsUpgradeHandshake(req, mapper));
                 if (head.length > 0) upstream.write(head);
@@ -516,8 +513,14 @@ export const startIosMitmProxy = async ({
         res.end(certLandingPage(hostHint, port, mapper.remoteOrigin));
     });
 
+    let connections = 0;
+
     proxyServer.on('connection', (socket: net.Socket) => {
-        if (allowClient(socket.remoteAddress)) return;
+        if (allowClient(socket.remoteAddress)) {
+            connections += 1;
+
+            return;
+        }
         logger.error(
             `Proxy refused client ${socket.remoteAddress ?? 'unknown'} (not a private network)`,
         );
@@ -528,6 +531,12 @@ export const startIosMitmProxy = async ({
     let lastTlsErrorAt = 0;
 
     proxyServer.on('connect', (req, clientSocket, head) => {
+        // An HTTP server hands upgrades and CONNECTs a net.Socket; the type says only Duplex.
+        if (!(clientSocket instanceof net.Socket)) {
+            clientSocket.destroy();
+
+            return;
+        }
         const target = parseConnectTarget(req.url ?? '');
 
         if (!target) {
@@ -538,10 +547,10 @@ export const startIosMitmProxy = async ({
 
         debugLog.debug(
             `CONNECT ${target.host}:${target.port} → ${shouldInterceptHost(target.host, targetHost) ? 'intercept' : 'tunnel'}`,
-            { client: (clientSocket as net.Socket).remoteAddress },
+            { client: clientSocket.remoteAddress },
         );
         if (!shouldInterceptHost(target.host, targetHost)) {
-            connectAndPipe(target.port, target.host, clientSocket as net.Socket, (upstream) => {
+            connectAndPipe(target.port, target.host, clientSocket, (upstream) => {
                 clientSocket.write('HTTP/1.1 200 Connection Established\r\n\r\n');
                 if (head.length > 0) upstream.write(head);
             });
@@ -584,6 +593,7 @@ export const startIosMitmProxy = async ({
         port: listeningPort,
         ca: rootCa,
         targetHost,
+        connections: () => connections,
         close: () =>
             new Promise<void>((resolve) => {
                 decryptedServer.close();

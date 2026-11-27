@@ -1,4 +1,4 @@
-import type { Cdp } from '../../src/node/cdp.ts';
+import { type Cdp, onceVia } from '../../src/node/cdp.ts';
 import { sleep } from '../../src/shared/utils.ts';
 
 export interface FakeCdpCall {
@@ -28,22 +28,15 @@ export const createFakeCdp = ({ cookies = [] }: FakeCdpOptions = {}) => {
 
             return {} as T;
         },
-        on: <T>(method: string, listener: (params: T) => void) => {
+        on: (method: string, listener: (params: unknown) => void) => {
             const set = listeners.get(method) ?? new Set();
-            const fn = listener as (params: unknown) => void;
 
-            set.add(fn);
+            set.add(listener);
             listeners.set(method, set);
 
-            return () => set.delete(fn);
+            return () => set.delete(listener);
         },
-        once: <T>(method: string) =>
-            new Promise<T>((resolve) => {
-                const off = cdp.on<T>(method, (params) => {
-                    off();
-                    resolve(params);
-                });
-            }),
+        once: (method: string) => onceVia(cdp.on)(method),
         close: () => resolveClosed(),
         closed,
     };

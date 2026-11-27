@@ -2,8 +2,10 @@
 
 import { waitWithTimeout } from '../../shared/utils.ts';
 import type { Cdp } from '../cdp.ts';
+import { decodeEvaluateHandle, decodeEvaluateResult } from '../protocol.ts';
 import { attachTelemetry, type TelemetryOptions } from '../telemetry.ts';
 import type {
+    EvaluateOptions,
     InspectorCapabilities,
     InspectorSession,
     NavigateOptions,
@@ -27,13 +29,39 @@ export const createProtocolInspectorSession = (
 ): InspectorSession => ({
     platform,
     capabilities,
-    async evaluate<T = unknown>(expression: string): Promise<T> {
-        const { result } = await transport.send<{ result?: { value?: T } }>('Runtime.evaluate', {
-            expression,
-            returnByValue: true,
-        });
+    async evaluate(
+        expression: string,
+        { awaitPromise = false }: EvaluateOptions = {},
+    ): Promise<unknown> {
+        if (!awaitPromise) {
+            const evaluated = decodeEvaluateResult(
+                await transport.send('Runtime.evaluate', { expression, returnByValue: true }),
+            );
 
-        return result?.value as T;
+            return evaluated?.value;
+        }
+
+        // By reference first: a promise cannot be returned by value, it has to be awaited by id.
+        const handle = decodeEvaluateHandle(
+            await transport.send('Runtime.evaluate', { expression, returnByValue: false }),
+        );
+
+        if (!handle || handle.exception !== undefined) return undefined;
+        if (handle.objectId === undefined) return handle.value;
+
+        const settled = handle.isPromise
+            ? await transport.send('Runtime.awaitPromise', {
+                  promiseObjectId: handle.objectId,
+                  returnByValue: true,
+              })
+            : // Not a promise: read the object it already made, without running the expression twice.
+              await transport.send('Runtime.callFunctionOn', {
+                  objectId: handle.objectId,
+                  functionDeclaration: 'function () { return this; }',
+                  returnByValue: true,
+              });
+
+        return decodeEvaluateResult(settled)?.value;
     },
     async addInitScript(source: string): Promise<void> {
         await transport.send('Page.addScriptToEvaluateOnNewDocument', { source });

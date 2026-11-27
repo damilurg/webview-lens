@@ -8,7 +8,12 @@ import {
     normalizeBasePath,
     resolveHmrTarget,
     toLocalHeaders,
+    startOverride,
 } from '../src/node/override.ts';
+import http from 'node:http';
+import type { AddressInfo } from 'node:net';
+import { buildWebSocketAcceptResponse } from '../src/node/ws-server.ts';
+import { createFakeCdp } from './helpers/fake-cdp.ts';
 
 const REMOTE = 'https://stand.example.test';
 const LOCAL = 'http://localhost:3000';
@@ -125,5 +130,123 @@ describe('resolveHmrTarget', () => {
         });
         assert.equal(resolveHmrTarget('https://stand.example.test/', [24678]), null);
         assert.equal(resolveHmrTarget('http://localhost:9999/', [24678]), null);
+    });
+});
+
+const PAGE = {
+    id: 'p1',
+    type: 'page',
+    url: 'https://stand.example.test/',
+    title: 'Stand',
+    webSocketDebuggerUrl: 'ws://fake',
+};
+
+describe('override WebSocket bridge binding', () => {
+    it('ignores malformed payloads and refuses sockets outside the stand origin / HMR ports', async () => {
+        const fake = createFakeCdp();
+
+        await startOverride({
+            page: PAGE,
+            remote: 'https://stand.example.test',
+            local: 'http://localhost:3000',
+            connect: async () => fake.cdp,
+            fetchImpl: async () => new Response(''),
+            logger: { request: () => undefined, error: () => undefined },
+        });
+
+        const name = '__webviewLensWsSend';
+
+        assert.doesNotThrow(() =>
+            fake.emit('Runtime.bindingCalled', { name, payload: '{not json' }),
+        );
+
+        fake.emit('Runtime.bindingCalled', {
+            name,
+            payload: JSON.stringify({ sid: 7, type: 'open', url: 'http://127.0.0.1:6379/' }),
+        });
+
+        const calls = await fake.waitForCalls('Runtime.evaluate', 3);
+        const expressions = calls.map((c) =>
+            String((c.params as { expression?: string }).expression),
+        );
+
+        assert.ok(expressions.some((e) => e.includes('(7, "error"')));
+    });
+});
+
+describe('dev WebSocket bridge subprotocols (Vite HMR)', () => {
+    it('forwards the page subprotocol, so servers that require one (vite-hmr) accept the socket', async () => {
+        const offered: string[] = [];
+        const upgraded = new Set<import('node:stream').Duplex>();
+        const server = http.createServer();
+
+        server.on('upgrade', (req, socket) => {
+            upgraded.add(socket);
+            const protocol = String(req.headers['sec-websocket-protocol'] ?? '');
+
+            offered.push(protocol);
+            // Like Vite: only 'vite-hmr' is upgraded, anything else is dropped.
+            if (protocol !== 'vite-hmr') {
+                socket.destroy();
+
+                return;
+            }
+            socket.write(
+                buildWebSocketAcceptResponse(String(req.headers['sec-websocket-key'])).replace(
+                    '\r\n\r\n',
+                    '\r\nSec-WebSocket-Protocol: vite-hmr\r\n\r\n',
+                ),
+            );
+        });
+        await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+
+        const port = (server.address() as AddressInfo).port;
+        const fake = createFakeCdp();
+
+        try {
+            await startOverride({
+                page: PAGE,
+                remote: 'https://stand.example.test',
+                local: `http://127.0.0.1:${port}`,
+                connect: async () => fake.cdp,
+                fetchImpl: async () => new Response(''),
+                logger: { request: () => undefined, error: () => undefined },
+            });
+
+            assert.match(
+                bridgeShim('https://stand.example.test', ['/']),
+                /new Bridged\(args\[0\], args\[1\]\)/,
+            );
+
+            fake.emit('Runtime.bindingCalled', {
+                name: '__webviewLensWsSend',
+                payload: JSON.stringify({
+                    sid: 3,
+                    type: 'open',
+                    url: 'https://stand.example.test/?token=abc',
+                    protocols: ['vite-hmr'],
+                }),
+            });
+
+            const deadline = Date.now() + 3000;
+            let opened = false;
+
+            while (!opened && Date.now() < deadline) {
+                opened = fake.calls.some((c) =>
+                    String((c.params as { expression?: string }).expression).includes(
+                        '(3, "open", "vite-hmr"',
+                    ),
+                );
+                await new Promise((resolve) => setTimeout(resolve, 20));
+            }
+
+            assert.deepEqual(offered, ['vite-hmr']);
+            assert.ok(opened, 'the page is told the socket opened with the negotiated subprotocol');
+        } finally {
+            fake.cdp.close();
+            // Upgraded sockets leave the server's bookkeeping: close them explicitly.
+            for (const socket of upgraded) socket.destroy();
+            server.close();
+        }
     });
 });

@@ -14,6 +14,14 @@ const pkg = JSON.parse(fs.readFileSync(new URL('../../package.json', import.meta
     description: string;
 };
 
+const verificationMeta: HeadConfig[] = [
+    ['google-site-verification', process.env.GOOGLE_SITE_VERIFICATION],
+    ['yandex-verification', process.env.YANDEX_VERIFICATION],
+    ['msvalidate.01', process.env.BING_SITE_VERIFICATION],
+].flatMap(([name, content]): HeadConfig[] =>
+    name && content ? [['meta', { name, content }]] : [],
+);
+
 /** Site routes without the base, e.g. '', 'ios', 'ru/', 'ru/ios'. */
 const ROUTES = new Set(PAGES.map((page) => page.route.slice(1)));
 
@@ -51,6 +59,49 @@ const softwareJsonLd = (description: string, lang: string) =>
             'Android WebView debugging, WKWebView debugging, Chrome DevTools, chrome://inspect alternative, iOS debugging on Windows, localhost in WebView, Web Vitals, RUM, Prometheus',
     });
 
+/** Plain text of a Markdown fragment: links to their text, code and emphasis markers dropped. */
+const plainText = (markdown: string): string =>
+    markdown
+        .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+        .replace(/[`*_]/g, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+
+/**
+ * schema.org FAQPage for a "problems and fixes" page: each H2 is a question, the paragraph under it
+ * the answer. Search engines and AI assistants read this to answer the question directly.
+ */
+const faqJsonLd = (source: string, lang: string) => {
+    const markdown = fs.readFileSync(new URL(`../../${source}`, import.meta.url), 'utf8');
+    const sections = markdown.split(/^## /m).slice(1);
+
+    return JSON.stringify({
+        '@context': 'https://schema.org',
+        '@type': 'FAQPage',
+        inLanguage: lang,
+        mainEntity: sections.map((section) => {
+            const [question = '', ...rest] = section.split('\n');
+            // Prose only: tables and code blocks do not read as an answer.
+            const answer = rest
+                .join('\n')
+                .split(/\n\s*\n/)
+                .filter((block) => block.trim() && !/^\s*(\||```)/.test(block))
+                .join(' ');
+
+            return {
+                '@type': 'Question',
+                name: plainText(question),
+                acceptedAnswer: { '@type': 'Answer', text: plainText(answer) },
+            };
+        }),
+    });
+};
+
+const FAQ_SOURCES: Readonly<Record<string, { source: string; lang: string }>> = {
+    troubleshooting: { source: 'docs/troubleshooting.md', lang: 'en' },
+    'ru/troubleshooting': { source: 'docs/ru/troubleshooting.md', lang: 'ru' },
+};
+
 // Generated page file (relative to srcDir) → the repository file it was built from.
 const sourceByFile = new Map(
     PAGES.map((page) => [
@@ -74,20 +125,24 @@ const enSidebar = [
     {
         text: 'Guide',
         items: [
-            { text: 'Overview', link: '/' },
+            { text: 'Introduction', link: '/' },
             { text: 'Getting started', link: '/getting-started' },
+            { text: 'WebView problems and fixes', link: '/troubleshooting' },
             { text: 'Recipes', link: '/recipes' },
-            { text: 'How it works', link: '/how-it-works' },
-            { text: 'iOS on macOS & Windows', link: '/ios' },
-            { text: 'SSR & SSG', link: '/ssr' },
-            { text: 'RUM & Prometheus', link: '/rum' },
+            { text: 'iOS on macOS and Windows', link: '/ios' },
+            { text: 'SSR and SSG', link: '/ssr' },
+            { text: 'RUM and Prometheus', link: '/rum' },
         ],
     },
     {
         text: 'Reference',
         items: [
+            { text: 'Overview', link: '/overview' },
+            { text: 'Alternatives', link: '/alternatives' },
+            { text: 'How it works', link: '/how-it-works' },
+            { text: 'How it was verified', link: '/verification' },
             { text: 'Architecture', link: '/architecture' },
-            { text: 'Standards conformance', link: '/standards' },
+            { text: 'Standards', link: '/standards' },
             { text: 'Changelog', link: '/changelog' },
         ],
     },
@@ -97,10 +152,10 @@ const ruSidebar = [
     {
         text: 'Руководство',
         items: [
-            { text: 'Обзор', link: '/ru/' },
+            { text: 'Введение', link: '/ru/' },
             { text: 'Быстрый старт', link: '/ru/getting-started' },
+            { text: 'Проблемы WebView и решения', link: '/ru/troubleshooting' },
             { text: 'Рецепты', link: '/ru/recipes' },
-            { text: 'Как это работает', link: '/ru/how-it-works' },
             { text: 'iOS на macOS и Windows', link: '/ru/ios' },
             { text: 'SSR и SSG', link: '/ru/ssr' },
             { text: 'RUM и Prometheus', link: '/ru/rum' },
@@ -109,8 +164,12 @@ const ruSidebar = [
     {
         text: 'Справка',
         items: [
+            { text: 'Обзор', link: '/ru/overview' },
+            { text: 'Альтернативы', link: '/ru/alternatives' },
+            { text: 'Как это работает', link: '/ru/how-it-works' },
+            { text: 'Как проверено', link: '/ru/verification' },
             { text: 'Архитектура', link: '/ru/architecture' },
-            { text: 'Соответствие стандартам', link: '/ru/standards' },
+            { text: 'Стандарты', link: '/ru/standards' },
             { text: 'Changelog', link: '/ru/changelog' },
         ],
     },
@@ -136,7 +195,10 @@ export default withMermaid(
         // Mermaid pulls CommonJS modules (fastdom): pre-bundle it so `vitepress dev` loads it as ESM.
         vite: { optimizeDeps: { include: ['mermaid'] } },
         head: [
-            ['meta', { name: 'theme-color', content: '#6f42c1' }],
+            ['meta', { name: 'theme-color', content: '#ffffff' }],
+            // Search console ownership: set GOOGLE_SITE_VERIFICATION / YANDEX_VERIFICATION (repository
+            // variables, passed by the Pages workflow) to the codes the consoles give you.
+            ...verificationMeta,
             ['meta', { property: 'og:type', content: 'website' }],
             ['meta', { property: 'og:site_name', content: 'webview-lens' }],
             ['meta', { name: 'twitter:card', content: 'summary_large_image' }],
@@ -148,7 +210,7 @@ export default withMermaid(
                 {
                     property: 'og:image:alt',
                     content:
-                        'webview-lens: debug Android WebView and iOS WKWebView in Chrome DevTools',
+                        'webview-lens: debug the web page inside your mobile app, npx webview-lens devtools',
                 },
             ],
             ['meta', { name: 'twitter:image', content: OG_IMAGE }],
@@ -192,6 +254,15 @@ export default withMermaid(
                     ],
                 );
             }
+            const faq = FAQ_SOURCES[route];
+
+            if (faq) {
+                tags.push([
+                    'script',
+                    { type: 'application/ld+json' },
+                    faqJsonLd(faq.source, faq.lang),
+                ]);
+            }
             if (route === '' || route === 'ru/') {
                 tags.push([
                     'script',
@@ -209,10 +280,8 @@ export default withMermaid(
                 themeConfig: {
                     nav: [
                         { text: 'Getting started', link: '/getting-started' },
+                        { text: 'Problems', link: '/troubleshooting' },
                         { text: 'Recipes', link: '/recipes' },
-                        { text: 'iOS', link: '/ios' },
-                        { text: 'SSR & SSG', link: '/ssr' },
-                        { text: 'RUM', link: '/rum' },
                         { text: 'Changelog', link: '/changelog' },
                     ],
                     sidebar: enSidebar,
@@ -229,10 +298,8 @@ export default withMermaid(
                 themeConfig: {
                     nav: [
                         { text: 'Быстрый старт', link: '/ru/getting-started' },
+                        { text: 'Проблемы', link: '/ru/troubleshooting' },
                         { text: 'Рецепты', link: '/ru/recipes' },
-                        { text: 'iOS', link: '/ru/ios' },
-                        { text: 'SSR и SSG', link: '/ru/ssr' },
-                        { text: 'RUM', link: '/ru/rum' },
                         { text: 'Changelog', link: '/ru/changelog' },
                     ],
                     sidebar: ruSidebar,

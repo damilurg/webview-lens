@@ -21,7 +21,12 @@ import {
     rate,
     type Rating,
 } from '../shared/thresholds.ts';
-import { bestEffort, sleep } from '../shared/utils.ts';
+import { type Decoder, list, num, parseJson, rec, str } from '../shared/decode.ts';
+import { bestEffort, isHttpUrl, isRecord, sleep } from '../shared/utils.ts';
+import { createLogger } from './logger.ts';
+
+// Silent unless logging is configured (--verbose); callers pass their own callbacks to show it.
+const vitalsLog = createLogger('vitals');
 
 /** In-page collector, installed before the app's scripts on every load. */
 export const COLLECTOR = `(() => {
@@ -64,6 +69,42 @@ export interface LabRun {
     marks?: Record<string, number>;
 }
 
+/** A metric the collector reports: a number, or `null` when the page has none (CLS on iOS). */
+const metricValue = (input: unknown): number | null => num(input) ?? null;
+
+/** What the collector script left in `window.__webviewLensVitals`, decoded field by field. */
+export const decodeLabRun: Decoder<LabRun> = (input) => {
+    if (!isRecord(input)) return undefined;
+
+    const lcpElement = input.lcpElement === null ? null : str(input.lcpElement);
+    const shifts = list(num)(input.shifts);
+    const longTasksCount = num(input.longTasksCount);
+    const longTasksTotalMs = num(input.longTasksTotalMs);
+    const marks = rec(input.marks);
+    const markValues = marks
+        ? Object.fromEntries(
+              Object.entries(marks).flatMap(([name, value]) => {
+                  const ms = num(value);
+
+                  return ms === undefined ? [] : [[name, ms]];
+              }),
+          )
+        : undefined;
+
+    return {
+        lcp: metricValue(input.lcp),
+        fcp: metricValue(input.fcp),
+        cls: metricValue(input.cls),
+        inp: metricValue(input.inp),
+        ttfb: metricValue(input.ttfb),
+        ...(lcpElement !== undefined ? { lcpElement } : {}),
+        ...(shifts ? { shifts } : {}),
+        ...(longTasksCount !== undefined ? { longTasksCount } : {}),
+        ...(longTasksTotalMs !== undefined ? { longTasksTotalMs } : {}),
+        ...(markValues ? { marks: markValues } : {}),
+    };
+};
+
 export const NETWORK_THROTTLE_PRESETS: readonly NetworkThrottlePreset[] = [
     'none',
     'fast-4g',
@@ -72,7 +113,7 @@ export const NETWORK_THROTTLE_PRESETS: readonly NetworkThrottlePreset[] = [
 ];
 
 export const isNetworkThrottlePreset = (value: string): value is NetworkThrottlePreset =>
-    (NETWORK_THROTTLE_PRESETS as readonly string[]).includes(value);
+    NETWORK_THROTTLE_PRESETS.some((item) => item === value);
 
 export type LabRow = Record<MetricName, number | null> & {
     path: string;
@@ -197,8 +238,8 @@ export const measureVitals = async ({
     throttle = 'none',
     cpu = 1,
     settleMs = 4000,
-    isTarget = (target) => target.type === 'page' && /^https?:/.test(target.url),
-    log = console.log,
+    isTarget = (target) => target.type === 'page' && isHttpUrl(target.url),
+    log = vitalsLog.info,
     wait,
 }: LabOptions): Promise<LabResult> => {
     const activeDriver =
@@ -259,12 +300,15 @@ export const measureVitals = async ({
             await sleep(interact * 1000);
         }
 
-        const raw = await session.evaluate<string | undefined>(
-            'JSON.stringify(window.__webviewLensVitals ?? null)',
+        const raw = str(
+            await session.evaluate('JSON.stringify(window.__webviewLensVitals ?? null)'),
         );
         const jsHeapMb = session.getMemoryUsageMb ? await session.getMemoryUsageMb() : null;
 
-        return { vitals: JSON.parse(raw ?? 'null'), jsHeapMb };
+        // No collector on the page (it navigated away, the script was blocked): no row for this run.
+        const vitals = raw === undefined ? undefined : decodeLabRun(parseJson(raw));
+
+        return { vitals: vitals ?? null, jsHeapMb };
     };
 
     const rows: LabRow[] = [];

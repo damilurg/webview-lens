@@ -34,6 +34,40 @@ export {
     type TransportAdapterFactory,
 } from './cdp.ts';
 export {
+    type BindingCall,
+    type Cookie,
+    decodeBindingCall,
+    decodeConsoleEvent,
+    decodeCookies,
+    decodeEvaluateHandle,
+    decodeEvaluateResult,
+    decodeExceptionEvent,
+    decodeLoadingFailed,
+    decodePausedRequest,
+    decodePerformanceMetrics,
+    decodeRemoteObject,
+    decodeRequestWillBeSent,
+    decodeResponseReceived,
+    decodeRpcMessage,
+    type EvaluateResult,
+    type PausedRequest,
+    type RpcMessage,
+    sendDecoded,
+    subscribe,
+} from './protocol.ts';
+export {
+    bool,
+    type Decoder,
+    list,
+    num,
+    oneOf,
+    parseJson,
+    rec,
+    someOf,
+    str,
+    stringMap,
+} from '../shared/decode.ts';
+export {
     connectWebKitInspector,
     createWebKitTargetRouter,
     type WebKitTargetRouter,
@@ -91,7 +125,6 @@ export {
     type ConnectTarget,
     type DecryptedRequestInput,
     type DecryptedResponseOutput,
-    detectLanAddresses,
     handleDecryptedRequest,
     type IosMitmProxy,
     type IosMitmProxyOptions,
@@ -99,6 +132,12 @@ export {
     shouldInterceptHost,
     startIosMitmProxy,
 } from './drivers/ios/mitm-proxy.ts';
+export {
+    detectLanAddresses,
+    NO_CLIENT_AFTER_MS,
+    type NetworkWatchState,
+    networkHints,
+} from './drivers/ios/network.ts';
 export {
     ensureIwdp,
     type EnsureIwdpOptions,
@@ -132,12 +171,18 @@ export {
 } from './drivers/ios/wip-cdp-bridge.ts';
 export { createDefaultDrivers, resolveDriver } from './drivers/registry.ts';
 export {
+    findVisibleTarget,
+    pickVisibleTarget,
+    waitForVisibleTarget,
+} from './drivers/visible-target.ts';
+export {
     type ConnectedDevice,
     type DeviceDriver,
     type DoctorCheck,
     type DoctorReport,
     type DriverTargetOptions,
     type InspectableTarget,
+    type EvaluateOptions,
     type InspectorCapabilities,
     type InspectorSession,
     isPlatformSelection,

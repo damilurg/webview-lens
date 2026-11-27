@@ -4,48 +4,10 @@ import { describe, it } from 'node:test';
 import { handleDecryptedRequest } from '../src/node/drivers/ios/mitm-proxy.ts';
 import { createUrlMapper, forwardedHeadersFor, toLocalHeaders } from '../src/node/override.ts';
 import { detectPresetFromDependencies, PRESETS } from '../src/node/presets.ts';
-import {
-    beaconTransport,
-    captureGlobalErrors,
-    createVitalsReporter,
-    isCrossOriginEndpoint,
-    isServerRuntime,
-} from '../src/rum/index.ts';
 import { corsHeaders, createVitalsHandler } from '../src/rum/server.ts';
 
 const REMOTE = 'https://stand.example.test';
 const LOCAL = 'http://localhost:3000';
-
-describe('RUM client during SSR / SSG prerender', () => {
-    it('is a no-op on the server instead of throwing or fetching relative URLs', () => {
-        const realFetch = globalThis.fetch;
-        let fetched = 0;
-
-        globalThis.fetch = (async () => {
-            fetched += 1;
-
-            return new Response(null);
-        }) as typeof fetch;
-        try {
-            assert.equal(isServerRuntime(), true);
-            assert.doesNotThrow(() => captureGlobalErrors(() => undefined)());
-            beaconTransport('/api/vitals', '{}');
-            createVitalsReporter()({ name: 'LCP', value: 1000 });
-            assert.equal(fetched, 0);
-        } finally {
-            globalThis.fetch = realFetch;
-        }
-    });
-
-    it('detects cross-origin endpoints (SSG on a CDN posting to an API host)', () => {
-        assert.equal(isCrossOriginEndpoint('/api/vitals', 'https://site.example/p'), false);
-        assert.equal(
-            isCrossOriginEndpoint('https://api.example/vitals', 'https://site.example/p'),
-            true,
-        );
-        assert.equal(isCrossOriginEndpoint('/api/vitals', ''), false);
-    });
-});
 
 describe('RUM handlers CORS (allowOrigin)', () => {
     const vital = JSON.stringify({ name: 'LCP', value: 900, rating: 'good', path: '/' });

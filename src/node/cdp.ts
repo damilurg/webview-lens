@@ -1,7 +1,9 @@
 // A minimal Chrome DevTools Protocol client over the global WebSocket (Node 22.4+).
 
-import { isRecord } from '../shared/utils.ts';
+import { parseJson, rec } from '../shared/decode.ts';
+import { errorMessage, isRecord } from '../shared/utils.ts';
 import { createLogger } from './logger.ts';
+import { decodeRpcMessage } from './protocol.ts';
 
 const log = createLogger('cdp');
 
@@ -20,13 +22,9 @@ export type PagePredicate = (page: DevtoolsPage) => boolean;
 
 /** Whether an Android WebView page is the one on screen (`"attached": true` in its description). */
 export const isPageOnScreen = (page: Pick<DevtoolsPage, 'description'>): boolean => {
-    try {
-        const info: unknown = JSON.parse(page.description ?? '');
+    const info = rec(parseJson(page.description ?? ''));
 
-        return isRecord(info) && info.attached === true;
-    } catch {
-        return false;
-    }
+    return info?.attached === true;
 };
 
 /**
@@ -61,7 +59,7 @@ export const listPages = async (port: string | number): Promise<DevtoolsPage[] |
 
         if (!response.ok) return null;
 
-        const data: unknown = await response.json();
+        const data = parseJson(await response.text());
 
         return Array.isArray(data) ? data.filter(isDevtoolsPage) : null;
     } catch {
@@ -75,31 +73,35 @@ export const getVersion = async (port: string | number): Promise<Record<string, 
         const response = await fetch(`http://localhost:${port}/json/version`, {
             signal: AbortSignal.timeout(HTTP_TIMEOUT_MS),
         });
-        const data: unknown = await response.json();
-
-        return isRecord(data) ? data : {};
+        return rec(parseJson(await response.text())) ?? {};
     } catch {
         return {};
     }
 };
 
+/** `once` for any `on`: resolves with the first event's params, then unsubscribes. */
+export const onceVia =
+    (on: Cdp['on']): Cdp['once'] =>
+    (method) =>
+        new Promise((resolve) => {
+            const off = on(method, (params) => {
+                off();
+                resolve(params);
+            });
+        });
+
 export interface Cdp {
-    /** Resolves with the command result, rejects with the protocol error. */
-    send<T = unknown>(method: string, params?: object): Promise<T>;
-    /** Subscribes to an event; returns the unsubscribe function. */
-    on<T = unknown>(method: string, listener: (params: T) => void): () => void;
-    once<T = unknown>(method: string): Promise<T>;
+    /**
+     * Resolves with the command result, rejects with the protocol error. The result is `unknown`:
+     * decode the fields you read (see `sendDecoded` and the decoders in `protocol.ts`).
+     */
+    send(method: string, params?: object): Promise<unknown>;
+    /** Subscribes to an event; returns the unsubscribe function. Params are `unknown`, see `subscribe`. */
+    on(method: string, listener: (params: unknown) => void): () => void;
+    once(method: string): Promise<unknown>;
     close(): void;
     /** Settles when the socket closes (page closed, app restarted). */
     closed: Promise<void>;
-}
-
-interface Message {
-    id?: number;
-    method?: string;
-    params?: unknown;
-    result?: unknown;
-    error?: { message: string };
 }
 
 /**
@@ -146,14 +148,10 @@ export const connectCdp = async (
     });
 
     const handleMessage = (raw: string) => {
-        let message: Message;
+        // A malformed frame must not crash the process (listener errors surface as uncaught).
+        const message = decodeRpcMessage(parseJson(raw));
 
-        try {
-            message = JSON.parse(raw) as Message;
-        } catch {
-            // A malformed frame must not crash the process (listener errors surface as uncaught).
-            return;
-        }
+        if (!message) return;
 
         if (message.id !== undefined) {
             const call = pending.get(message.id);
@@ -173,7 +171,12 @@ export const connectCdp = async (
             try {
                 listener(message.params);
             } catch (error) {
-                console.error(`CDP listener for ${message.method} failed:`, error);
+                // A bug in a caller's listener must not stop the others, nor vanish: a Node warning
+                // (stderr unless the process handles 'warning' events) plus the library log.
+                log.error(`listener for ${message.method} failed`, { error: errorMessage(error) });
+                process.emitWarning(
+                    `CDP listener for ${message.method} failed: ${errorMessage(error)}`,
+                );
             }
         }
     };
@@ -197,37 +200,29 @@ export const connectCdp = async (
         };
     });
 
-    const on = <T>(method: string, listener: (params: T) => void) => {
+    const on = (method: string, listener: (params: unknown) => void) => {
         const set = listeners.get(method) ?? new Set();
-        // Events carry whatever the protocol defines for `method`; the caller names the type.
-        const untyped = listener as (params: unknown) => void;
 
-        set.add(untyped);
+        set.add(listener);
         listeners.set(method, set);
 
-        return () => set.delete(untyped);
+        return () => set.delete(listener);
     };
 
     return {
-        send: <T>(method: string, params: object = {}) =>
-            new Promise<T>((resolve, reject) => {
+        send: (method: string, params: object = {}) =>
+            new Promise<unknown>((resolve, reject) => {
                 if (ws.readyState !== WebSocket.OPEN) {
                     reject(new Error('DevTools connection closed'));
 
                     return;
                 }
                 nextId += 1;
-                pending.set(nextId, { resolve: resolve as (v: unknown) => void, reject });
+                pending.set(nextId, { resolve, reject });
                 transmit(JSON.stringify({ id: nextId, method, params }));
             }),
         on,
-        once: <T>(method: string) =>
-            new Promise<T>((resolve) => {
-                const off = on<T>(method, (params) => {
-                    off();
-                    resolve(params);
-                });
-            }),
+        once: onceVia(on),
         close: () => {
             wrapped?.dispose();
             ws.close();

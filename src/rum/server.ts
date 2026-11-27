@@ -13,9 +13,8 @@ import {
     MAX_PATH_LENGTH,
     PATH_PATTERN,
     TIMING_NAME_PATTERN,
-    type MetricName,
-    type Rating,
 } from '../shared/thresholds.ts';
+import { parseJson } from '../shared/decode.ts';
 import { isRecord } from '../shared/utils.ts';
 
 export {
@@ -31,22 +30,13 @@ export {
     toPrometheusText,
     type VitalSummary,
 } from './aggregator.ts';
+import type { TimingPayload, VitalPayload } from './context.ts';
 
-export interface VitalMetric {
-    name: MetricName;
-    value: number;
-    rating: Rating;
-    path: string;
-    navigationType?: string;
-    context?: Record<string, string>;
-}
+/** A vital as the handler hands it to `onMetric`: the shape the browser reporter sends. */
+export type VitalMetric = VitalPayload;
 
-export interface TimingMetric {
-    name: string;
-    duration: number;
-    path: string;
-    context?: Record<string, string>;
-}
+/** A custom timing as the handler hands it to `onTiming`. */
+export type TimingMetric = TimingPayload;
 
 export type RejectReason = 'method' | 'too-large' | 'invalid';
 
@@ -88,14 +78,6 @@ export async function readLimitedText(request: Request, maxBytes: number): Promi
 
     return new TextDecoder().decode(all);
 }
-
-const parseJson = (text: string): unknown => {
-    try {
-        return JSON.parse(text);
-    } catch {
-        return null;
-    }
-};
 
 const isValidPath = (value: unknown): value is string =>
     typeof value === 'string' && value.length <= MAX_PATH_LENGTH && PATH_PATTERN.test(value);
@@ -366,8 +348,9 @@ export const createClientLogHandler = ({
 
 /** Structural subset of Node's `http.IncomingMessage` so this module stays Edge-runtime safe. */
 export interface NodeIncomingMessage extends AsyncIterable<Uint8Array | string> {
-    method?: string;
-    url?: string;
+    // `| undefined` as in Node's own types, so an http.IncomingMessage fits as it is.
+    method?: string | undefined;
+    url?: string | undefined;
     headers: Record<string, string | string[] | undefined>;
 }
 

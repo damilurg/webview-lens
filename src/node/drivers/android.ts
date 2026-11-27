@@ -15,6 +15,7 @@ import {
 } from '../adb.ts';
 import { type Cdp, connectCdp, type DevtoolsPage, getVersion, listPages } from '../cdp.ts';
 import { diagnose, waitForPage } from '../device.ts';
+import { decodePerformanceMetrics } from '../protocol.ts';
 import { createProtocolInspectorSession } from './base-session.ts';
 import type {
     ConnectedDevice,
@@ -92,14 +93,10 @@ export const createCdpInspectorSession = (cdp: Cdp): InspectorSession => {
                     await cdp.send('Performance.enable');
                     perfEnabled = true;
                 }
-                const { metrics } = await cdp.send<{
-                    metrics?: { name: string; value: number }[];
-                }>('Performance.getMetrics');
-                const used = metrics?.find((m) => m.name === 'JSHeapUsedSize')?.value;
+                const metrics = decodePerformanceMetrics(await cdp.send('Performance.getMetrics'));
+                const used = metrics?.get('JSHeapUsedSize');
 
-                return typeof used === 'number' && Number.isFinite(used)
-                    ? Math.round((used / (1024 * 1024)) * 10) / 10
-                    : null;
+                return used === undefined ? null : Math.round((used / (1024 * 1024)) * 10) / 10;
             } catch {
                 return null;
             }
@@ -143,14 +140,20 @@ export const createAndroidDriver = (deps: AndroidDriverDeps = {}): DeviceDriver 
         platform: 'android',
         listDevices,
         isAvailable: () => listDevices().some((d) => d.state === 'device'),
-        async diagnose(options: DriverTargetOptions = {}): Promise<string> {
-            return diagnose(options.port ?? defaultPort, runAdbFn, {
-                ...(options.serial ? { serial: options.serial } : {}),
-                ...(options.app ? { app: options.app } : {}),
+        async diagnose({
+            port = defaultPort,
+            serial,
+            app,
+        }: DriverTargetOptions = {}): Promise<string> {
+            return diagnose(port, runAdbFn, {
+                ...(serial ? { serial } : {}),
+                ...(app ? { app } : {}),
             });
         },
-        async doctor(options: DriverTargetOptions = {}): Promise<DoctorReport> {
-            const port = options.port ?? defaultPort;
+        async doctor({
+            port = defaultPort,
+            serial,
+        }: DriverTargetOptions = {}): Promise<DoctorReport> {
             const checks: DoctorCheck[] = [];
             const { adb, checked } = findAdbFn();
 
@@ -165,7 +168,7 @@ export const createAndroidDriver = (deps: AndroidDriverDeps = {}): DeviceDriver 
             checks.push({ ok: true, message: `adb: ${adb}` });
 
             try {
-                const devicesProblem = describeDevices(runAdbFn(['devices']), options.serial);
+                const devicesProblem = describeDevices(runAdbFn(['devices']), serial);
 
                 checks.push({
                     ok: !devicesProblem,
@@ -173,7 +176,7 @@ export const createAndroidDriver = (deps: AndroidDriverDeps = {}): DeviceDriver 
                 });
                 if (devicesProblem) return { platform: 'android', checks, targets: [] };
 
-                const deviceRun = createAdbRunner(options.serial, runAdbFn);
+                const deviceRun = createAdbRunner(serial, runAdbFn);
                 const window = deviceRun(['shell', 'dumpsys', 'window']);
 
                 checks.push({
@@ -215,33 +218,33 @@ export const createAndroidDriver = (deps: AndroidDriverDeps = {}): DeviceDriver 
 
             return { platform: 'android', checks, targets };
         },
-        async listTargets(options: DriverTargetOptions = {}): Promise<InspectableTarget[] | null> {
-            const pages = await listPagesFn(options.port ?? defaultPort);
+        async listTargets({ port = defaultPort }: DriverTargetOptions = {}): Promise<
+            InspectableTarget[] | null
+        > {
+            const pages = await listPagesFn(port);
 
             return pages ? pages.map(pageToTarget) : null;
         },
         async waitForTarget(
             predicate: TargetPredicate,
-            options: DriverTargetOptions = {},
+            { port = defaultPort, log, intervalMs, serial, app, signal }: DriverTargetOptions = {},
         ): Promise<InspectableTarget> {
-            const page = await waitForPage(
-                options.port ?? defaultPort,
-                (p) => predicate(pageToTarget(p)),
-                {
-                    run: runAdbFn,
-                    listPages: listPagesFn,
-                    ...(options.log ? { log: options.log } : {}),
-                    ...(options.intervalMs !== undefined ? { intervalMs: options.intervalMs } : {}),
-                    ...(options.serial ? { serial: options.serial } : {}),
-                    ...(options.app ? { app: options.app } : {}),
-                    ...(options.signal ? { signal: options.signal } : {}),
-                },
-            );
+            const page = await waitForPage(port, (p) => predicate(pageToTarget(p)), {
+                run: runAdbFn,
+                listPages: listPagesFn,
+                ...(log ? { log } : {}),
+                ...(intervalMs !== undefined ? { intervalMs } : {}),
+                ...(serial ? { serial } : {}),
+                ...(app ? { app } : {}),
+                ...(signal ? { signal } : {}),
+            });
 
             return pageToTarget(page);
         },
-        async getDeviceDescription(options: DriverTargetOptions = {}): Promise<string> {
-            const version = await getVersionFn(options.port ?? defaultPort);
+        async getDeviceDescription({
+            port = defaultPort,
+        }: DriverTargetOptions = {}): Promise<string> {
+            const version = await getVersionFn(port);
 
             return String(version['User-Agent'] ?? version.Browser ?? 'unknown');
         },

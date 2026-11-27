@@ -1,12 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import {
-    createMetricsHandler,
-    createRumAggregator,
-    escapePromLabel,
-    toPrometheusText,
-} from '../src/rum/server.ts';
+import { createRumAggregator, escapePromLabel, toPrometheusText } from '../src/rum/server.ts';
 
 describe('createRumAggregator ring buffer & Prometheus escaping', () => {
     it('bounds memory with ring buffer while keeping accurate total count', () => {
@@ -36,16 +31,25 @@ describe('createRumAggregator ring buffer & Prometheus escaping', () => {
         assert.equal(agg.snapshot().vitals.length, 0);
     });
 
-    it('escapes Prometheus label values and rejects non-GET on createMetricsHandler', async () => {
+    it('escapes Prometheus label values; an empty aggregator renders nothing', () => {
         assert.equal(escapePromLabel('a"b\\c\nd'), 'a\\"b\\\\c\\nd');
+        assert.equal(toPrometheusText(createRumAggregator().snapshot()), '');
+    });
+});
 
-        const agg = createRumAggregator();
-        const handler = createMetricsHandler(agg);
-        const postRes = await handler(
-            new Request('https://app.example.test/metrics', { method: 'POST' }),
+describe('Prometheus counter naming', () => {
+    it('exposes the vital sample counter with the _total suffix', () => {
+        const aggregator = createRumAggregator();
+
+        aggregator.recordVital({ name: 'LCP', value: 1000, rating: 'good', path: '/' });
+
+        const text = toPrometheusText(aggregator.snapshot());
+
+        assert.match(text, /# TYPE webview_lens_vital_samples_total counter/);
+        assert.match(
+            text,
+            /webview_lens_vital_samples_total\{name="LCP",path="\/",env="unknown"\} 1/,
         );
-
-        assert.equal(postRes.status, 405);
-        assert.equal(toPrometheusText(agg.snapshot()), '');
+        assert.doesNotMatch(text, /_vital_count/);
     });
 });

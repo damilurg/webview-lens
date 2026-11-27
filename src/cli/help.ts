@@ -7,6 +7,7 @@ Usage
   webview-lens dev [local-url] [options]   serve the WebView's origin from your local server
   webview-lens devtools [options]          DevTools of the WebView page at a fixed localhost URL
   webview-lens vitals [paths…] [options]   lab Web Vitals from the phone, Markdown report
+  webview-lens keyboard [options]          live keyboard / viewport numbers of the WebView page
   webview-lens cert [options]              serve local Root CA profile (.mobileconfig) for iOS setup
   webview-lens doctor                      what blocks the connection to the phone
 
@@ -48,6 +49,13 @@ vitals
   --cpu <rate>      CPU slowdown multiplier on Android, e.g. 4 (1)
   --budget <spec>   CI thresholds, e.g. lcp=2500,cls=0.1 (exits 1 if exceeded)
   --out <file>      Markdown report (webview-vitals.md)
+
+keyboard
+  --overlay         also draw them on the phone: a panel, a line at the visible bottom, the
+                    focused field outlined (green: visible, orange: partly, red: hidden)
+  --frames          every frame of the keyboard animation (default: changes and settled states)
+  One line per change: keyboard height, how much of the page it covers, visible height, the
+  focused field and whether it is hidden, --wl-* values when webview-lens/viewport is used.
 
 The phone: USB debugging on, the app's WebView debuggable (WebView.setWebContentsDebuggingEnabled).
 adb is found in ADB, ANDROID_HOME, ANDROID_SDK_ROOT, the Android SDK, PATH and Downloads.`;

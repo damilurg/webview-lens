@@ -150,7 +150,8 @@ const pemToDer = (pem: string): Buffer =>
 const randomSerial = (): Buffer => {
     const bytes = crypto.randomBytes(16);
 
-    bytes[0] = (bytes[0]! & 0x7f) | 0x01;
+    // Positive and non-zero (RFC 5280 §4.1.2.2): clear the sign bit, set the lowest one.
+    bytes.writeUInt8((bytes.readUInt8(0) & 0x7f) | 0x01, 0);
 
     return bytes;
 };
@@ -193,7 +194,7 @@ const signCertificate = ({
 };
 
 const readDerLength = (buf: Buffer, offset: number): { length: number; next: number } => {
-    const first = buf[offset]!;
+    const first = buf.readUInt8(offset);
 
     if ((first & 0x80) === 0) return { length: first, next: offset + 1 };
 
@@ -201,7 +202,7 @@ const readDerLength = (buf: Buffer, offset: number): { length: number; next: num
     let length = 0;
 
     for (let i = 0; i < count; i += 1) {
-        length = (length << 8) | buf[offset + 1 + i]!;
+        length = (length << 8) | buf.readUInt8(offset + 1 + i);
     }
 
     return { length, next: offset + 1 + count };

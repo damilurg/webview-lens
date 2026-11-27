@@ -60,12 +60,12 @@ npx webview-lens dev http://localhost:4173 --preset generic --cmd "npx nuxi gene
 
 # SvelteKit — dev (Vite), сборка adapter-node, сборка adapter-static
 npx webview-lens dev http://localhost:5173 --cmd "npm run dev"
-npx webview-lens dev http://localhost:3000 --preset generic --cmd "npm run build && node build"
+npx webview-lens dev http://localhost:3000 --preset generic --cmd "npm run build && ORIGIN=http://localhost:3000 node build"
 npx webview-lens dev http://localhost:4173 --preset generic --cmd "npm run build && npx serve build -l 4173"
 
 # Angular — SSR dev-сервер, SSR production-сервер, prerender
 npx webview-lens dev http://localhost:4200 --cmd "npx ng serve"
-npx webview-lens dev http://localhost:4000 --preset generic --cmd "npx ng build && node dist/my-app/server/server.mjs"
+npx webview-lens dev http://localhost:4000 --preset generic --cmd "npx ng build && NG_ALLOWED_HOSTS=localhost node dist/my-app/server/server.mjs"
 npx webview-lens dev http://localhost:4173 --preset generic --cmd "npx ng build && npx serve dist/my-app/browser -l 4173"
 ```
 
@@ -94,12 +94,12 @@ Origin / Referer:   остаются как на стенде
 
 Origin и Referer не переписываются, чтобы CSRF-проверки фреймворков видели один и тот же origin. По фреймворкам:
 
-| Фреймворк    | Что сделать при `--forwarded`                                                                                                                                                                                                                                               |
-| ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Next.js      | Server Actions сверяют `Origin` с `X-Forwarded-Host`: в этом режиме они совпадают. Если `next dev` пишет о заблокированном cross-origin запросе к `/_next/*`, добавьте хост стенда в `allowedDevOrigins`.                                                                   |
-| Nuxt / Nitro | `useRequestURL({ xForwardedHost: true, xForwardedProto: true })` и `getRequestURL(event, { xForwardedHost: true, xForwardedProto: true })` вернут URL стенда.                                                                                                               |
-| SvelteKit    | `vite dev` не читает forwarded-заголовки, а его CSRF-проверка сверяет `Origin` с `Host`: с dev-сервером `--forwarded` **не используйте**. С adapter-node задайте `HOST_HEADER=x-forwarded-host PROTOCOL_HEADER=x-forwarded-proto` (или `ORIGIN=https://stand.example.com`). |
-| Angular SSR  | `@angular/ssr` собирает URL запроса из `X-Forwarded-Host/Proto`. Если ваша версия проверяет хосты, добавьте хост стенда в `allowedHosts`. В своём Express `server.ts` вызовите `app.set('trust proxy', true)`.                                                              |
+| Фреймворк    | Что сделать при `--forwarded`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Next.js      | Server Actions сверяют `Origin` с `X-Forwarded-Host`: в этом режиме они совпадают (проверено на Next.js 16 на Android и iOS, с `--forwarded` и без). HMR в `next dev` заработал без `allowedDevOrigins`; хост стенда добавляйте туда, только если `next dev` пишет о заблокированном cross-origin запросе к `/_next/*`.                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| Nuxt / Nitro | `getRequestURL(event, { xForwardedHost: true, xForwardedProto: true })` возвращает URL стенда с `--forwarded` и локальный без него (проверено на Nuxt 4 на Android и iOS, `nuxt dev` и сборка node-server). На странице сохраняйте серверное значение в `useState`: в браузере `useRequestURL()` читает `window.location`, поэтому после гидрации всегда показывает стенд. Встроенной CSRF-проверки в Nuxt нет; POST, который сверяет `Origin` с forwarded URL запроса, проходит в обоих режимах.                                                                                                                                                                                                                                          |
+| SvelteKit    | `vite dev` собирает `url.origin` из `Host` и не читает forwarded-заголовки, поэтому `url.origin` остаётся локальным даже с `--forwarded`; CSRF-проверка в dev выключена, form actions проходят в обоих режимах. adapter-node строже: без `ORIGIN` он считает протокол `https`, и каждый form action получает `403 Cross-site POST form submissions are forbidden`. Без `--forwarded` задайте `ORIGIN` с локальным URL (`ORIGIN=http://localhost:3000`); с `--forwarded` задайте `PROTOCOL_HEADER=x-forwarded-proto HOST_HEADER=x-forwarded-host`, и `url.origin` будет адресом стенда (проверено на SvelteKit 3 на Android и iOS).                                                                                                         |
+| Angular SSR  | Angular 22 рендерит только для разрешённых хостов и игнорирует `X-Forwarded-*`, пока им не доверяют (проверено на Android и iOS). `ng serve` разрешает локальный хост; production-сервер (`node dist/…/server.mjs`) отвечает **400** на любой запрос, пока `NG_ALLOWED_HOSTS` не содержит локальный хост (`NG_ALLOWED_HOSTS=localhost,127.0.0.1`). С `--forwarded` задайте ещё `NG_TRUST_PROXY_HEADERS=x-forwarded-host,x-forwarded-proto` и добавьте хост стенда в `NG_ALLOWED_HOSTS`, иначе будет 400 (`Header "x-forwarded-host" … is not allowed`); без настройки доверия заголовки отбрасываются с предупреждением и URL остаётся локальным. То же в коде делают опции `allowedHosts` и `trustProxyHeaders` у `AngularNodeAppEngine`. |
 
 Без `--forwarded` в существующих настройках ничего не меняется: режим включается явно, в том числе
 через `"forwarded": true` в `webview-lens.config.json`.
@@ -213,7 +213,7 @@ export const POST: RequestHandler = ({ request }) => vitals(request);
 ### Angular (SSR)
 
 ```ts
-// src/app/app.component.ts — afterNextRender выполняется только в браузере
+// src/app/app.ts (до Angular 20 — app.component.ts) — afterNextRender выполняется только в браузере
 import { Component, afterNextRender } from '@angular/core';
 import { onCLS, onFCP, onINP, onLCP, onTTFB } from 'web-vitals';
 import {
@@ -223,8 +223,8 @@ import {
     detectWebViewEnv,
 } from 'webview-lens/rum';
 
-@Component({ selector: 'app-root', templateUrl: './app.component.html' })
-export class AppComponent {
+@Component({ selector: 'app-root', templateUrl: './app.html' })
+export class App {
     constructor() {
         afterNextRender(() => {
             const context = () => ({ env: detectWebViewEnv() });
@@ -276,6 +276,20 @@ preflight, а обработчики разбирают тело при любо
 `Access-Control-Allow-Origin` и отвечает на preflight `OPTIONS` для клиентов, которые шлют JSON через
 свой `transport`. Используйте шаблоны маршрутов (`path: () => '/blog/[slug]'`), чтобы тысячи
 сгенерированных страниц сводились к нескольким рядам метрик.
+
+### Заголовки кэша у пререндеренного HTML
+
+Отдавайте пререндеренный HTML с `Cache-Control: no-cache` (или коротким `max-age`). Без
+`Cache-Control` заголовок `Last-Modified` позволяет WebView закэшировать страницу эвристически
+(примерно на десятую часть её возраста), и после деплоя приложение может показывать старый HTML. В
+прогонах на устройствах так отдавал пререндеренную страницу Nuxt 4, и Android WebView, и WKWebView
+показывали её даже после переключения на другую сборку. Next.js шлёт `s-maxage` (только для CDN),
+SvelteKit и Angular — только `ETag`. В Nuxt помогает
+`routeRules: { '/static': { prerender: true, headers: { 'cache-control': 'no-cache' } } }`; в остальных
+случаях задайте заголовок на CDN или обратном прокси.
+
+`CLS` и `LCP` отправляются, когда страница скрывается (переход на другую страницу, приложение ушло в
+фон). Ждите их на коллекторе после того, как пользователь ушёл со страницы, а не пока она открыта.
 
 ## Замеры: `webview-lens vitals`
 

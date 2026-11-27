@@ -15,7 +15,7 @@ import { bridgeShim, createUrlMapper, toLocalHeaders } from '../../src/node/over
 import { renderQrTerminal } from '../../src/node/qr.ts';
 import { formatConsoleEvent, formatExceptionEvent } from '../../src/node/telemetry.ts';
 import { decodeWsFrames, encodeWsFrame } from '../../src/node/ws-server.ts';
-import { detectWebViewEnv, sanitizeContext, sanitizePath } from '../../src/rum/index.ts';
+import { detectWebViewEnv, sanitizeContext, sanitizePath } from '../../src/rum/context.ts';
 import {
     createRumAggregator,
     parseTiming,

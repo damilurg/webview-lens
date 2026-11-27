@@ -22,6 +22,10 @@ export const runVitals = async () => {
         paths: ['/', '/orders'],
         runs: 3,
         cold: true,
+        // Progress and what blocks it ("No phone found: …") in the job log; the library is silent otherwise.
+        log: console.log,
+        // A job must not hang forever when the phone is not there.
+        wait: { signal: AbortSignal.timeout(5 * 60_000) },
     });
 
     fs.writeFileSync('webview-vitals.md', toMarkdown(result));

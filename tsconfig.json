@@ -1,18 +1,10 @@
 {
-    "compilerOptions": {
-        "target": "ES2022",
-        "module": "NodeNext",
-        "moduleResolution": "NodeNext",
-        "lib": ["ES2023", "DOM", "DOM.Iterable"],
-        "types": ["node"],
-        "strict": true,
-        "noUncheckedIndexedAccess": true,
-        "noImplicitOverride": true,
-        "verbatimModuleSyntax": true,
-        "erasableSyntaxOnly": true,
-        "rewriteRelativeImportExtensions": true,
-        "skipLibCheck": true,
-        "noEmit": true
-    },
-    "include": ["src", "test", "examples", "scripts"]
+    // Solution file for editors and `tsc -b`: Node code and browser code are checked against
+    // different globals. See tsconfig.node.json, tsconfig.web.json and tsconfig.web-test.json.
+    "files": [],
+    "references": [
+        { "path": "./tsconfig.node.json" },
+        { "path": "./tsconfig.web.json" },
+        { "path": "./tsconfig.web-test.json" }
+    ]
 }

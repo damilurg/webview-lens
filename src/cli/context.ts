@@ -17,8 +17,10 @@ import {
     isPlatformSelection,
     PLATFORM_SELECTIONS,
 } from '../node/drivers/types.ts';
+import type { SsePolicy } from '../node/override.ts';
 import { isPresetSelection, PRESET_SELECTIONS } from '../node/presets.ts';
 import { isNetworkThrottlePreset, NETWORK_THROTTLE_PRESETS } from '../node/vitals-lab.ts';
+import { terminal } from './output.ts';
 
 export const parseCliArgs = (argv: string[] = process.argv.slice(2)) =>
     parseArgs({
@@ -54,6 +56,8 @@ export const parseCliArgs = (argv: string[] = process.argv.slice(2)) =>
             cpu: { type: 'string' },
             budget: { type: 'string' },
             out: { type: 'string', default: 'webview-vitals.md' },
+            overlay: { type: 'boolean', default: false },
+            frames: { type: 'boolean', default: false },
             verbose: { type: 'boolean', default: false },
             'log-file': { type: 'string' },
         },
@@ -75,7 +79,8 @@ export interface CliContext {
     proxyPort: number;
     serial: string | undefined;
     logsEnabled: boolean;
-    targetOptions: { serial?: string; app?: string };
+    /** Device filters, and where waiting hints go (the terminal). */
+    targetOptions: { serial?: string; app?: string; log: (line: string) => void };
     remoteOrigin: string | undefined;
     /** Android page filter: --match, else any page with --remote, else any https page. */
     isTarget: PagePredicate;
@@ -95,26 +100,45 @@ const parseHmrPorts = (raw: string[] | undefined): number[] | undefined =>
         return num;
     });
 
-const checkFlags = (values: CliValues): void => {
-    if (values.platform !== undefined && !isPlatformSelection(values.platform)) {
-        throw new Error(
-            `Unknown --platform "${values.platform}". Expected one of: ${PLATFORM_SELECTIONS.join(', ')}`,
-        );
-    }
-    if (values.preset !== undefined && !isPresetSelection(values.preset)) {
-        throw new Error(
-            `Unknown --preset "${values.preset}". Expected one of: ${PRESET_SELECTIONS.join(', ')}`,
-        );
-    }
-    if (values.sse !== undefined && values.sse !== 'fail' && values.sse !== 'continue') {
-        throw new Error(`Unknown --sse "${values.sse}". Expected "fail" or "continue"`);
-    }
-    if (values.throttle !== undefined && !isNetworkThrottlePreset(values.throttle)) {
-        throw new Error(
-            `Unknown --throttle "${values.throttle}". Expected one of: ${NETWORK_THROTTLE_PRESETS.join(', ')}`,
-        );
-    }
+/** A flag value from a fixed set: narrowed to the set, or a clear error naming the choices. */
+const choice = <T extends string>(
+    flag: string,
+    value: string | undefined,
+    isValid: (candidate: string) => candidate is T,
+    expected: string,
+): T | undefined => {
+    if (value === undefined) return undefined;
+    if (!isValid(value)) throw new Error(`Unknown --${flag} "${value}". Expected ${expected}`);
 
+    return value;
+};
+
+const isSsePolicy = (value: string): value is SsePolicy => value === 'fail' || value === 'continue';
+
+/** The flags that take one of a fixed set of values, checked and narrowed. */
+const choiceFlags = (values: CliValues) => ({
+    platform: choice(
+        'platform',
+        values.platform,
+        isPlatformSelection,
+        `one of: ${PLATFORM_SELECTIONS.join(', ')}`,
+    ),
+    preset: choice(
+        'preset',
+        values.preset,
+        isPresetSelection,
+        `one of: ${PRESET_SELECTIONS.join(', ')}`,
+    ),
+    sse: choice('sse', values.sse, isSsePolicy, '"fail" or "continue"'),
+    throttle: choice(
+        'throttle',
+        values.throttle,
+        isNetworkThrottlePreset,
+        `one of: ${NETWORK_THROTTLE_PRESETS.join(', ')}`,
+    ),
+});
+
+const checkFlags = (values: CliValues): void => {
     const runs = Number(values.runs);
     const interact = Number(values.interact);
 
@@ -133,10 +157,11 @@ const flagsAsConfig = (
     args: string[],
 ): Partial<ProjectConfig> => {
     const hmrPorts = parseHmrPorts(values['hmr-port']);
+    const { platform, preset, sse, throttle } = choiceFlags(values);
 
     return {
-        ...(values.platform !== undefined ? { platform: values.platform } : {}),
-        ...(values.preset !== undefined ? { preset: values.preset } : {}),
+        ...(platform !== undefined ? { platform } : {}),
+        ...(preset !== undefined ? { preset } : {}),
         ...(args[0] !== undefined && command === 'dev' ? { local: args[0] } : {}),
         ...(values.remote !== undefined ? { remote: values.remote } : {}),
         ...(values['remote-base'] !== undefined ? { remoteBase: values['remote-base'] } : {}),
@@ -146,7 +171,7 @@ const flagsAsConfig = (
         ...(hmrPorts !== undefined ? { hmrPorts } : {}),
         ...(values.quiet !== undefined ? { quiet: values.quiet } : {}),
         ...(values.bypass !== undefined ? { bypass: values.bypass } : {}),
-        ...(values.sse !== undefined ? { sse: values.sse } : {}),
+        ...(sse !== undefined ? { sse } : {}),
         ...(values.forwarded !== undefined ? { forwarded: values.forwarded } : {}),
         ...(values.port !== undefined ? { port: values.port } : {}),
         ...(values['link-port'] !== undefined ? { linkPort: values['link-port'] } : {}),
@@ -155,10 +180,10 @@ const flagsAsConfig = (
         ...(values.app !== undefined ? { app: values.app } : {}),
         ...(values.match !== undefined ? { match: values.match } : {}),
         ...(values.logs !== undefined ? { logs: values.logs } : {}),
-        ...(values.throttle !== undefined ? { throttle: values.throttle } : {}),
+        ...(throttle !== undefined ? { throttle } : {}),
         ...(values.cpu !== undefined ? { cpu: Number(values.cpu) } : {}),
         ...(values.budget !== undefined ? { budget: values.budget } : {}),
-    } as Partial<ProjectConfig>;
+    };
 };
 
 const originOf = (remote: string | undefined): string | undefined => {
@@ -203,6 +228,7 @@ export const buildCliContext = (
         targetOptions: {
             ...(serial ? { serial } : {}),
             ...(cfg.app ? { app: cfg.app } : {}),
+            log: terminal.line,
         },
         remoteOrigin,
         isTarget: (page) => {

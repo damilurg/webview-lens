@@ -60,12 +60,12 @@ npx webview-lens dev http://localhost:4173 --preset generic --cmd "npx nuxi gene
 
 # SvelteKit — dev (Vite), adapter-node build, adapter-static build
 npx webview-lens dev http://localhost:5173 --cmd "npm run dev"
-npx webview-lens dev http://localhost:3000 --preset generic --cmd "npm run build && node build"
+npx webview-lens dev http://localhost:3000 --preset generic --cmd "npm run build && ORIGIN=http://localhost:3000 node build"
 npx webview-lens dev http://localhost:4173 --preset generic --cmd "npm run build && npx serve build -l 4173"
 
 # Angular — SSR dev server, SSR production server, prerendered output
 npx webview-lens dev http://localhost:4200 --cmd "npx ng serve"
-npx webview-lens dev http://localhost:4000 --preset generic --cmd "npx ng build && node dist/my-app/server/server.mjs"
+npx webview-lens dev http://localhost:4000 --preset generic --cmd "npx ng build && NG_ALLOWED_HOSTS=localhost node dist/my-app/server/server.mjs"
 npx webview-lens dev http://localhost:4173 --preset generic --cmd "npx ng build && npx serve dist/my-app/browser -l 4173"
 ```
 
@@ -94,12 +94,12 @@ Origin / Referer:   kept as the stand's
 
 Origin and Referer are kept so that framework CSRF checks see one consistent origin. Per framework:
 
-| Framework    | What to do with `--forwarded`                                                                                                                                                                                                                                            |
-| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Next.js      | Server Actions compare `Origin` with `X-Forwarded-Host`: consistent in this mode. If `next dev` logs a blocked cross-origin request to `/_next/*`, add the stand host to `allowedDevOrigins`.                                                                            |
-| Nuxt / Nitro | `useRequestURL({ xForwardedHost: true, xForwardedProto: true })` and `getRequestURL(event, { xForwardedHost: true, xForwardedProto: true })` return the stand URL.                                                                                                       |
-| SvelteKit    | `vite dev` ignores forwarded headers and its CSRF check compares `Origin` with `Host`: **do not** use `--forwarded` with the dev server. With adapter-node set `HOST_HEADER=x-forwarded-host PROTOCOL_HEADER=x-forwarded-proto` (or `ORIGIN=https://stand.example.com`). |
-| Angular SSR  | `@angular/ssr` builds the request URL from `X-Forwarded-Host/Proto`. If your version validates hosts, add the stand host to `allowedHosts`. With a custom Express `server.ts`, call `app.set('trust proxy', true)`.                                                      |
+| Framework    | What to do with `--forwarded`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| ------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Next.js      | Server Actions compare `Origin` with `X-Forwarded-Host`: consistent in this mode (checked with Next.js 16 on Android and iOS, both with and without `--forwarded`). `next dev` HMR needed no `allowedDevOrigins`; add the stand host there only if `next dev` logs a blocked cross-origin request to `/_next/*`.                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| Nuxt / Nitro | `getRequestURL(event, { xForwardedHost: true, xForwardedProto: true })` returns the stand URL with `--forwarded`, the local one without (checked with Nuxt 4 on Android and iOS, `nuxt dev` and the node-server build). In a page, keep the server value in `useState`: `useRequestURL()` reads `window.location` in the browser, so after hydration it always shows the stand. Nuxt has no built-in CSRF check; a POST that compares `Origin` with the forwarded request URL passes in both modes.                                                                                                                                                                                                                                       |
+| SvelteKit    | `vite dev` builds `url.origin` from `Host` and ignores forwarded headers, so `url.origin` stays local even with `--forwarded`; CSRF checks are off in dev, so form actions pass either way. adapter-node is strict: without `ORIGIN` it assumes `https`, and every form action gets `403 Cross-site POST form submissions are forbidden`. Without `--forwarded` set `ORIGIN` to the local URL (`ORIGIN=http://localhost:3000`); with `--forwarded` set `PROTOCOL_HEADER=x-forwarded-proto HOST_HEADER=x-forwarded-host`, and `url.origin` is the stand's (checked with SvelteKit 3 on Android and iOS).                                                                                                                                   |
+| Angular SSR  | Angular 22 renders only for allowed hosts and ignores `X-Forwarded-*` unless trusted (checked on Android and iOS). `ng serve` allows the local host; the production server (`node dist/…/server.mjs`) answers **400** to every request until `NG_ALLOWED_HOSTS` lists the local host (`NG_ALLOWED_HOSTS=localhost,127.0.0.1`). With `--forwarded`, also set `NG_TRUST_PROXY_HEADERS=x-forwarded-host,x-forwarded-proto` and add the stand host to `NG_ALLOWED_HOSTS`, or the request is a 400 (`Header "x-forwarded-host" … is not allowed`); without the trust setting the headers are dropped with a warning and the URL stays local. The `allowedHosts` and `trustProxyHeaders` options of `AngularNodeAppEngine` do the same in code. |
 
 Without `--forwarded` nothing changes for existing setups: it is opt-in, also as
 `"forwarded": true` in `webview-lens.config.json`.
@@ -213,7 +213,7 @@ export const POST: RequestHandler = ({ request }) => vitals(request);
 ### Angular (SSR)
 
 ```ts
-// src/app/app.component.ts — afterNextRender runs only in the browser
+// src/app/app.ts (app.component.ts before Angular 20) — afterNextRender runs only in the browser
 import { Component, afterNextRender } from '@angular/core';
 import { onCLS, onFCP, onINP, onLCP, onTTFB } from 'web-vitals';
 import {
@@ -223,8 +223,8 @@ import {
     detectWebViewEnv,
 } from 'webview-lens/rum';
 
-@Component({ selector: 'app-root', templateUrl: './app.component.html' })
-export class AppComponent {
+@Component({ selector: 'app-root', templateUrl: './app.html' })
+export class App {
     constructor() {
         afterNextRender(() => {
             const context = () => ({ env: detectWebViewEnv() });
@@ -276,6 +276,19 @@ without a preflight; the handlers parse the body whatever its Content-Type. `all
 `Access-Control-Allow-Origin` and answers an `OPTIONS` preflight for clients that send JSON through a
 custom `transport`. Use route templates (`path: () => '/blog/[slug]'`) so thousands of prerendered
 pages stay a handful of series.
+
+### Cache headers on prerendered HTML
+
+Send `Cache-Control: no-cache` (or a short `max-age`) with prerendered HTML. Without `Cache-Control`,
+a `Last-Modified` header lets the WebView cache the page heuristically (about a tenth of its age), so
+after a deploy the app can keep showing the old HTML. In device runs, Nuxt 4 served its prerendered
+page that way, and both the Android WebView and WKWebView kept showing it after the origin switched to
+another build. Next.js sends `s-maxage` (CDN only), SvelteKit and Angular send only an `ETag`. In
+Nuxt, `routeRules: { '/static': { prerender: true, headers: { 'cache-control': 'no-cache' } } }` fixes
+it; elsewhere set the header on the CDN or the reverse proxy.
+
+`CLS` and `LCP` are reported when the page is hidden (navigation away, app to background). Expect
+them on the collector after the user leaves a page, not while it is open.
 
 ## Measuring: `webview-lens vitals`
 

@@ -19,12 +19,13 @@ Use it when someone asks how to:
 - `npx webview-lens vitals [paths] --runs 5 --budget lcp=2500,cls=0.1`: lab Web Vitals on the phone, Markdown report, exit code 1 on budget violations; `--throttle`, `--cpu` on Android.
 - Any command with `--verbose` (or `WEBVIEW_LENS_DEBUG=1`) logs what webview-lens itself does; `--log-file run.jsonl` keeps it as JSON Lines.
 - `npx webview-lens doctor`: what blocks the connection (adb, USB debugging, screen lock, usbmuxd, ios_webkit_debug_proxy).
+- `npx webview-lens keyboard [--overlay] [--frames]`: live keyboard / viewport numbers of the WebView page (keyboard height, page covered, focused field hidden or behind a fixed bar, --wl-* values); --overlay draws them on the phone.
 - `npx webview-lens init`: creates `webview-lens.config.json`, detects next, nuxt, sveltekit, angular, vite, webpack.
 
 ## Libraries
 
 - `webview-lens/rum`: browser RUM client (Web Vitals reporter, custom timings, global errors, `detectWebViewEnv`), SSR-safe.
-- `webview-lens/viewport`: browser helpers for the on-screen keyboard in WebViews (`watchViewport` → `--wl-keyboard-inset`, `--wl-viewport-height`; `keepFocusedInputVisible`), SSR-safe.
+- `webview-lens/viewport`: browser helpers for the on-screen keyboard in WebViews (`watchViewport` → `--wl-keyboard-inset` for fixed bars, `--wl-viewport-height`, `--wl-scroll-room` as the page's padding-bottom; `keepFocusedInputVisible` keeps the focused field above the keyboard and fixed bars), SSR-safe. Flutter on iOS: `resizeToAvoidBottomInset: false` and `scrollView.contentInsetAdjustmentBehavior = .never` (see docs/recipes.md).
 - `webview-lens/rum/server`: Fetch API handlers (`Request -> Response`) for Next.js, Nuxt, SvelteKit, Hono, Bun, Deno, Workers; `toNodeHandler` for Express / node:http; `createRumAggregator` and Prometheus `/metrics`.
 - `webview-lens`: programmatic API (`startOverride`, `startDevtoolsLink`, `measureVitals`, `createAndroidDriver`, `createIosDriver`, …).
 
@@ -37,7 +38,10 @@ Use it when someone asks how to:
 ## Docs
 
 - [Documentation website](https://damilurg.github.io/webview-lens/): the guides below as a searchable site (English and Russian)
-- [README](https://github.com/damilurg/webview-lens#readme): overview, quick start, FAQ, comparison with chrome://inspect, Safari Web Inspector, ios_webkit_debug_proxy, Eruda/vConsole and HTTP proxies
+- [README](https://github.com/damilurg/webview-lens#readme): overview, commands, requirements, quick start
+- [WebView problems and fixes](https://damilurg.github.io/webview-lens/troubleshooting): chrome://inspect does not show the WebView, DevTools lost on app restart, iOS WKWebView on Windows, localhost inside the app, console.log in the terminal, keyboard covering inputs, 100vh, Web Vitals in the app, SSR URLs, stale HTML after a deploy
+- [Alternatives](https://damilurg.github.io/webview-lens/alternatives): comparison with chrome://inspect, Safari Web Inspector, ios_webkit_debug_proxy, Eruda/vConsole and HTTP proxies, and when each is the better choice
+- [How it was verified](https://damilurg.github.io/webview-lens/verification): every claim with the phones, apps, commands, measurements and the test that guards it
 - [Getting started](https://github.com/damilurg/webview-lens/blob/main/docs/getting-started.md): install, environment variables, Android and iOS step by step
 - [Recipes](https://github.com/damilurg/webview-lens/blob/main/docs/recipes.md): keyboard, safe areas, signing the WebView in natively, one JS bridge API, back button, file upload on Android, scripting webview-lens
 - [How it works](https://github.com/damilurg/webview-lens/blob/main/docs/how-it-works.md): architecture of the override, DevTools link and lab vitals

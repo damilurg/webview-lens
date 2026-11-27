@@ -29,8 +29,8 @@ jobs:
                   fi
             - run: npm ci
             - run: npm run verify
-            - run: npm run build
             - run: npm run bench
+            # `prepack` builds dist/ once here; the GitHub Packages mirror below reuses it (--ignore-scripts).
             - run: npm publish --provenance --access public
               env:
                   NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

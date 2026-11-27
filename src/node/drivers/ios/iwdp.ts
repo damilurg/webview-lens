@@ -1,5 +1,6 @@
 // Discovery and HTTP queries for ios_webkit_debug_proxy (IWDP) on macOS, Windows and Linux.
 
+import { parseJson } from '../../../shared/decode.ts';
 import { spawn } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
@@ -83,7 +84,7 @@ export const listIwdpDevices = async (
 
         if (!res.ok) return null;
 
-        const data: unknown = await res.json();
+        const data = parseJson(await res.text());
 
         if (!Array.isArray(data)) return null;
 
@@ -121,7 +122,7 @@ export const listIwdpPages = async (
 
         if (!res.ok) return null;
 
-        const data: unknown = await res.json();
+        const data = parseJson(await res.text());
 
         if (!Array.isArray(data)) return null;
 
@@ -186,7 +187,7 @@ export const ensureIwdp = async ({
     findIwdp: findFn = findIwdp,
     listIwdpDevices: listFn = listIwdpDevices,
     spawnIwdp = defaultSpawnIwdp,
-    log = console.log,
+    log = debugLog.info,
 }: EnsureIwdpOptions = {}): Promise<StartedIwdp | undefined> => {
     if ((await listFn(controlPort)) !== null) {
         debugLog.debug(`already answering on :${controlPort}`);

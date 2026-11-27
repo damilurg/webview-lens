@@ -1,0 +1,18 @@
+{
+    // Node code (CLI, drivers, servers, scripts) and its tests: Node's types, no DOM, so a browser
+    // global in Node code (or a DOM signature where Node's differs, like WebSocket) is a type error.
+    "extends": "./tsconfig.base.json",
+    "compilerOptions": {
+        "composite": true,
+        "tsBuildInfoFile": "./node_modules/.cache/tsc/node.tsbuildinfo",
+        "lib": ["ES2023"],
+        "types": ["node"]
+    },
+    "include": ["src", "test", "examples", "scripts"],
+    "exclude": [
+        "src/rum/index.ts",
+        "src/viewport/index.ts",
+        "test/web",
+        "examples/recipes/keyboard.ts"
+    ]
+}

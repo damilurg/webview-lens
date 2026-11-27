@@ -1,0 +1,12 @@
+{
+    // Browser modules (webview-lens/rum, webview-lens/viewport): the DOM and no Node types, so Buffer,
+    // process or node: imports in code that runs in the page are type errors.
+    "extends": "./tsconfig.base.json",
+    "compilerOptions": {
+        "composite": true,
+        "tsBuildInfoFile": "./node_modules/.cache/tsc/web.tsbuildinfo",
+        "lib": ["ES2023", "DOM", "DOM.Iterable"],
+        "types": []
+    },
+    "include": ["src/rum/index.ts", "src/rum/context.ts", "src/viewport", "src/shared"]
+}
