@@ -10,6 +10,21 @@ npm i -D webview-lens     # Node.js 22.4+; больше ничего не ста
 npx webview-lens init     # создаёт webview-lens.config.json под ваш сборщик (необязательно)
 ```
 
+### ES-модули и TypeScript
+
+Пакет поставляется только как ES-модули, со своими типами для каждой точки входа (`webview-lens`,
+`/rum`, `/rum/server`, `/viewport`); ставить `@types/webview-lens` не нужно, такого пакета нет.
+
+| Ваш проект                                      | Что использовать                                                                                                                    |
+| ----------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| ES-модули (`"type": "module"`, `.mjs`, сборщик) | `import { … } from 'webview-lens'`                                                                                                  |
+| CommonJS на Node 22.12+                         | `require('webview-lens')` работает (Node загружает ES-модули через `require`)                                                       |
+| CommonJS на Node 22.4–22.11                     | `await import('webview-lens')` или Node 22.12+                                                                                      |
+| TypeScript                                      | `"module": "nodenext"` (или `"moduleResolution": "bundler"`); в CommonJS-проекте TypeScript 5.8+, более старые версии выдают TS1479 |
+
+Браузерным точкам входа (`/rum`, `/viewport`) нужны только типы DOM; `/rum/server` тоже обходится
+без `@types/node`. Проверено на опубликованной 0.4.0 со `strict` и без `skipLibCheck`.
+
 ## 2. Сделайте WebView приложения отлаживаемым (тестовые сборки)
 
 | Стек                      | Android                                                     | iOS (16.4+)                                                             |

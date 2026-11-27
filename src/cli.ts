@@ -10,7 +10,11 @@ import { vitals } from './cli/commands/vitals.ts';
 import { buildCliContext, type CliContext, parseCliArgs } from './cli/context.ts';
 import { HELP } from './cli/help.ts';
 import { configureLogging, createLogger, loggingFromEnv } from './node/logger.ts';
+import { fileURLToPath } from 'node:url';
+
+import { str } from './shared/decode.ts';
 import { errorMessage } from './shared/utils.ts';
+import { readPackageJson } from './node/fs-utils.ts';
 import { terminal } from './cli/output.ts';
 
 /** Startup errors (bad flags, bad config) are user errors: one line, no stack trace. */
@@ -35,6 +39,14 @@ const COMMANDS: Readonly<Record<string, (ctx: CliContext) => Promise<void>>> = {
 
 const { values, positionals } = orExit(() => parseCliArgs());
 const [command, ...args] = positionals;
+
+if (values.version) {
+    // The package root: dist/cli.js and src/cli.ts both sit one level below package.json.
+    const version = str(readPackageJson(fileURLToPath(new URL('..', import.meta.url)))?.version);
+
+    terminal.line(version ?? 'unknown');
+    process.exit(version ? 0 : 1);
+}
 
 if (values.help || !command) {
     terminal.line(HELP);

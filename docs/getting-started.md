@@ -10,6 +10,21 @@ npm i -D webview-lens     # Node.js 22.4+; nothing else is installed with it
 npx webview-lens init     # writes webview-lens.config.json for your bundler (optional)
 ```
 
+### ES modules and TypeScript
+
+The package is ES modules only, with its own type declarations for every entry point (`webview-lens`,
+`/rum`, `/rum/server`, `/viewport`); there is no `@types/webview-lens` to install.
+
+| Your project                                       | What to use                                                                                                                      |
+| -------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| ES modules (`"type": "module"`, `.mjs`, a bundler) | `import { … } from 'webview-lens'`                                                                                               |
+| CommonJS on Node 22.12+                            | `require('webview-lens')` works (Node loads ES modules from `require`)                                                           |
+| CommonJS on Node 22.4–22.11                        | `await import('webview-lens')`, or Node 22.12+                                                                                   |
+| TypeScript                                         | `"module": "nodenext"` (or `"moduleResolution": "bundler"`); in a CommonJS project TypeScript 5.8+, older versions report TS1479 |
+
+The browser entry points (`/rum`, `/viewport`) need only the DOM types; `/rum/server` needs no
+`@types/node` either. Checked against the published 0.4.0 with `strict` and without `skipLibCheck`.
+
 ## 2. Make the app's WebView debuggable (test builds)
 
 | Stack                     | Android                                                     | iOS (16.4+)                                                             |

@@ -31,6 +31,27 @@ const runCli = (
 };
 
 describe('Feature: End-to-end CLI contracts and `webview-lens init` onboarding', () => {
+    describe('Scenario: `webview-lens --version` prints the installed version', () => {
+        it('Given the CLI, When invoked with --version or -v (from any directory, with a command too), Then it prints package.json version and exits 0', () => {
+            const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wvl-version-'));
+            const { version } = JSON.parse(
+                fs.readFileSync(path.resolve(import.meta.dirname, '../../package.json'), 'utf8'),
+            );
+
+            try {
+                for (const args of [['--version'], ['-v'], ['dev', '--version']]) {
+                    const res = runCli(args, dir);
+
+                    assert.equal(res.status, 0, args.join(' '));
+                    assert.equal(res.stdout.trim(), version);
+                }
+                assert.match(runCli(['--help'], dir).stdout, /-v, --version/);
+            } finally {
+                fs.rmSync(dir, { recursive: true, force: true });
+            }
+        });
+    });
+
     describe('Scenario: Running `webview-lens --help` lists Android & iOS commands', () => {
         it('Given the CLI entrypoint, When invoked with --help, Then exit code is 0 and all commands are documented', () => {
             const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wvl-cli-help-'));
