@@ -66,7 +66,7 @@ describe('Feature: Cross-platform Chrome DevTools bridge for iOS WKWebView', () 
                         description: 'ReferenceError: missingVar',
                     },
                     exceptionDetails: {
-                        text: 'ReferenceError: missingVar',
+                        text: 'Uncaught',
                         exception: {
                             type: 'object',
                             subtype: 'error',

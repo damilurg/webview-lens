@@ -171,6 +171,11 @@ export {
 } from './drivers/ios/wip-cdp-bridge.ts';
 export { createDefaultDrivers, resolveDriver } from './drivers/registry.ts';
 export {
+    findVisibleTarget,
+    pickVisibleTarget,
+    waitForVisibleTarget,
+} from './drivers/visible-target.ts';
+export {
     type ConnectedDevice,
     type DeviceDriver,
     type DoctorCheck,

@@ -1,6 +1,6 @@
 // iOS implementation of DeviceDriver and InspectorSession over usbmuxd + IWDP + WIP↔CDP bridge.
 
-import { errorMessage, sleep } from '../../../shared/utils.ts';
+import { errorMessage, sleep, withTimeout } from '../../../shared/utils.ts';
 import { type Cdp, type connectCdp } from '../../cdp.ts';
 import { createProtocolInspectorSession } from '../base-session.ts';
 import type {
@@ -83,6 +83,8 @@ export interface IosDriverDeps {
     listIwdpPages?: typeof listIwdpPages;
     connectWip?: typeof connectCdp;
     lanAddresses?: () => string[];
+    /** How long a page may take to answer the first commands. Default: 5 s. */
+    connectTimeoutMs?: number;
 }
 
 const parsePortFromIwdpUrl = (url: string, fallback: number | string): string => {
@@ -102,6 +104,7 @@ export const createIosDriver = (deps: IosDriverDeps = {}): DeviceDriver => {
     const listIwdpPagesFn = deps.listIwdpPages ?? listIwdpPages;
     const connectWipFn = deps.connectWip ?? connectWebKitInspector;
     const lanAddressesFn = deps.lanAddresses ?? detectLanAddresses;
+    const connectTimeoutMs = deps.connectTimeoutMs ?? 5000;
 
     const resolveIwdpDevice = async (
         serial?: string,
@@ -250,9 +253,22 @@ export const createIosDriver = (deps: IosDriverDeps = {}): DeviceDriver => {
             }
 
             const rawWip = await connectWipFn(target.debuggerUrl);
+            const enabled = await withTimeout(
+                (async () => {
+                    await enableIfSupported(rawWip, 'Page.enable');
+                    await enableIfSupported(rawWip, 'Network.enable');
+                })(),
+                connectTimeoutMs,
+            );
 
-            await enableIfSupported(rawWip, 'Page.enable');
-            await enableIfSupported(rawWip, 'Network.enable');
+            // A locked iPhone or a WebView behind another screen has its JavaScript suspended and never answers; an
+            // open socket to it would stay forever (and enough of them jam ios_webkit_debug_proxy).
+            if (enabled.timedOut) {
+                rawWip.close();
+                throw new Error(
+                    `iOS page ${target.url} did not answer in ${connectTimeoutMs / 1000} s: the iPhone locked, a WebView behind another screen, or a busy page`,
+                );
+            }
 
             return createIosInspectorSession(rawWip);
         },

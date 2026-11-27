@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { pickVisibleTarget } from '../src/cli/commands/keyboard.ts';
+import { pickVisibleTarget } from '../src/node/drivers/visible-target.ts';
 import type { InspectableTarget } from '../src/node/drivers/types.ts';
 
 import {

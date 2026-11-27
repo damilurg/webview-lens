@@ -195,6 +195,45 @@ const REGISTRY: Readonly<Record<string, Entry>> = {
             yes('CN=a\rb', { groups: ['a\rb'] }),
         ],
     },
+    [String.raw`node/drivers/ios/wip-cdp-bridge.ts /^\d+$/`]: {
+        purpose: "Chrome DevTools' uniqueContextId that is a WebKit context id (a number)",
+        positive: [yes('4'), yes('12')],
+        negative: [no('4.1'), no('-1'), no('abc-4')],
+        edge: [no(''), no('4\n'), no('٤')],
+    },
+    [String.raw`node/drivers/ios/devtools-bridge.ts /;+$/`]: {
+        purpose: 'trailing semicolons of a Console command, dropped before wrapping it',
+        positive: [yes('a;'), yes('a;;;')],
+        negative: [no('a'), no('a; b')],
+        edge: [no(''), no('a; '), yes(';')],
+    },
+    [String.raw`node/drivers/ios/devtools-bridge.ts /\bawait\b/`]: {
+        purpose: 'a Console command that awaits at the top level',
+        positive: [yes("await fetch('/')"), yes('const r = await f(); r')],
+        negative: [no('fetch("/").then(f)'), no('awaited + 1')],
+        edge: [no('_await()'), yes("'await' in a string"), no('AWAIT x')],
+    },
+    [String.raw`node/drivers/ios/devtools-bridge.ts /^(?:\s+|\/\/.*|\/\*[\s\S]*?\*\/)+/`]: {
+        purpose: "comments and whitespace before the last statement's code",
+        positive: [
+            yes('  x', { groups: [] }),
+            yes('/* a;b */ x', { groups: [] }),
+            yes('// c\nx', { groups: [] }),
+        ],
+        negative: [no('x'), no('a // b')],
+        edge: [no(''), yes('/* multi\nline */x', { groups: [] }), no('/ x')],
+    },
+    [String.raw`node/drivers/ios/devtools-bridge.ts /^(const|let|var|function|class|if|for|while|do|try|switch|throw|return)\b/`]:
+        {
+            purpose: 'a statement that has no value to return',
+            positive: [
+                yes('const x = 1', { groups: ['const'] }),
+                yes('for (;;) {}', { groups: ['for'] }),
+                yes('return 1', { groups: ['return'] }),
+            ],
+            negative: [no('x = 1'), no('await f()'), no('f(const)')],
+            edge: [no('constant'), no('done'), yes('if(x){}', { groups: ['if'] })],
+        },
     [String.raw`node/drivers/ios/devtools-bridge.ts /^[0-9a-f]{40}$/`]: {
         purpose: 'a Chromium DevTools frontend revision (40 hex characters)',
         positive: [yes('0985600c06a688b9c669e74afde7dacd5aaed047')],

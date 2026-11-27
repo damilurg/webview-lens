@@ -220,3 +220,38 @@ describe('Feature: Cross-platform iOS USB Discovery & WKWebView Inspector (macOS
         });
     });
 });
+
+describe('Scenario: a WebView behind another screen never answers (seen on the test iPhone)', () => {
+    it('Given a page socket that never replies, When connectInspector runs, Then it fails in time, names the reason and closes the socket', async () => {
+        let closed = false;
+        const silent: Cdp = {
+            send: () => new Promise(() => undefined),
+            on: () => () => undefined,
+            once: () => new Promise(() => undefined),
+            close: () => {
+                closed = true;
+            },
+            closed: new Promise(() => undefined),
+        };
+        const driver = createIosDriver({
+            platform: 'darwin',
+            connectWip: async () => silent,
+            connectTimeoutMs: 30,
+        });
+        const started = Date.now();
+
+        await assert.rejects(
+            driver.connectInspector({
+                id: 'ios-page-1',
+                platform: 'ios',
+                type: 'page',
+                title: 'Shop',
+                url: 'https://stand.test/',
+                debuggerUrl: 'ws://localhost:9222/devtools/page/1',
+            }),
+            /did not answer in 0\.03 s: the iPhone locked, a WebView behind another screen/,
+        );
+        assert.ok(Date.now() - started < 1000);
+        assert.equal(closed, true);
+    });
+});

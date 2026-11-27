@@ -92,6 +92,16 @@ WebKit lets one inspector attach to a WKWebView page. A second one (Safari Web I
 `webview-lens devtools`, a script with `connectInspector`) takes the page over, and the first one stops
 getting events without an error. Close the other one; run one webview-lens command per page.
 
+When an app keeps an earlier screen with its own WebView alive, the hidden one has its JavaScript
+suspended (the DOM still answers, scripts do not); so does every page while the iPhone is locked.
+`devtools`, `dev --logs` and `keyboard` pick the WebView on screen; a page that does not answer in 5 s
+is reported ("did not answer in 5 s: the iPhone locked, a WebView behind another screen…"). Turn
+Auto-Lock off while debugging.
+
+In the Chrome DevTools Console for an iOS page, top-level `await` works (`await fetch('/')`), and a
+command's value is its last statement's. A statement block last (`for (…) { … } x`) gives
+`undefined`; end it with `; x`.
+
 ## The keyboard covers the input in a WebView
 
 Android with `adjustResize` shrinks the WebView; iOS WKWebView keeps its size and only the visible

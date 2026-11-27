@@ -39,12 +39,26 @@ export const translateCdpToWip = (
         };
     }
     if (method === 'Runtime.evaluate') {
+        // Chrome DevTools names the context by uniqueContextId (a string); WebKit takes contextId.
+        const contextId =
+            typeof params.contextId === 'number'
+                ? params.contextId
+                : typeof params.uniqueContextId === 'string' && /^\d+$/.test(params.uniqueContextId)
+                  ? Number(params.uniqueContextId)
+                  : undefined;
+
         return {
             method: 'Runtime.evaluate',
             params: {
                 expression: params.expression,
                 returnByValue: Boolean(params.returnByValue),
-                objectGroup: 'console',
+                objectGroup:
+                    typeof params.objectGroup === 'string' ? params.objectGroup : 'console',
+                // The Console's own options; without generatePreview an object shows as "Object".
+                ...(params.generatePreview === true ? { generatePreview: true } : {}),
+                ...(params.includeCommandLineAPI === true ? { includeCommandLineAPI: true } : {}),
+                ...(params.silent === true ? { doNotPauseOnExceptionsAndMuteConsole: true } : {}),
+                ...(contextId !== undefined ? { contextId } : {}),
             },
         };
     }
@@ -63,10 +77,9 @@ export const translateWipResultToCdp = (method: string, result: unknown): unknow
     // WebKit reports a throw (or a rejected promise) with `wasThrown`, CDP with `exceptionDetails`.
     if (THROWING_METHODS.has(method) && isRecord(result) && result.wasThrown === true) {
         const exception = isRecord(result.result) ? result.result : undefined;
-        const text =
-            typeof exception?.description === 'string'
-                ? exception.description
-                : 'Uncaught exception';
+        // CDP's text is the prefix ("Uncaught"); DevTools prints the exception's description after
+        // it, so the description here showed every error twice.
+        const text = 'Uncaught';
 
         return {
             result: result.result,
@@ -167,6 +180,35 @@ export const translateWipEventToCdp = (
                 timestamp: toCdpTimestamp(msg.timestamp, now),
                 ...(executionContextId !== undefined ? { executionContextId } : {}),
                 ...(stackTrace ? { stackTrace } : {}),
+            },
+        };
+    }
+
+    // WebKit: { id, type: 'normal' | 'user' | 'internal', name, frameId }. Chrome DevTools creates a
+    // console context only from CDP's shape (uniqueId, auxData.isDefault / frameId); without it the
+    // Console prompt has no context and silently sends nothing (seen on the test iPhone).
+    if (
+        method === 'Runtime.executionContextCreated' &&
+        isRecord(params) &&
+        isRecord(params.context)
+    ) {
+        const { id, type, name, frameId, origin } = params.context;
+        const isDefault = type === 'normal' || params.context.isPageContext === true;
+
+        return {
+            method,
+            params: {
+                context: {
+                    id,
+                    origin: typeof origin === 'string' ? origin : '',
+                    name: typeof name === 'string' ? name : '',
+                    uniqueId: String(id),
+                    auxData: {
+                        isDefault,
+                        type: isDefault ? 'default' : 'isolated',
+                        ...(typeof frameId === 'string' ? { frameId } : {}),
+                    },
+                },
             },
         };
     }

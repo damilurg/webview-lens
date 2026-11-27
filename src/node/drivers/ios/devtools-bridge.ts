@@ -2,7 +2,7 @@
 // Accepts Chrome DevTools WebSocket frames (CDP), translates them to WebKit Inspector Protocol (WIP)
 // for the connected iPhone, and translates responses/events back to CDP.
 
-import { parseJson } from '../../../shared/decode.ts';
+import { parseJson, rec, str } from '../../../shared/decode.ts';
 import { startDevtoolsHttpServer } from '../../devtools-frontend.ts';
 import { frontendPath, type DevtoolsLink } from '../../devtools-link.ts';
 import { decodeRpcMessage } from '../../protocol.ts';
@@ -91,10 +91,88 @@ const INTERNAL_ID_BASE = 1_000_000_000;
 /** Upper bound for bytes buffered from the DevTools client before frames are decoded. */
 const MAX_CLIENT_BUFFER_BYTES = 32 * 1024 * 1024;
 
+/** Comments and whitespace before the last statement's code. */
+const LEADING_COMMENTS = /^(?:\s+|\/\/.*|\/\*[\s\S]*?\*\/)+/;
+const STATEMENT_START = /^(const|let|var|function|class|if|for|while|do|try|switch|throw|return)\b/;
+
+/**
+ * Where the last top-level statement starts (after the last `;` outside strings, comments, template
+ * literals and brackets), or -1 for a single statement.
+ */
+const lastStatementStart = (code: string): number => {
+    let depth = 0;
+    let quote = '';
+    let last = -1;
+
+    for (let i = 0; i < code.length; i += 1) {
+        const ch = code[i];
+
+        if (quote) {
+            if (ch === '\\') i += 1;
+            if (ch === quote) quote = '';
+            continue;
+        }
+        if (ch === '/' && code[i + 1] === '/') {
+            const end = code.indexOf('\n', i);
+
+            i = end === -1 ? code.length : end;
+            continue;
+        }
+        if (ch === '/' && code[i + 1] === '*') {
+            const end = code.indexOf('*/', i + 2);
+
+            i = end === -1 ? code.length : end + 1;
+            continue;
+        }
+        if (ch === '"' || ch === "'" || ch === '`') quote = ch;
+        if (ch === '(' || ch === '[' || ch === '{') depth += 1;
+        if (ch === ')' || ch === ']' || ch === '}') depth -= 1;
+        if (ch === ';' && depth === 0) last = i;
+    }
+
+    return last;
+};
+
+/**
+ * Chrome's Console runs `await fetch(…)` at the top level through `replMode`, which WebKit lacks
+ * (it answered SyntaxError on the test iPhone). Wrapped in an async function, the command becomes a
+ * promise the bridge then awaits; its value is the last statement's, as in Chrome
+ * (`const r = await fetch('/'); r.status` gives the status). Declarations stay local to the command.
+ */
+export const wrapTopLevelAwait = (expression: string): string => {
+    const body = expression.trim().replace(/;+$/, '');
+    const split = lastStatementStart(body);
+    const head = split === -1 ? '' : body.slice(0, split + 1);
+    const tail = body.slice(split + 1).trim();
+
+    const code = tail.replace(LEADING_COMMENTS, '');
+
+    if (!code || STATEMENT_START.test(code)) {
+        return `(async () => { ${body}\n})()`;
+    }
+
+    // On its own lines, so a trailing `// comment` cannot swallow the closing parenthesis.
+    return `(async () => { ${head} return (\n${tail}\n); })()`;
+};
+
+const usesAwait = (expression: unknown): expression is string =>
+    typeof expression === 'string' && /\bawait\b/.test(expression);
+
+export interface IosDevtoolsTranslatorOptions {
+    /** Sends a bridge-originated frame to the page (the await step of a Console command). */
+    sendUpstream?: (rawJson: string) => void;
+}
+
 /** Stateful per-connection WIP ↔ CDP JSON-RPC frame translator. */
-export const createIosDevtoolsTranslator = (): IosDevtoolsTranslator => {
+export const createIosDevtoolsTranslator = ({
+    sendUpstream,
+}: IosDevtoolsTranslatorOptions = {}): IosDevtoolsTranslator => {
     const pendingMethods = new Map<number, string>();
     const internalIds = new Set<number>();
+    /** Console commands sent wrapped, by their client id. */
+    const awaitingPromise = new Set<number>();
+    /** The bridge's Runtime.awaitPromise id → the Console command it answers. */
+    const awaitFor = new Map<number, number>();
     const contexts = createExecutionContextTracker();
     let nextInternalId = INTERNAL_ID_BASE;
 
@@ -122,8 +200,24 @@ export const createIosDevtoolsTranslator = (): IosDevtoolsTranslator => {
             }
 
             if (msg.id !== undefined) pendingMethods.set(msg.id, msg.method);
+            bridgeLog.debug(`DevTools → page ${msg.method}`, { id: msg.id });
 
-            const translated = translateCdpToWip(msg.method, msg.params ?? {});
+            const params = msg.params ?? {};
+            const wrap =
+                sendUpstream !== undefined &&
+                msg.method === 'Runtime.evaluate' &&
+                msg.id !== undefined &&
+                (params.replMode === true || params.awaitPromise === true) &&
+                usesAwait(params.expression);
+
+            if (wrap && msg.id !== undefined) awaitingPromise.add(msg.id);
+
+            const translated = translateCdpToWip(
+                msg.method,
+                wrap && typeof params.expression === 'string'
+                    ? { ...params, expression: wrapTopLevelAwait(params.expression) }
+                    : params,
+            );
 
             return {
                 forward: JSON.stringify({
@@ -138,13 +232,60 @@ export const createIosDevtoolsTranslator = (): IosDevtoolsTranslator => {
 
             if (!msg) return null;
 
+            const awaited = msg.id !== undefined ? awaitFor.get(msg.id) : undefined;
+
+            if (msg.id !== undefined && awaited !== undefined) {
+                awaitFor.delete(msg.id);
+
+                return JSON.stringify(
+                    msg.error !== undefined
+                        ? { id: awaited, error: msg.error }
+                        : {
+                              id: awaited,
+                              result: translateWipResultToCdp('Runtime.awaitPromise', msg.result),
+                          },
+                );
+            }
+
             if (msg.id !== undefined && internalIds.delete(msg.id)) return null;
+
+            // A wrapped Console command answered with its promise: await it, reply when it settles.
+            if (msg.id !== undefined && awaitingPromise.delete(msg.id) && sendUpstream) {
+                const result = rec(msg.result);
+                const promiseObjectId = str(rec(result?.result)?.objectId);
+
+                if (msg.error === undefined && result?.wasThrown !== true && promiseObjectId) {
+                    pendingMethods.delete(msg.id);
+                    nextInternalId += 1;
+                    awaitFor.set(nextInternalId, msg.id);
+                    sendUpstream(
+                        JSON.stringify({
+                            id: nextInternalId,
+                            method: 'Runtime.awaitPromise',
+                            params: {
+                                promiseObjectId,
+                                returnByValue: false,
+                                generatePreview: true,
+                                saveResult: true,
+                            },
+                        }),
+                    );
+
+                    return null;
+                }
+            }
 
             if (msg.id !== undefined) {
                 const originalMethod = pendingMethods.get(msg.id);
 
                 pendingMethods.delete(msg.id);
-                if (msg.error !== undefined) return rawJson;
+                if (msg.error !== undefined) {
+                    bridgeLog.debug(`page → DevTools error for ${originalMethod ?? '?'}`, {
+                        error: msg.error,
+                    });
+
+                    return rawJson;
+                }
 
                 const translatedResult = originalMethod
                     ? translateWipResultToCdp(originalMethod, msg.result)
@@ -155,6 +296,10 @@ export const createIosDevtoolsTranslator = (): IosDevtoolsTranslator => {
 
             if (typeof msg.method === 'string') {
                 contexts.observe(msg.method, msg.params);
+                bridgeLog.debug(
+                    `page event ${msg.method}`,
+                    msg.method.startsWith('Runtime.') ? { params: msg.params } : {},
+                );
 
                 const translated = translateWipEventToCdp(msg.method, msg.params, {
                     executionContextId: contexts.mainContextId,
@@ -220,7 +365,11 @@ export const startIosDevtoolsLink = ({
             }
 
             const upstream = new WebSocket(target.debuggerUrl);
-            const translator = createIosDevtoolsTranslator();
+            const translator = createIosDevtoolsTranslator({
+                sendUpstream: (raw) => {
+                    if (upstream.readyState === WebSocket.OPEN) router.send(raw);
+                },
+            });
             // iOS 12.2+: commands go through WebKit targets (Target.sendMessageToTarget).
             const router = createWebKitTargetRouter({
                 sendUpstream: (raw) => {

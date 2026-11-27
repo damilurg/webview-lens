@@ -6,6 +6,7 @@ import readline from 'node:readline';
 import { createAdbRunner, removeReversePort, reversePort } from '../../node/adb.ts';
 import { waitForOtherPageOnScreen, waitForPage } from '../../node/device.ts';
 import { startDevtoolsLink } from '../../node/devtools-link.ts';
+import { waitForVisibleTarget } from '../../node/drivers/visible-target.ts';
 import { startIosMitmProxy } from '../../node/drivers/ios/mitm-proxy.ts';
 import {
     detectLanAddresses,
@@ -125,7 +126,8 @@ const devIos = async (ctx: CliContext, driver: DeviceDriver, settings: DevSettin
     return runTelemetryLoop({
         streamLogs: true,
         waitTarget: () =>
-            driver.waitForTarget(
+            waitForVisibleTarget(
+                driver,
                 (t) =>
                     t.type === 'page' &&
                     (cfg.match ? t.url.includes(cfg.match) : t.url.startsWith(remoteOrigin)),
