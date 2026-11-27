@@ -2,7 +2,7 @@
 
 All notable changes to `webview-lens` are documented in this file.
 
-## [Unreleased]
+## [0.4.1] - 2026-11-27
 
 ### Fixed
 
@@ -10,6 +10,7 @@ All notable changes to `webview-lens` are documented in this file.
 
 ### Added
 
+- `webview-lens --version` (`-v`) prints the installed version.
 - README and Getting started: the package is ES modules only, with its own types (no `@types/webview-lens`); `require()` from CommonJS on Node 22.12+, TypeScript 5.8+ in a CommonJS project. An invariant keeps top-level `await` out of the package modules, so `require()` keeps working.
 
 ## [0.4.0] - 2026-11-27

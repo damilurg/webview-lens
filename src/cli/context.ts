@@ -28,6 +28,7 @@ export const parseCliArgs = (argv: string[] = process.argv.slice(2)) =>
         allowPositionals: true,
         options: {
             help: { type: 'boolean', short: 'h' },
+            version: { type: 'boolean', short: 'v' },
             config: { type: 'string' },
             force: { type: 'boolean', default: false },
             platform: { type: 'string' },
